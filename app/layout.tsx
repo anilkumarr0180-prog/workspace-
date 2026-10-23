@@ -35,7 +35,9 @@ export default function RootLayout({
             <Navbar />
           </Suspense>
           <main className="flex-1">{children}</main>
-          <Footer />
+          <Suspense fallback={null}>
+            <Footer />
+          </Suspense>
         </MarketplaceProvider>
       </body>
     </html>

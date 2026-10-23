@@ -21,8 +21,18 @@ function getSupabaseEnv() {
   return { url, publishableKey };
 }
 
+let clientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createClient() {
   const { url, publishableKey } = getSupabaseEnv();
 
-  return createBrowserClient(url, publishableKey);
+  if (typeof window === 'undefined') {
+    return createBrowserClient(url, publishableKey);
+  }
+
+  if (!clientInstance) {
+    clientInstance = createBrowserClient(url, publishableKey);
+  }
+
+  return clientInstance;
 }

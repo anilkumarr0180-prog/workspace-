@@ -216,6 +216,19 @@ export async function getJobs(filters: GetJobsFilters = {}): Promise<GetJobsResu
       query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
     }
 
+    // Category filter
+    if (filters.category && filters.category !== 'all') {
+      const { data: catRecord } = await supabase
+        .from('categories')
+        .select('id')
+        .or(`name.eq."${filters.category}",slug.eq."${filters.category}"`)
+        .maybeSingle();
+
+      if (catRecord) {
+        query = query.eq('category_id', catRecord.id);
+      }
+    }
+
     // Project type filter
     if (filters.projectType && filters.projectType !== 'all') {
       query = query.eq('project_type', filters.projectType);
@@ -529,3 +542,105 @@ export async function createJob(input: CreateJobInput): Promise<{
     };
   }
 }
+
+/**
+ * Update the status of a job (e.g., publish, pause/cancel, complete).
+ * Strictly verifies client ownership or company manager authority.
+ */
+export async function updateJobStatus(
+  jobId: string,
+  newStatus: 'published' | 'cancelled' | 'draft' | 'completed'
+): Promise<{
+  success: boolean;
+  job?: Job;
+  error?: string;
+  code?: string;
+}> {
+  const allowedStatuses = ['published', 'cancelled', 'draft', 'completed'];
+  if (!allowedStatuses.includes(newStatus)) {
+    return {
+      success: false,
+      error: `Invalid status "${newStatus}". Must be one of: ${allowedStatuses.join(', ')}`,
+      code: 'INVALID_STATUS',
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return {
+      success: false,
+      error: 'Authentication required to update job status.',
+      code: 'UNAUTHENTICATED',
+    };
+  }
+
+  try {
+    const { data: job, error: fetchError } = await supabase
+      .from('jobs')
+      .select('id, client_id, company_id, status')
+      .eq('id', jobId.trim())
+      .maybeSingle();
+
+    if (fetchError || !job) {
+      return {
+        success: false,
+        error: 'Job not found.',
+        code: 'NOT_FOUND',
+      };
+    }
+
+    let isAuthorized = job.client_id === user.id;
+
+    if (!isAuthorized && job.company_id) {
+      const { data: member } = await supabase
+        .from('company_members')
+        .select('role')
+        .eq('company_id', job.company_id)
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin', 'hiring_manager'])
+        .maybeSingle();
+
+      if (member) isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: 'Unauthorized: You do not have permission to update this job.',
+        code: 'FORBIDDEN',
+      };
+    }
+
+    const { error: updateError } = await supabase
+      .from('jobs')
+      .update({ status: newStatus })
+      .eq('id', jobId.trim());
+
+    if (updateError) {
+      return {
+        success: false,
+        error: `Database error: ${updateError.message}`,
+        code: updateError.code,
+      };
+    }
+
+    const { job: updatedJob } = await getJobById(jobId.trim());
+
+    return {
+      success: true,
+      job: updatedJob || undefined,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An error occurred while updating the job.';
+    return {
+      success: false,
+      error: message,
+    };
+  }
+}
+

@@ -150,7 +150,7 @@ CREATE POLICY company_members_insert
     WITH CHECK (
         EXISTS (
             SELECT 1 FROM public.company_members m
-             WHERE m.company_id = company_id
+             WHERE m.company_id = company_members.company_id
                AND m.user_id = auth.uid()
                AND m.role IN ('owner', 'admin')
         )
@@ -220,7 +220,7 @@ CREATE POLICY jobs_insert
             company_id IS NULL
             OR EXISTS (
                 SELECT 1 FROM public.company_members cm
-                 WHERE cm.company_id = company_id
+                 WHERE cm.company_id = jobs.company_id
                    AND cm.user_id = auth.uid()
                    AND cm.role IN ('owner', 'admin', 'hiring_manager')
             )
@@ -233,6 +233,21 @@ CREATE POLICY jobs_update
     TO authenticated
     USING (
         client_id = auth.uid()
+        OR (
+            company_id IS NOT NULL
+            AND EXISTS (
+                SELECT 1 FROM public.company_members cm
+                 WHERE cm.company_id = jobs.company_id
+                   AND cm.user_id = auth.uid()
+                   AND cm.role IN ('owner', 'admin', 'hiring_manager')
+            )
+        )
+    )
+    WITH CHECK (
+        (
+            company_id IS NULL
+            AND client_id = auth.uid()
+        )
         OR (
             company_id IS NOT NULL
             AND EXISTS (

@@ -1,12 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Freelancer } from '@/lib/types';
 import { useMarketplace } from '@/lib/context/marketplace-context';
 import { X, CheckCircle2, MessageSquare, Send } from 'lucide-react';
 
 interface ContactModalProps {
-  freelancer: Freelancer;
+  freelancer: {
+    username: string;
+    name?: string;
+    fullName?: string;
+    avatarUrl?: string | null;
+    title?: string | null;
+    hourlyRate?: number | null;
+  };
   isOpen: boolean;
   onClose: () => void;
 }
@@ -19,6 +25,16 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
+
+  const displayName = freelancer.name || freelancer.fullName || freelancer.username;
+  const displayTitle = freelancer.title ? freelancer.title.split('|')[0] : 'Specialist';
+  const displayRate = freelancer.hourlyRate ? `$${freelancer.hourlyRate}/hr • ` : '';
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0].toUpperCase())
+    .join('') || freelancer.username.slice(0, 2).toUpperCase();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,15 +52,21 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={freelancer.avatarUrl}
-              alt={freelancer.name}
-              className="w-10 h-10 rounded-full object-cover border border-slate-200"
-            />
+            {freelancer.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={freelancer.avatarUrl}
+                alt={displayName}
+                className="w-10 h-10 rounded-full object-cover border border-slate-200"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs">
+                {initials}
+              </div>
+            )}
             <div>
-              <h3 className="text-base font-bold text-slate-900">Message {freelancer.name}</h3>
-              <p className="text-xs text-slate-500">${freelancer.hourlyRate}/hr • {freelancer.title.split('|')[0]}</p>
+              <h3 className="text-base font-bold text-slate-900">Message {displayName}</h3>
+              <p className="text-xs text-slate-500">{displayRate}{displayTitle}</p>
             </div>
           </div>
           <button
@@ -116,7 +138,7 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
                     setMessage(e.target.value);
                     setError('');
                   }}
-                  placeholder={`Hi ${freelancer.name.split(' ')[0]}, I came across your profile and would love to discuss an upcoming project...`}
+                  placeholder={`Hi ${displayName.split(' ')[0]}, I came across your profile and would love to discuss an upcoming project...`}
                   className="w-full p-3 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-slate-900 resize-none"
                   required
                 />
