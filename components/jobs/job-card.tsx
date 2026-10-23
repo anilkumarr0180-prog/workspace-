@@ -44,7 +44,7 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
   };
 
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-200/90 p-5 sm:p-6 transition-all duration-200 hover:border-emerald-500/60 hover:shadow-md hover:shadow-slate-100 flex flex-col justify-between">
+    <div className="group relative bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 transition-all duration-200 hover:border-[#14a800]/60 hover:shadow-lg hover:shadow-emerald-950/5 flex flex-col justify-between">
       <div>
         {/* Header row: Posted time & Save button */}
         <div className="flex items-center justify-between text-xs text-slate-500 mb-2.5">
@@ -54,7 +54,7 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
               Posted {job.postedAt}
             </span>
             {job.isFeatured && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200/60">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-800 border border-emerald-200/80">
                 Featured
               </span>
             )}
@@ -67,20 +67,20 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
               toggleSaveJob(job.id);
             }}
             type="button"
-            className={`p-1.5 rounded-lg border transition-colors ${
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
               saved
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-600'
+                ? 'bg-emerald-50 border-emerald-300 text-[#14a800]'
                 : 'border-slate-200 text-slate-400 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-50'
             }`}
             title={saved ? 'Remove from saved jobs' : 'Save job'}
             aria-label={saved ? 'Remove from saved' : 'Save job'}
           >
-            <Bookmark className={`w-4 h-4 ${saved ? 'fill-emerald-600' : ''}`} />
+            <Bookmark className={`w-4 h-4 ${saved ? 'fill-[#14a800] text-[#14a800]' : ''}`} />
           </button>
         </div>
 
         {/* Title */}
-        <h3 className="text-lg font-semibold text-slate-900 group-hover:text-emerald-700 transition-colors leading-snug mb-2">
+        <h3 className="text-lg sm:text-[19px] font-bold text-slate-900 group-hover:text-[#14a800] transition-colors leading-snug mb-2">
           <Link href={`/jobs/${job.id}`} className="focus:outline-hidden">
             {job.title}
           </Link>
@@ -89,7 +89,7 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
         {/* Metadata pill row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600 mb-3.5">
           <div className="flex items-center gap-1 font-semibold text-slate-900">
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+            <DollarSign className="w-3.5 h-3.5 text-[#14a800]" />
             <span>{formatBudget()}</span>
             <span className="text-slate-400 font-normal">
               ({job.budget.type === 'fixed' ? 'Fixed price' : 'Hourly'})

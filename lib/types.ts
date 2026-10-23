@@ -133,3 +133,34 @@ export interface FreelancerFilters {
   availability: string;
   sortBy: 'rating' | 'hourly_rate_low' | 'hourly_rate_high' | 'success_score';
 }
+
+export interface TaxonomySkill {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface TaxonomyCategory {
+  id: string;
+  name: string;
+  slug: string;
+  icon?: string | null;
+  skills: TaxonomySkill[];
+  jobCount?: number;
+}
+
+export interface PublicFreelancer {
+  id: string;
+  username: string;
+  fullName: string;
+  avatarUrl?: string | null;
+  title?: string | null;
+  bio?: string | null;
+  hourlyRate?: number | null;
+  rating: number;
+  reviewCount: number;
+  totalEarnings: number;
+  skills: TaxonomySkill[];
+  createdAt: string;
+}
+

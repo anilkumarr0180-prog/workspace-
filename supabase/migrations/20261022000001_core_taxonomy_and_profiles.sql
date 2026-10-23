@@ -3,8 +3,8 @@
 --              freelancer skills, and user signup triggers.
 
 -- 1. Enable Required Extensions
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA extensions;
 
 -- 2. Admin Users Table (Isolated from profiles to eliminate privilege escalation)
 CREATE TABLE IF NOT EXISTS public.admin_users (
@@ -131,6 +131,7 @@ AS $$
 DECLARE
     v_raw_username text;
     v_clean_username text;
+    v_base_25 text;
     v_candidate_username text;
     v_full_name text;
     v_avatar_url text;
@@ -154,9 +155,9 @@ BEGIN
         v_clean_username := v_clean_username || '_';
     END LOOP;
 
-    -- Truncate base to 20 chars to guarantee room for up to 10-char suffixes (<= 30 chars total)
-    v_clean_username := lower(substring(v_clean_username FROM 1 FOR 20));
-    v_candidate_username := v_clean_username;
+    -- Prepare base truncated to 25 chars to guarantee <= 30 chars for all suffixes
+    v_base_25 := lower(substring(v_clean_username FROM 1 FOR 25));
+    v_candidate_username := lower(substring(v_clean_username FROM 1 FOR 30));
 
     LOOP
         BEGIN
@@ -186,7 +187,7 @@ BEGIN
                 GET STACKED DIAGNOSTICS v_diag_constraint = CONSTRAINT_NAME;
 
                 -- If the violation was on profiles_pkey or another index, re-raise immediately
-                IF v_diag_constraint <> 'profiles_username_key' THEN
+                IF v_diag_constraint IS DISTINCT FROM 'profiles_username_key' THEN
                     RAISE;
                 END IF;
 
@@ -199,8 +200,8 @@ BEGIN
 
                 -- Candidate Generation Schedule:
                 IF v_attempt <= 5 THEN
-                    -- Pseudo-random 4 hex chars: length <= 25 chars (strictly <= 30)
-                    v_candidate_username := v_clean_username || '_' || to_hex((floor(random() * 65535))::integer);
+                    -- Pseudo-random 4 hex chars: length <= 25 + 1 + 4 = 30 chars
+                    v_candidate_username := v_base_25 || '_' || to_hex((floor(random() * 65535))::integer);
                 ELSIF v_attempt = 6 THEN
                     -- Deterministic 24-char slice of user UUID: length 26 chars
                     v_candidate_username := 'u_' || substring(replace(NEW.id::text, '-', '') FROM 1 FOR 24);

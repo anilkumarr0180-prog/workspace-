@@ -2,180 +2,38 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useMarketplace } from '@/lib/context/marketplace-context';
-import { CATEGORIES } from '@/lib/mock-data';
-import JobCard from '@/components/jobs/job-card';
-import FreelancerCard from '@/components/freelancers/freelancer-card';
-import {
-  ArrowRight,
-  Sparkles,
-  Briefcase,
-  ChevronRight,
-  Code2,
-  Palette,
-  Smartphone,
-  Cloud
-} from 'lucide-react';
-
+import { ArrowRight } from 'lucide-react';
 import PromoBanner from '@/components/home/promo-banner';
 import UpworkHero from '@/components/home/upwork-hero';
 import TrustedBrands from '@/components/home/trusted-brands';
+import SpecializationCategories from '@/components/home/specialization-categories';
+import FeaturedJobs from '@/components/home/featured-jobs';
+import FeaturedFreelancers from '@/components/home/featured-freelancers';
 
 export default function HomePage() {
-  const { jobs, freelancers } = useMarketplace();
   const [howItWorksTab, setHowItWorksTab] = useState<'clients' | 'freelancers'>('clients');
-
-  const featuredJobs = jobs.filter((j) => j.isFeatured).slice(0, 3);
-  const featuredFreelancers = freelancers.slice(0, 3);
-
-  const getCategoryIcon = (iconName: string) => {
-    switch (iconName) {
-      case 'Code2':
-        return <Code2 className="w-6 h-6 text-emerald-600" />;
-      case 'Sparkles':
-        return <Sparkles className="w-6 h-6 text-emerald-600" />;
-      case 'Palette':
-        return <Palette className="w-6 h-6 text-emerald-600" />;
-      case 'Smartphone':
-        return <Smartphone className="w-6 h-6 text-emerald-600" />;
-      case 'Cloud':
-        return <Cloud className="w-6 h-6 text-emerald-600" />;
-      default:
-        return <Briefcase className="w-6 h-6 text-emerald-600" />;
-    }
-  };
 
   return (
     <div className="space-y-16 pb-20">
       {/* 1. Upwork Hero & Social Proof Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+      <section className="w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 sm:pt-6">
         <PromoBanner />
         <UpworkHero />
         <TrustedBrands />
       </section>
 
-      {/* 2. Popular Categories */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-              Explore by Specialization
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-1">
-              Browse Top Skill Categories
-            </h2>
-          </div>
-          <Link
-            href="/jobs"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 hover:text-emerald-700"
-          >
-            <span>View all open projects</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {CATEGORIES.map((cat) => (
-            <Link
-              key={cat.id}
-              href={`/jobs?category=${encodeURIComponent(cat.name)}`}
-              className="group bg-white rounded-xl border border-slate-200/80 p-6 hover:border-emerald-500/60 hover:shadow-md transition-all duration-200 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    {getCategoryIcon(cat.icon)}
-                  </div>
-                  <span className="text-xs font-medium text-slate-500">
-                    {cat.jobCount.toLocaleString()} open jobs
-                  </span>
-                </div>
-
-                <h3 className="text-lg font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
-                  {cat.name}
-                </h3>
-                <p className="text-xs font-semibold text-emerald-700 mt-1">
-                  Avg: {cat.avgHourlyRate}
-                </p>
-
-                <div className="flex flex-wrap gap-1.5 mt-4">
-                  {cat.popularSkills.slice(0, 4).map((skill) => (
-                    <span
-                      key={skill}
-                      className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-slate-500 group-hover:text-emerald-700">
-                <span>Browse category</span>
-                <ChevronRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
+      {/* 2. Explore by Specialization */}
+      <SpecializationCategories />
 
       {/* 3. Featured Jobs */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-              Verified Opportunities
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-1">
-              Featured Client Projects
-            </h2>
-          </div>
-          <Link
-            href="/jobs"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 hover:text-emerald-700"
-          >
-            <span>See all {jobs.length} jobs</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
+      <FeaturedJobs />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {featuredJobs.map((job) => (
-            <JobCard key={job.id} job={job} compact />
-          ))}
-        </div>
-      </section>
-
-      {/* 4. Featured Freelancers */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-              Top Rated Talent
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-1">
-              Hire Elite Independent Specialists
-            </h2>
-          </div>
-          <Link
-            href="/freelancers"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 hover:text-emerald-700"
-          >
-            <span>Explore all freelancers</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {featuredFreelancers.map((freelancer) => (
-            <FreelancerCard key={freelancer.id} freelancer={freelancer} />
-          ))}
-        </div>
-      </section>
+      {/* 4. Featured Freelancers / Top Rated Talent */}
+      <FeaturedFreelancers />
 
       {/* 5. How It Works Section */}
       <section className="bg-white border-y border-slate-200/80 py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
           <div className="text-center max-w-2xl mx-auto mb-10">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
               Transparent & Secure
@@ -303,7 +161,7 @@ export default function HomePage() {
       </section>
 
       {/* 6. Dual CTA Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Client Card */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 sm:p-10 text-white relative overflow-hidden flex flex-col justify-between">

@@ -7,7 +7,7 @@
 -- ============================================================================
 -- Trigram search for talent search by name or username
 CREATE INDEX IF NOT EXISTS idx_profiles_name_trgm
-    ON public.profiles USING gin (full_name gin_trgm_ops);
+    ON public.profiles USING gin (full_name extensions.gin_trgm_ops);
 
 -- Primary marketplace talent catalog filter
 CREATE INDEX IF NOT EXISTS idx_profiles_talent_rating
@@ -18,7 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_talent_rating
 -- 2. COMPANIES & MEMBERS INDEXES
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_companies_name_trgm
-    ON public.companies USING gin (name gin_trgm_ops);
+    ON public.companies USING gin (name extensions.gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS idx_company_members_user_id
     ON public.company_members (user_id);
@@ -47,10 +47,10 @@ CREATE INDEX IF NOT EXISTS idx_jobs_feed_published
 
 -- Trigram text search for job titles and descriptions
 CREATE INDEX IF NOT EXISTS idx_jobs_title_trgm
-    ON public.jobs USING gin (title gin_trgm_ops);
+    ON public.jobs USING gin (title extensions.gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS idx_jobs_description_trgm
-    ON public.jobs USING gin (description gin_trgm_ops);
+    ON public.jobs USING gin (description extensions.gin_trgm_ops);
 
 -- ============================================================================
 -- 4. PROPOSALS INDEXES
