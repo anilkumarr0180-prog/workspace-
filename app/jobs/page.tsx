@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMarketplace } from '@/lib/context/marketplace-context';
 import { CATEGORIES } from '@/lib/mock-data';
 import JobCard from '@/components/jobs/job-card';
+import Link from 'next/link';
 import {
   Search,
   Filter,
@@ -12,7 +13,8 @@ import {
   SlidersHorizontal,
   Briefcase,
   ArrowUpDown,
-  RotateCcw
+  RotateCcw,
+  PlusCircle
 } from 'lucide-react';
 
 function JobsContent() {
@@ -34,6 +36,7 @@ function JobsContent() {
   // Real API state
   const [apiJobs, setApiJobs] = useState<typeof contextJobs | null>(null);
   const [apiSource, setApiSource] = useState<'supabase' | 'fallback' | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch from the real API when filter criteria change
   React.useEffect(() => {
@@ -57,6 +60,9 @@ function JobsContent() {
       })
       .catch(() => {
         // Fallback to client state on network error
+      })
+      .finally(() => {
+        if (!isCancelled) setLoading(false);
       });
 
     return () => {
@@ -66,11 +72,13 @@ function JobsContent() {
 
   // Merge any locally added custom jobs with the fetched list
   const baseJobs = useMemo(() => {
-    if (!apiJobs) return contextJobs;
-    // Prepend any custom demo jobs created in this browser session that aren't yet in the API response
-    const apiIds = new Set(apiJobs.map((j) => j.id));
-    const localCustomOnly = contextJobs.filter((j) => j.client.id === 'cli-user' && !apiIds.has(j.id));
-    return [...localCustomOnly, ...apiJobs];
+    if (apiJobs !== null) {
+      // Prepend any custom demo jobs created in this browser session that aren't yet in the API response
+      const apiIds = new Set(apiJobs.map((j) => j.id));
+      const localCustomOnly = contextJobs.filter((j) => j.client.id === 'cli-user' && !apiIds.has(j.id));
+      return [...localCustomOnly, ...apiJobs];
+    }
+    return contextJobs;
   }, [apiJobs, contextJobs]);
 
   // In-memory filter and sort computation over the resolved jobs
@@ -393,7 +401,12 @@ function JobsContent() {
             )}
           </div>
 
-          {filteredJobs.length > 0 ? (
+          {loading ? (
+            <div className="py-20 text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-500 font-medium">Loading opportunities from database...</p>
+            </div>
+          ) : filteredJobs.length > 0 ? (
             <div className="space-y-4">
               {filteredJobs.map((job) => (
                 <JobCard key={job.id} job={job} />
@@ -406,20 +419,34 @@ function JobsContent() {
                 <Briefcase className="w-7 h-7" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-lg font-bold text-slate-900">No matching jobs found</h3>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {hasActiveFilters ? 'No matching jobs found' : 'No open jobs posted yet'}
+                </h3>
                 <p className="text-sm text-slate-500 max-w-md mx-auto">
-                  We couldn&apos;t find any opportunities matching your active filters. Try broadening your search or resetting your filters.
+                  {hasActiveFilters
+                    ? "We couldn't find any opportunities matching your active filters. Try broadening your search or resetting your filters."
+                    : 'There are currently no active published jobs in the marketplace. Check back soon or post a new contract to hire elite freelancers.'}
                 </p>
               </div>
-              <div>
-                <button
-                  onClick={resetFilters}
-                  type="button"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-2xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset All Filters</span>
-                </button>
+              <div className="flex items-center justify-center gap-3">
+                {hasActiveFilters ? (
+                  <button
+                    onClick={resetFilters}
+                    type="button"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset All Filters</span>
+                  </button>
+                ) : (
+                  <Link
+                    href="/client/jobs/new"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-2xs"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Post a Job</span>
+                  </Link>
+                )}
               </div>
             </div>
           )}

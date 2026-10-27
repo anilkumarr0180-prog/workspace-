@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketplace } from '@/lib/context/marketplace-context';
+import { Freelancer } from '@/lib/types';
 import { CATEGORIES } from '@/lib/mock-data';
 import FreelancerCard from '@/components/freelancers/freelancer-card';
 import {
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function FindFreelancersPage() {
-  const { freelancers } = useMarketplace();
+  const { freelancers: contextFreelancers } = useMarketplace();
 
   // Search & filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,9 +28,49 @@ export default function FindFreelancersPage() {
   const [sortBy, setSortBy] = useState<'rating' | 'rate_low' | 'rate_high' | 'success_score'>('rating');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  // Filter computation
+  // Dynamic API state
+  const [apiFreelancers, setApiFreelancers] = useState<Freelancer[] | null>(null);
+  const [apiSource, setApiSource] = useState<'supabase' | 'fallback' | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Fetch real talent dynamically from Supabase API
+  useEffect(() => {
+    let isCancelled = false;
+
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    if (selectedCategory) params.set('category', selectedCategory);
+    if (selectedBadge !== 'all') params.set('badge', selectedBadge);
+    if (minRate && Number(minRate) > 0) params.set('minRate', minRate);
+    if (maxRate && Number(maxRate) > 0) params.set('maxRate', maxRate);
+    if (availability !== 'all') params.set('availability', availability);
+    if (sortBy) params.set('sortBy', sortBy);
+
+    fetch(`/api/freelancers?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isCancelled && data && Array.isArray(data.freelancers)) {
+          setApiFreelancers(data.freelancers);
+          setApiSource(data.source);
+        }
+      })
+      .catch(() => {
+        // Fallback to context
+      })
+      .finally(() => {
+        if (!isCancelled) setLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [searchQuery, selectedCategory, selectedBadge, minRate, maxRate, availability, sortBy]);
+
+  const baseFreelancers = apiFreelancers !== null ? apiFreelancers : contextFreelancers;
+
+  // Filter computation over resolved talent
   const filteredFreelancers = useMemo(() => {
-    return freelancers.filter((f) => {
+    return baseFreelancers.filter((f) => {
       // Query search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -43,7 +84,7 @@ export default function FindFreelancersPage() {
       }
 
       // Category
-      if (selectedCategory && f.primaryCategory !== selectedCategory) {
+      if (selectedCategory && f.primaryCategory !== selectedCategory && !f.skills.some((s) => s.toLowerCase().includes(selectedCategory.toLowerCase()))) {
         return false;
       }
 
@@ -76,10 +117,9 @@ export default function FindFreelancersPage() {
       if (sortBy === 'success_score') {
         return b.jobSuccessScore - a.jobSuccessScore;
       }
-      // default: highest rating
       return b.rating - a.rating;
     });
-  }, [freelancers, searchQuery, selectedCategory, selectedBadge, minRate, maxRate, availability, sortBy]);
+  }, [baseFreelancers, searchQuery, selectedCategory, selectedBadge, minRate, maxRate, availability, sortBy]);
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -104,9 +144,17 @@ export default function FindFreelancersPage() {
       {/* Page Title */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Find Top Independent Talent
-          </h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+              Find Top Independent Talent
+            </h1>
+            {apiSource === 'supabase' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live PostgreSQL Talent
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-500 mt-1">
             Hire pre-vetted senior software engineers, AI architects, and UI/UX designers ready to start.
           </p>
@@ -347,7 +395,12 @@ export default function FindFreelancersPage() {
             )}
           </div>
 
-          {filteredFreelancers.length > 0 ? (
+          {loading ? (
+            <div className="py-20 text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-500 font-medium">Loading verified specialists from database...</p>
+            </div>
+          ) : filteredFreelancers.length > 0 ? (
             <div className="space-y-4">
               {filteredFreelancers.map((freelancer) => (
                 <FreelancerCard key={freelancer.id} freelancer={freelancer} />

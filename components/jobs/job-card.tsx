@@ -11,7 +11,8 @@ import {
   Star,
   Clock,
   DollarSign,
-  Briefcase
+  Briefcase,
+  ArrowRight
 } from 'lucide-react';
 
 interface JobCardProps {
@@ -152,9 +153,20 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
           </div>
         </div>
 
-        <div className="text-right">
-          <span className="font-semibold text-slate-700">{job.proposalCount}</span>{' '}
-          <span className="text-slate-500">{job.proposalCount === 1 ? 'proposal' : 'proposals'}</span>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <span className="font-semibold text-slate-700">{job.proposalCount}</span>{' '}
+            <span className="text-slate-500">{job.proposalCount === 1 ? 'proposal' : 'proposals'}</span>
+          </div>
+
+          <Link
+            href={`/jobs/${job.id}`}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold text-xs transition-colors shrink-0"
+            title={`View job details for "${job.title}"`}
+          >
+            <span>View Job</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </div>
     </div>

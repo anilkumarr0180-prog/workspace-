@@ -1,12 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import JobCard from '@/components/jobs/job-card';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { FreelancerDashboardResult } from '@/lib/actions/freelancer-dashboard';
 import {
-  Sparkles,
   Send,
   Bookmark,
   CheckCircle2,
@@ -18,18 +16,32 @@ import {
   XCircle,
   RefreshCw,
   ExternalLink,
-  Award
+  Award,
+  Layers,
+  ArrowRight,
+  Star,
+  UserCheck,
+  FileCheck2,
+  Building2,
+  Sparkles,
+  Eye
 } from 'lucide-react';
+import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 
 export default function FreelancerDashboardPage() {
   const [dashboardData, setDashboardData] = useState<FreelancerDashboardResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  const [activeProposalTab, setActiveProposalTab] = useState<'all' | 'pending' | 'interviewing' | 'accepted' | 'archived'>('all');
   const [refreshIndex, setRefreshIndex] = useState<number>(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Proposal details view state
+  const [selectedProposalForDetails, setSelectedProposalForDetails] = useState<ProposalRecord | null>(null);
+  const [isProposalDetailsOpen, setIsProposalDetailsOpen] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -87,6 +99,38 @@ export default function FreelancerDashboardPage() {
     setRefreshIndex((prev) => prev + 1);
   }, []);
 
+  // Handle direct navigation to #proposals: smooth scroll and refresh proposal data
+  useEffect(() => {
+    const checkAndFocusProposals = () => {
+      if (typeof window !== 'undefined' && window.location.hash === '#proposals') {
+        const el = document.getElementById('proposals');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+        handleRefresh();
+      }
+    };
+
+    // Run on initial page load if targeted at #proposals
+    checkAndFocusProposals();
+
+    const handleRefreshEvent = () => {
+      const el = document.getElementById('proposals');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+      handleRefresh();
+    };
+
+    window.addEventListener('hashchange', checkAndFocusProposals);
+    window.addEventListener('refresh-freelancer-proposals', handleRefreshEvent);
+
+    return () => {
+      window.removeEventListener('hashchange', checkAndFocusProposals);
+      window.removeEventListener('refresh-freelancer-proposals', handleRefreshEvent);
+    };
+  }, [handleRefresh]);
+
   // Withdraw proposal using genuine PATCH endpoint
   const handleWithdraw = async (proposalId: string) => {
     setUpdatingId(proposalId);
@@ -106,12 +150,28 @@ export default function FreelancerDashboardPage() {
             p.id === proposalId ? { ...p, status: 'withdrawn' as ProposalRecord['status'] } : p
           );
           const activeCount = updated.filter((p) => !['withdrawn', 'rejected'].includes(p.status)).length;
+          const pendingCount = updated.filter((p) => p.status === 'submitted' || p.status === 'under_review').length;
+          const interviewingCount = updated.filter((p) => p.status === 'interviewing').length;
+
           return {
             ...prev,
-            stats: prev.stats ? { ...prev.stats, activeProposals: activeCount } : undefined,
+            stats: prev.stats
+              ? {
+                  ...prev.stats,
+                  activeProposals: activeCount,
+                  pendingProposals: pendingCount,
+                  interviewingProposals: interviewingCount,
+                }
+              : undefined,
             proposals: updated,
           };
         });
+
+        // Sync proposal details modal if currently open for this proposal
+        setSelectedProposalForDetails((prev) =>
+          prev && prev.id === proposalId ? { ...prev, status: 'withdrawn' as ProposalRecord['status'] } : prev
+        );
+
         showToast('Proposal withdrawn successfully.');
       } else {
         showError(data.error || 'Failed to withdraw proposal.');
@@ -164,15 +224,17 @@ export default function FreelancerDashboardPage() {
     }
   };
 
-  const proposals = dashboardData?.proposals || [];
+  const proposals = useMemo(() => dashboardData?.proposals || [], [dashboardData?.proposals]);
   const savedJobs = dashboardData?.savedJobs || [];
   const recommendedJobs = dashboardData?.recommendedJobs || [];
   const recentActivity = dashboardData?.recentActivity || [];
   const stats = dashboardData?.stats || {
     submittedProposals: 0,
+    pendingProposals: 0,
     activeProposals: 0,
     interviewingProposals: 0,
     acceptedProposals: 0,
+    activeContracts: 0,
     actualEarnings: 0,
     rating: 5.0,
     reviewCount: 0,
@@ -180,6 +242,27 @@ export default function FreelancerDashboardPage() {
   const profileCompletion = dashboardData?.profileCompletion ?? 0;
   const profileCompletionTips = dashboardData?.profileCompletionTips || [];
   const profile = dashboardData?.profile;
+
+  // Filter proposals according to active tab
+  const filteredProposals = useMemo(() => {
+    switch (activeProposalTab) {
+      case 'pending':
+        return proposals.filter((p) => p.status === 'submitted' || p.status === 'under_review');
+      case 'interviewing':
+        return proposals.filter((p) => p.status === 'interviewing');
+      case 'accepted':
+        return proposals.filter((p) => p.status === 'accepted');
+      case 'archived':
+        return proposals.filter((p) => p.status === 'withdrawn' || p.status === 'rejected');
+      default:
+        return proposals;
+    }
+  }, [proposals, activeProposalTab]);
+
+  const archivedProposalsCount = useMemo(
+    () => proposals.filter((p) => p.status === 'withdrawn' || p.status === 'rejected').length,
+    [proposals]
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -216,7 +299,7 @@ export default function FreelancerDashboardPage() {
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {profile?.fullName ? `Welcome back, ${profile.fullName}. ` : ''}
-            Track active proposals, monitor verified earnings, and discover recommended opportunities.
+            Track active proposals, monitor verified earnings, and discover genuine opportunities.
           </p>
         </div>
 
@@ -231,11 +314,27 @@ export default function FreelancerDashboardPage() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <Link
+            href="/freelancer/time-tracking"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs transition-colors shadow-2xs"
+            title="Open Hourly Work Diary & Time Tracker"
+          >
+            <Clock className="w-4 h-4 text-emerald-600" />
+            <span>Time Tracker</span>
+          </Link>
+          <Link
             href="/jobs"
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm shadow-emerald-600/20 transition-all"
           >
             <Briefcase className="w-4 h-4" />
             <span>Search New Jobs</span>
+          </Link>
+          <Link
+            href="/client"
+            className="hidden sm:inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors"
+            title="Switch to Client / Employer Control Center"
+          >
+            <Building2 className="w-3.5 h-3.5 text-slate-500" />
+            <span>Employer Mode</span>
           </Link>
         </div>
       </div>
@@ -268,95 +367,156 @@ export default function FreelancerDashboardPage() {
         </div>
       )}
 
-      {/* Overview Metrics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+      {/* Genuine Statistics Cards (Never fabricated) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        {/* Total Submitted */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Active Proposals
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Submitted
             </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Send className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center">
+              <Send className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-2.5">
             {loading ? (
-              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
+              <div className="h-7 w-12 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-                  {stats.activeProposals}
+                <span className="text-2xl font-extrabold text-slate-900">
+                  {stats.submittedProposals}
                 </span>
-                <span className="text-xs text-emerald-600 font-semibold ml-2">Active pipeline</span>
+                <p className="text-[11px] text-slate-400 mt-0.5">Total bids submitted</p>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        {/* Pending & Under Review */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
+              Pending
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <Clock className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            {loading ? (
+              <div className="h-7 w-12 bg-slate-100 animate-pulse rounded" />
+            ) : (
+              <>
+                <span className="text-2xl font-extrabold text-slate-900">
+                  {stats.pendingProposals}
+                </span>
+                <p className="text-[11px] text-amber-600 mt-0.5">Awaiting review</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Interviews */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">
               Interviews
             </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <FileCheck2 className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-2.5">
             {loading ? (
-              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
+              <div className="h-7 w-12 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl font-extrabold text-slate-900">
                   {stats.interviewingProposals}
                 </span>
-                <span className="text-xs text-blue-600 font-semibold ml-2">In progress</span>
+                <p className="text-[11px] text-blue-600 mt-0.5">Active discussions</p>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        {/* Accepted Offers */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Accepted Offers
+            <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
+              Accepted
             </span>
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Award className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Award className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-2.5">
             {loading ? (
-              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
+              <div className="h-7 w-12 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl font-extrabold text-slate-900">
                   {stats.acceptedProposals}
                 </span>
-                <span className="text-xs text-purple-600 font-semibold ml-2">Accepted bids</span>
+                <p className="text-[11px] text-purple-600 mt-0.5">Client accepted</p>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        {/* Active Contracts */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Verified Earnings
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+              Contracts
             </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Layers className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-2.5">
             {loading ? (
-              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
+              <div className="h-7 w-12 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl font-extrabold text-slate-900">
+                  {stats.activeContracts}
+                </span>
+                <div className="flex items-center justify-between mt-0.5">
+                  <p className="text-[11px] text-emerald-600">Active projects</p>
+                  <Link
+                    href="/freelancer/time-tracking"
+                    className="text-[11px] font-semibold text-emerald-700 hover:underline flex items-center gap-0.5"
+                  >
+                    <span>Track time</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Verified Actual Earnings */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+              Earnings
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <DollarSign className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            {loading ? (
+              <div className="h-7 w-16 bg-slate-100 animate-pulse rounded" />
+            ) : (
+              <>
+                <span className="text-2xl font-extrabold text-slate-900">
                   ${stats.actualEarnings.toLocaleString()}
                 </span>
-                <span className="text-xs text-slate-400 font-medium ml-2">Platform total</span>
+                <p className="text-[11px] text-slate-400 mt-0.5">Verified payments</p>
               </>
             )}
           </div>
@@ -367,34 +527,94 @@ export default function FreelancerDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {/* Left Column (2 cols) */}
         <div className="lg:col-span-2 space-y-8">
-          {/* Active Proposals Section */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+          {/* Submitted Proposals Section */}
+          <div id="proposals" className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden scroll-mt-24">
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Send className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-base font-bold text-slate-900">Submitted Proposals</h2>
+                <h2 className="text-base font-bold text-slate-900">Your Proposals</h2>
                 <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
                   {proposals.length}
                 </span>
               </div>
-              <Link href="/jobs" className="text-xs font-semibold text-emerald-600 hover:underline">
-                Find more jobs
-              </Link>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setActiveProposalTab('all')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    activeProposalTab === 'all'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  All ({proposals.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProposalTab('pending')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    activeProposalTab === 'pending'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Pending ({stats.pendingProposals})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProposalTab('interviewing')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    activeProposalTab === 'interviewing'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Interviews ({stats.interviewingProposals})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProposalTab('accepted')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    activeProposalTab === 'accepted'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Accepted ({stats.acceptedProposals})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProposalTab('archived')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    activeProposalTab === 'archived'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Archived ({archivedProposalsCount})
+                </button>
+              </div>
             </div>
 
             {loading ? (
               <div className="p-10 text-center space-y-3">
                 <div className="w-7 h-7 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs text-slate-500">Retrieving active proposals...</p>
+                <p className="text-xs text-slate-500">Retrieving proposal records from Supabase...</p>
               </div>
-            ) : proposals.length === 0 ? (
+            ) : filteredProposals.length === 0 ? (
               <div className="p-10 text-center space-y-3">
                 <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
                   <Send className="w-6 h-6" />
                 </div>
-                <h3 className="text-sm font-bold text-slate-900">No Proposals Submitted Yet</h3>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {proposals.length === 0 ? 'No Proposals Submitted Yet' : 'No Proposals in This Status'}
+                </h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Submit customized bids to open projects matching your technical expertise.
+                  {proposals.length === 0
+                    ? 'Search for active projects matching your technical stack and submit tailored bids.'
+                    : 'Switch tabs above to view other proposals in your pipeline.'}
                 </p>
                 <div className="pt-2">
                   <Link
@@ -407,7 +627,7 @@ export default function FreelancerDashboardPage() {
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {proposals.map((prop) => {
+                {filteredProposals.map((prop) => {
                   const canWithdraw = ['submitted', 'under_review', 'interviewing'].includes(prop.status);
                   const isUpdating = updatingId === prop.id;
 
@@ -438,12 +658,22 @@ export default function FreelancerDashboardPage() {
                         </div>
                       </div>
 
-                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed italic bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                        &ldquo;{prop.coverLetter}&rdquo;
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProposalForDetails(prop);
+                          setIsProposalDetailsOpen(true);
+                        }}
+                        className="w-full text-left group cursor-pointer"
+                        title="Click to view full proposal and cover letter"
+                      >
+                        <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed italic bg-slate-50 p-2.5 rounded-lg border border-slate-100 group-hover:bg-emerald-50/50 group-hover:border-emerald-200 transition-colors">
+                          &ldquo;{prop.coverLetter}&rdquo;
+                        </p>
+                      </button>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 pt-1">
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 flex-wrap">
                           <span>
                             Your Bid:{' '}
                             <strong className="text-slate-800">
@@ -451,18 +681,34 @@ export default function FreelancerDashboardPage() {
                             </strong>
                           </span>
                           <span>•</span>
-                          <span>Timeline: {prop.deliveryDays ?? 'Flexible'} days</span>
+                          <span>Timeline: <strong>{prop.deliveryDays ?? 'Flexible'} days</strong></span>
                           <span>•</span>
-                          <span>Submitted: {prop.createdAt ? prop.createdAt.split('T')[0] : 'Recent'}</span>
+                          <span>
+                            Submitted:{' '}
+                            <strong>{prop.createdAt ? new Date(prop.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}</strong>
+                          </span>
                         </div>
 
-                        <Link
-                          href={`/jobs/${prop.jobId}`}
-                          className="text-xs font-semibold text-emerald-600 hover:underline flex items-center gap-1"
-                        >
-                          <span>View Project Details</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedProposalForDetails(prop);
+                              setIsProposalDetailsOpen(true);
+                            }}
+                            className="text-xs font-semibold text-slate-700 hover:text-emerald-700 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>View Proposal</span>
+                          </button>
+                          <Link
+                            href={`/jobs/${prop.jobId}`}
+                            className="text-xs font-semibold text-emerald-600 hover:underline flex items-center gap-1"
+                          >
+                            <span>View Job Details</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   );
@@ -471,7 +717,7 @@ export default function FreelancerDashboardPage() {
             )}
           </div>
 
-          {/* Recommended Opportunities */}
+          {/* Recommended Opportunities (Genuine Database Jobs Only) */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -486,33 +732,113 @@ export default function FreelancerDashboardPage() {
             {loading ? (
               <div className="p-8 text-center space-y-2">
                 <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs text-slate-500">Finding recommended matches...</p>
+                <p className="text-xs text-slate-500">Searching genuine published listings...</p>
               </div>
             ) : recommendedJobs.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
                 <Briefcase className="w-8 h-8 text-slate-300 mx-auto" />
                 <p className="text-xs font-semibold text-slate-700">No Open Projects Available Right Now</p>
                 <p className="text-[11px] text-slate-400">
-                  Check back soon as employers post new requirements across specialized categories.
+                  Check back soon as clients post new verified contracts across your specialty areas.
                 </p>
+                <div className="pt-2">
+                  <Link
+                    href="/jobs"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-colors"
+                  >
+                    View All Marketplace Jobs
+                  </Link>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
                 {recommendedJobs.map((recJob) => (
-                  <JobCard key={recJob.id} job={recJob} />
+                  <div
+                    key={recJob.id}
+                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:border-emerald-300 hover:shadow-sm transition-all space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                          <span className="font-semibold text-emerald-700">{recJob.category}</span>
+                          <span>•</span>
+                          <span>Posted {recJob.postedAt}</span>
+                          {recJob.isFeatured && (
+                            <>
+                              <span>•</span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                Featured
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <h3 className="font-bold text-base text-slate-900 hover:text-emerald-700 transition-colors">
+                          <Link href={`/jobs/${recJob.id}`}>{recJob.title}</Link>
+                        </h3>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-base font-extrabold text-slate-900 block">
+                          {recJob.budget.type === 'fixed'
+                            ? `$${recJob.budget.fixedAmount?.toLocaleString()}`
+                            : `$${recJob.budget.hourlyMin}-$${recJob.budget.hourlyMax}/hr`}
+                        </span>
+                        <span className="text-[11px] text-slate-500 capitalize">{recJob.projectType} price</span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                      {recJob.description}
+                    </p>
+
+                    {recJob.skills && recJob.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {recJob.skills.map((skill) => (
+                          <span
+                            key={skill}
+                            className="px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <span>{recJob.client.name}</span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-slate-600">
+                          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          <span>{recJob.client.rating.toFixed(1)}</span>
+                        </span>
+                        <span>•</span>
+                        <span>{recJob.client.location}</span>
+                      </div>
+
+                      <Link
+                        href={`/jobs/${recJob.id}`}
+                        className="inline-flex items-center gap-1 font-semibold text-emerald-600 hover:text-emerald-800 transition-colors"
+                      >
+                        <span>Apply Now</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Sidebar: Profile Completion & Activity */}
+        {/* Right Sidebar: Profile Completion, Saved Jobs, Activity */}
         <div className="space-y-6">
-          {/* Profile Completion Meter */}
+          {/* Profile Strength & Verification */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                Profile Strength
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Profile Strength</span>
               </span>
               <span className="text-xs font-extrabold text-emerald-600">
                 {profileCompletion}%
@@ -597,7 +923,7 @@ export default function FreelancerDashboardPage() {
             )}
           </div>
 
-          {/* Recent Activity Timeline */}
+          {/* Genuine Recent Activity Timeline */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
             <div className="flex items-center gap-2 font-bold text-sm text-slate-900 pb-2 border-b border-slate-100">
               <Clock className="w-4 h-4 text-emerald-600" />
@@ -610,13 +936,13 @@ export default function FreelancerDashboardPage() {
                 <div className="h-3 bg-slate-100 rounded animate-pulse w-1/2" />
               </div>
             ) : recentActivity.length === 0 ? (
-              <p className="text-xs text-slate-400 py-2">
-                No recent activity yet. When you submit proposals or bookmark listings, your activity timeline will show up here.
+              <p className="text-xs text-slate-400 py-2 leading-relaxed">
+                No recent activity yet. When you submit proposals or bookmark listings, your genuine activity timeline will appear here.
               </p>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {recentActivity.map((item) => (
-                  <div key={item.id} className="text-xs space-y-1">
+                  <div key={item.id} className="text-xs space-y-0.5">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-900">{item.title}</span>
                       <span className="text-[11px] text-slate-400">{item.timestamp}</span>
@@ -641,18 +967,40 @@ export default function FreelancerDashboardPage() {
             </span>
             <div className="space-y-1.5 pt-1">
               <Link href="/jobs" className="block text-slate-700 hover:text-emerald-700 font-medium">
-                • Browse All Contracts
-              </Link>
-              <Link href="/freelancers" className="block text-slate-700 hover:text-emerald-700 font-medium">
-                • Explore Peers & Specialists
+                • Browse All Project Listings
               </Link>
               <Link href="/saved" className="block text-slate-700 hover:text-emerald-700 font-medium">
                 • Manage Bookmarked Listings
+              </Link>
+              {profile?.username && (
+                <Link href={`/freelancers/${profile.username}`} className="block text-slate-700 hover:text-emerald-700 font-medium">
+                  • View Public Freelancer Profile
+                </Link>
+              )}
+              <Link href="/freelancers" className="block text-slate-700 hover:text-emerald-700 font-medium">
+                • Explore Peers & Specialists Directory
+              </Link>
+              <Link href="/client" className="block text-slate-700 hover:text-emerald-700 font-medium">
+                • Switch to Client / Employer Mode
               </Link>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Freelancer Proposal Details Modal */}
+      {selectedProposalForDetails && (
+        <ProposalDetailsModal
+          proposal={selectedProposalForDetails}
+          isOpen={isProposalDetailsOpen}
+          onClose={() => {
+            setIsProposalDetailsOpen(false);
+            setSelectedProposalForDetails(null);
+          }}
+          mode="freelancer"
+          onWithdraw={handleWithdraw}
+        />
+      )}
     </div>
   );
 }

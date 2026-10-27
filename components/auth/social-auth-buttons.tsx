@@ -6,11 +6,13 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 
 interface SocialAuthButtonsProps {
   labelPrefix?: 'Continue with' | 'Sign up with';
+  role?: 'client' | 'freelancer';
   className?: string;
 }
 
 export default function SocialAuthButtons({
   labelPrefix = 'Continue with',
+  role,
   className = '',
 }: SocialAuthButtonsProps) {
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'apple' | null>(null);
@@ -23,11 +25,14 @@ export default function SocialAuthButtons({
     try {
       const supabase = createClient();
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectUrl = role
+        ? `${origin}/api/auth/callback?role=${encodeURIComponent(role)}`
+        : `${origin}/api/auth/callback`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${origin}/api/auth/callback`,
+          redirectTo: redirectUrl,
         },
       });
 

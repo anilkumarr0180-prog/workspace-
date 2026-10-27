@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/server';
 import { TaxonomyCategory, TaxonomySkill } from '@/lib/types';
 
 interface DbSkillRow {

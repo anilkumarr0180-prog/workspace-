@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMarketplace } from '@/lib/context/marketplace-context';
 import ProposalModal from '@/components/jobs/proposal-modal';
 import JobCard from '@/components/jobs/job-card';
+import { createClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
 import {
   Bookmark,
   CheckCircle2,
@@ -30,6 +32,25 @@ function JobDetailContent() {
   const { jobs, isJobSaved, toggleSaveJob, hasAppliedToJob } = useMarketplace();
   const [isProposalOpen, setIsProposalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Load current authenticated user to verify ownership
+  useEffect(() => {
+    let isMounted = true;
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then((res: { data: { user: User | null } }) => {
+        if (isMounted && res.data?.user) {
+          setCurrentUser(res.data.user);
+        }
+      });
+    } catch {
+      // Ignore in offline/mock mode
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Local job lookup
   const localJob = jobs.find((j) => j.id === jobId);
@@ -37,7 +58,7 @@ function JobDetailContent() {
   const [loading, setLoading] = useState<boolean>(!localJob);
 
   // Fetch job details from the real API
-  React.useEffect(() => {
+  useEffect(() => {
     if (!jobId) return;
     let isCancelled = false;
 
@@ -99,6 +120,7 @@ function JobDetailContent() {
 
   const saved = isJobSaved(job.id);
   const applied = hasAppliedToJob(job.id);
+  const isJobOwner = Boolean(currentUser && job.client?.id && currentUser.id === job.client.id);
 
   // Related jobs in the same category
   const relatedJobs = jobs
@@ -316,18 +338,36 @@ function JobDetailContent() {
         <div className="space-y-6">
           {/* Action Box */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
-            <button
-              onClick={() => setIsProposalOpen(true)}
-              type="button"
-              className={`w-full py-3.5 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
-                applied
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:shadow-md'
-              }`}
-            >
-              <Send className="w-4 h-4" />
-              <span>{applied ? 'Proposal Submitted (View)' : 'Apply Now'}</span>
-            </button>
+            {isJobOwner ? (
+              <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-2.5">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>You posted this job</span>
+                </div>
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  As the client and project creator, you cannot submit proposals to your own listing. Manage candidate submissions from your Client Dashboard.
+                </p>
+                <Link
+                  href="/client"
+                  className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+                >
+                  Manage in Client Dashboard
+                </Link>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsProposalOpen(true)}
+                type="button"
+                className={`w-full py-3.5 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
+                  applied
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:shadow-md'
+                }`}
+              >
+                <Send className="w-4 h-4" />
+                <span>{applied ? 'Proposal Submitted (View)' : 'Apply Now'}</span>
+              </button>
+            )}
 
             <button
               onClick={() => toggleSaveJob(job.id)}
@@ -423,11 +463,13 @@ function JobDetailContent() {
       </div>
 
       {/* Interactive Proposal Modal */}
-      <ProposalModal
-        job={job}
-        isOpen={isProposalOpen}
-        onClose={() => setIsProposalOpen(false)}
-      />
+      {!isJobOwner && (
+        <ProposalModal
+          job={job}
+          isOpen={isProposalOpen}
+          onClose={() => setIsProposalOpen(false)}
+        />
+      )}
     </div>
   );
 }

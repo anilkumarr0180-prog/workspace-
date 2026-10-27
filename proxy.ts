@@ -59,17 +59,17 @@ export async function proxy(request: NextRequest) {
 
   // 2. Authenticated role-based access control
   if (user) {
-    let role = user.user_metadata?.role;
+    // Authoritative role derives from public.profiles.active_mode in the database
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('active_mode, can_hire, can_work')
+      .eq('id', user.id)
+      .maybeSingle();
 
-    if (!role || (role !== 'client' && role !== 'freelancer')) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('active_mode')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      role = profile?.active_mode || 'freelancer';
-    }
+    const role =
+      profile?.active_mode ||
+      (user.user_metadata?.role as 'client' | 'freelancer') ||
+      'freelancer';
 
     // Authenticated Freelancer attempting to access Client-only routes
     if (role === 'freelancer' && isClientRoute) {
