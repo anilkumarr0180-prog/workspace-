@@ -1,16 +1,16 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { Job, ProjectType } from '@/lib/types';
+import { Job, ProjectType, ExperienceLevel, ProjectDuration, ClientInfo } from '@/lib/types';
 import { ProposalRecord } from '@/lib/actions/proposals';
-import { getSavedJobs } from '@/lib/actions/saved-jobs';
-import { getJobs } from '@/lib/actions/jobs';
 
 export interface FreelancerDashboardStats {
   submittedProposals: number;
+  pendingProposals: number;
   activeProposals: number;
   interviewingProposals: number;
   acceptedProposals: number;
+  activeContracts: number;
   actualEarnings: number;
   rating: number;
   reviewCount: number;
@@ -22,7 +22,7 @@ export interface FreelancerDashboardActivity {
   description: string;
   timestamp: string;
   link?: string;
-  type: 'proposal_submitted' | 'proposal_interviewing' | 'proposal_accepted' | 'job_saved';
+  type: 'proposal_submitted' | 'proposal_interviewing' | 'proposal_accepted' | 'proposal_withdrawn' | 'proposal_rejected' | 'job_saved';
 }
 
 export interface FreelancerProfileSummary {
@@ -88,9 +88,122 @@ interface FreelancerSkillJoin {
   } | null;
 }
 
+interface SupabaseRawJob {
+  id: string;
+  client_id: string;
+  company_id?: string | null;
+  category_id?: string | null;
+  title: string;
+  description: string;
+  project_type: string;
+  budget_min?: number | null;
+  budget_max?: number | null;
+  experience_level: string;
+  duration: string;
+  status: string;
+  proposals_count?: number | null;
+  is_featured?: boolean | null;
+  created_at: string;
+  profiles?: {
+    id?: string;
+    full_name?: string | null;
+    avatar_url?: string | null;
+    rating?: number | null;
+    review_count?: number | null;
+    total_spent?: number | null;
+    created_at?: string | null;
+  } | Array<{
+    id?: string;
+    full_name?: string | null;
+    avatar_url?: string | null;
+    rating?: number | null;
+    review_count?: number | null;
+    total_spent?: number | null;
+    created_at?: string | null;
+  }> | null;
+  companies?: {
+    id?: string;
+    name?: string | null;
+    location?: string | null;
+  } | Array<{
+    id?: string;
+    name?: string | null;
+    location?: string | null;
+  }> | null;
+  categories?: {
+    id?: string;
+    name?: string | null;
+    slug?: string | null;
+  } | Array<{
+    id?: string;
+    name?: string | null;
+    slug?: string | null;
+  }> | null;
+  job_skills?: Array<{
+    skills?: {
+      id?: string;
+      name?: string | null;
+      slug?: string | null;
+    } | null;
+  }> | null;
+}
+
+function mapSupabaseJob(row: SupabaseRawJob): Job {
+  const profileRaw = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  const companyRaw = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+  const categoryRaw = Array.isArray(row.categories) ? row.categories[0] : row.categories;
+
+  const skillsList: string[] = Array.isArray(row.job_skills)
+    ? row.job_skills
+        .map((js) => js.skills?.name)
+        .filter((name): name is string => Boolean(name))
+    : [];
+
+  const clientInfo: ClientInfo = {
+    id: row.client_id,
+    name: profileRaw?.full_name || 'Verified Client',
+    companyName: companyRaw?.name || undefined,
+    location: companyRaw?.location || 'Remote / Worldwide',
+    rating: profileRaw?.rating ? Number(profileRaw.rating) : 5.0,
+    reviewCount: profileRaw?.review_count ? Number(profileRaw.review_count) : 0,
+    totalSpent: profileRaw?.total_spent ? Number(profileRaw.total_spent) : 0,
+    paymentVerified: true,
+    memberSince: profileRaw?.created_at
+      ? new Date(profileRaw.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : 'Active Client',
+    hireRate: 90,
+    openJobsCount: 1,
+  };
+
+  const projectType = row.project_type as ProjectType;
+
+  return {
+    id: row.id,
+    title: row.title,
+    category: categoryRaw?.name || 'General',
+    description: row.description,
+    projectType,
+    budget: {
+      type: projectType,
+      fixedAmount: projectType === 'fixed' ? Number(row.budget_min) : undefined,
+      hourlyMin: projectType === 'hourly' ? Number(row.budget_min) : undefined,
+      hourlyMax: projectType === 'hourly' ? Number(row.budget_max) : undefined,
+    },
+    experienceLevel: row.experience_level as ExperienceLevel,
+    duration: row.duration as ProjectDuration,
+    skills: skillsList,
+    client: clientInfo,
+    postedAt: row.created_at
+      ? new Date(row.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : 'Recently',
+    proposalCount: Number(row.proposals_count) || 0,
+    isFeatured: Boolean(row.is_featured),
+  };
+}
+
 /**
  * Fetch the authenticated freelancer's comprehensive dashboard data strictly from Supabase.
- * Respects RLS and queries only user-authorized records.
+ * Respects RLS and queries only user-authorized records without mock fallbacks.
  */
 export async function getFreelancerDashboardData(): Promise<FreelancerDashboardResult> {
   const supabase = await createClient();
@@ -152,7 +265,6 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
           .filter((name): name is string => Boolean(name))
       : [];
 
-
     const profile: FreelancerProfileSummary = {
       id: user.id,
       username: profileRow?.username || 'freelancer',
@@ -201,8 +313,10 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
         id: row.id,
         jobId: row.job_id,
         jobTitle: jobObj?.title || 'Project Application',
+        jobStatus: jobObj?.status || 'published',
         freelancerId: row.freelancer_id,
         freelancerName: profile.fullName,
+        freelancerUsername: profile.username || undefined,
         freelancerAvatar: profile.avatarUrl || undefined,
         bidAmount: Number(row.bid_amount),
         rateType: row.rate_type as ProjectType,
@@ -214,26 +328,117 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       };
     });
 
-    // 3. Fetch Genuine Saved Jobs
-    const savedJobsResult = await getSavedJobs();
-    const savedJobs: Job[] = savedJobsResult.savedJobs || [];
+    // 3. Fetch Genuine Saved Jobs strictly from database
+    const { data: rawSavedRows } = await supabase
+      .from('saved_jobs')
+      .select(`
+        job_id,
+        created_at,
+        jobs (
+          id,
+          client_id,
+          company_id,
+          category_id,
+          title,
+          description,
+          project_type,
+          budget_min,
+          budget_max,
+          experience_level,
+          duration,
+          status,
+          proposals_count,
+          is_featured,
+          created_at,
+          profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at),
+          companies (id, name, location),
+          categories (id, name, slug),
+          job_skills (skills (id, name, slug))
+        )
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-    // 4. Fetch Recommended Published Jobs from Database
-    const jobsResult = await getJobs({ limit: 3, sortBy: 'newest' });
-    const recommendedJobs: Job[] = jobsResult.jobs || [];
+    interface SavedRowItem {
+      job_id: string;
+      created_at: string;
+      jobs: SupabaseRawJob | SupabaseRawJob[] | null;
+    }
+
+    const savedJobs: Job[] = [];
+    const savedJobTimestamps = new Map<string, string>();
+
+    for (const sRow of (rawSavedRows as unknown as SavedRowItem[]) || []) {
+      const jobObj = Array.isArray(sRow.jobs) ? sRow.jobs[0] : sRow.jobs;
+      if (jobObj && jobObj.id) {
+        savedJobs.push(mapSupabaseJob(jobObj));
+        savedJobTimestamps.set(jobObj.id, sRow.created_at);
+      }
+    }
+
+    // 4. Fetch Recommended Published Jobs directly from Supabase (Never mock marketplace data)
+    // Exclude jobs the freelancer already applied to
+    const appliedJobIds = new Set(proposals.map((p) => p.jobId));
+
+    let recommendedJobs: Job[] = [];
+    const { data: rawRecommendedRows } = await supabase
+      .from('jobs')
+      .select(`
+        id,
+        client_id,
+        company_id,
+        category_id,
+        title,
+        description,
+        project_type,
+        budget_min,
+        budget_max,
+        experience_level,
+        duration,
+        status,
+        proposals_count,
+        is_featured,
+        created_at,
+        profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at),
+        companies (id, name, location),
+        categories (id, name, slug),
+        job_skills (skills (id, name, slug))
+      `)
+      .eq('status', 'published')
+      .neq('client_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (rawRecommendedRows && rawRecommendedRows.length > 0) {
+      recommendedJobs = (rawRecommendedRows as unknown as SupabaseRawJob[])
+        .filter((j) => !appliedJobIds.has(j.id))
+        .slice(0, 3)
+        .map(mapSupabaseJob);
+    }
 
     // 5. Calculate Genuine Statistics
     const submittedProposals = proposals.length;
-    const activeProposals = proposals.filter((p) => !['withdrawn', 'rejected'].includes(p.status)).length;
+    const pendingProposals = proposals.filter((p) => p.status === 'submitted' || p.status === 'under_review').length;
     const interviewingProposals = proposals.filter((p) => p.status === 'interviewing').length;
     const acceptedProposals = proposals.filter((p) => p.status === 'accepted').length;
+    const activeProposals = proposals.filter((p) => !['withdrawn', 'rejected'].includes(p.status)).length;
+    
+    // Active contracts: genuine accepted bids on currently active or in-progress jobs
+    const activeContracts = proposals.filter(
+      (p) => p.status === 'accepted' && (p.jobStatus === 'in_progress' || p.jobStatus === 'published')
+    ).length;
+
+    // Actual verified earnings strictly from database billing engine records (profiles.total_earnings)
+    // We never treat accepted bids as completed earnings without verified payment records
     const actualEarnings = profile.totalEarnings;
 
     const stats: FreelancerDashboardStats = {
       submittedProposals,
+      pendingProposals,
       activeProposals,
       interviewingProposals,
       acceptedProposals,
+      activeContracts,
       actualEarnings,
       rating: profile.rating,
       reviewCount: profile.reviewCount,
@@ -246,6 +451,7 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       { key: 'bio', value: Boolean(profile.bio && profile.bio.trim().length >= 20), tip: 'Write a bio highlighting your experience' },
       { key: 'rate', value: Boolean(profile.hourlyRate && profile.hourlyRate > 0), tip: 'Set your target hourly rate' },
       { key: 'skills', value: Boolean(profile.skills.length > 0), tip: 'Add technical skills to your profile' },
+      { key: 'avatar', value: Boolean(profile.avatarUrl && profile.avatarUrl.trim().length > 0), tip: 'Upload a professional profile photo' },
     ];
 
     const completedChecks = completionChecks.filter((c) => c.value);
@@ -256,7 +462,7 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       profileCompletionTips.push('Profile is 100% complete! Keep your skills and portfolio up to date.');
     }
 
-    // 7. Dynamic Recent Activity from Genuine Events
+    // 7. Dynamic Recent Activity from Genuine Events Only
     interface ActivitySortItem extends FreelancerDashboardActivity {
       rawDate: Date;
     }
@@ -268,8 +474,8 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       if (p.status === 'accepted') {
         activityList.push({
           id: `act-prop-acc-${p.id}`,
-          title: 'Offer Accepted / Contract Initiated',
-          description: `Offer accepted for "${p.jobTitle}" ($${p.bidAmount})`,
+          title: 'Offer Accepted',
+          description: `Your proposal for "${p.jobTitle}" was accepted ($${p.bidAmount})`,
           timestamp: formatTimeAgo(new Date(p.updatedAt || p.createdAt)),
           rawDate: new Date(p.updatedAt || p.createdAt),
           link: `/jobs/${p.jobId}`,
@@ -278,18 +484,38 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       } else if (p.status === 'interviewing') {
         activityList.push({
           id: `act-prop-int-${p.id}`,
-          title: 'Interview In Progress',
+          title: 'Interview in Progress',
           description: `Client is interviewing you for "${p.jobTitle}"`,
           timestamp: formatTimeAgo(new Date(p.updatedAt || p.createdAt)),
           rawDate: new Date(p.updatedAt || p.createdAt),
           link: `/jobs/${p.jobId}`,
           type: 'proposal_interviewing',
         });
+      } else if (p.status === 'withdrawn') {
+        activityList.push({
+          id: `act-prop-wd-${p.id}`,
+          title: 'Proposal Withdrawn',
+          description: `Withdrew proposal for "${p.jobTitle}"`,
+          timestamp: formatTimeAgo(new Date(p.updatedAt || p.createdAt)),
+          rawDate: new Date(p.updatedAt || p.createdAt),
+          link: `/jobs/${p.jobId}`,
+          type: 'proposal_withdrawn',
+        });
+      } else if (p.status === 'rejected') {
+        activityList.push({
+          id: `act-prop-dec-${p.id}`,
+          title: 'Proposal Declined',
+          description: `Client declined bid for "${p.jobTitle}"`,
+          timestamp: formatTimeAgo(new Date(p.updatedAt || p.createdAt)),
+          rawDate: new Date(p.updatedAt || p.createdAt),
+          link: `/jobs/${p.jobId}`,
+          type: 'proposal_rejected',
+        });
       } else {
         activityList.push({
           id: `act-prop-sub-${p.id}`,
           title: 'Proposal Submitted',
-          description: `Submitted bid ($${p.bidAmount}) for "${p.jobTitle}"`,
+          description: `Submitted bid ($${p.bidAmount}${p.rateType === 'hourly' ? '/hr' : ''}) for "${p.jobTitle}"`,
           timestamp: formatTimeAgo(new Date(p.createdAt)),
           rawDate: new Date(p.createdAt),
           link: `/jobs/${p.jobId}`,
@@ -299,13 +525,14 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
     });
 
     // Saved job events
-    savedJobs.slice(0, 3).forEach((sj) => {
+    savedJobs.slice(0, 5).forEach((sj) => {
+      const savedDate = savedJobTimestamps.get(sj.id) ? new Date(savedJobTimestamps.get(sj.id)!) : new Date();
       activityList.push({
         id: `act-saved-${sj.id}`,
         title: 'Job Bookmarked',
         description: `Saved "${sj.title}" (${sj.category})`,
-        timestamp: sj.postedAt ? `Posted ${sj.postedAt}` : 'Recently saved',
-        rawDate: new Date(),
+        timestamp: formatTimeAgo(savedDate),
+        rawDate: savedDate,
         link: `/jobs/${sj.id}`,
         type: 'job_saved',
       });

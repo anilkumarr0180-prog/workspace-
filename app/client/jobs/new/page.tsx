@@ -82,8 +82,8 @@ export default function PostJobPage() {
 
     if (!description.trim()) {
       errs.description = 'Project description is required.';
-    } else if (description.trim().length < 40) {
-      errs.description = 'Please describe the project in at least 40 characters.';
+    } else if (description.trim().length < 50) {
+      errs.description = 'Please describe the project in at least 50 characters.';
     }
 
     if (skills.length === 0) {

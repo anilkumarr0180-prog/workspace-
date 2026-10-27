@@ -17,12 +17,14 @@ export interface ProposalRecord {
   jobTitle?: string;
   freelancerId: string;
   freelancerName?: string;
+  freelancerUsername?: string;
   freelancerAvatar?: string;
   bidAmount: number;
   rateType: ProjectType;
   deliveryDays: number | null;
   coverLetter: string;
   status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
+  jobStatus?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -318,7 +320,7 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         created_at,
         updated_at,
         jobs (id, title, client_id, company_id, status),
-        profiles!freelancer_id (id, full_name, avatar_url)
+        profiles!freelancer_id (id, full_name, avatar_url, username)
       `,
         { count: 'exact' }
       );
@@ -432,7 +434,7 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       created_at: string;
       updated_at: string;
       jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
-      profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null }> | null;
+      profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null }> | null;
     }
 
     const mapped: ProposalRecord[] = ((data as unknown as ProposalRow[]) || []).map((row) => {
@@ -443,8 +445,10 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         id: row.id,
         jobId: row.job_id,
         jobTitle: jobObj?.title || 'Project Application',
+        jobStatus: jobObj?.status || 'published',
         freelancerId: row.freelancer_id,
         freelancerName: profileObj?.full_name || 'Freelancer Specialist',
+        freelancerUsername: profileObj?.username || undefined,
         freelancerAvatar: profileObj?.avatar_url || undefined,
         bidAmount: Number(row.bid_amount),
         rateType: row.rate_type as ProjectType,

@@ -81,6 +81,12 @@ export default function SignupForm({ role }: SignupFormProps) {
       }
 
       if (data.session) {
+        // Guarantee database profile active_mode aligns with the chosen signup role
+        await supabase
+          .from('profiles')
+          .update({ active_mode: role })
+          .eq('id', data.session.user.id);
+
         router.push(isClient ? '/client' : '/freelancer');
         router.refresh();
       } else {
@@ -143,7 +149,7 @@ export default function SignupForm({ role }: SignupFormProps) {
 
       {/* Social Auth */}
       <div className="mt-6">
-        <SocialAuthButtons labelPrefix="Sign up with" />
+        <SocialAuthButtons labelPrefix="Sign up with" role={role} />
       </div>
 
       {/* Divider */}

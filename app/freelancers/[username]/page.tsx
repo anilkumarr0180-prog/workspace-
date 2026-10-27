@@ -95,7 +95,7 @@ function ProfileSkeleton() {
 
 async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
   const { username } = await params;
-  const { freelancer, error } = await getFreelancerByUsername(username);
+  const { freelancer, error, source } = await getFreelancerByUsername(username);
 
   // Not Found State
   if (!freelancer || error) {
@@ -132,6 +132,20 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Demo Profile Separation Notice */}
+      {source === 'fallback' && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs sm:text-sm flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="px-2.5 py-1 rounded-md font-bold bg-amber-200/80 text-amber-950 text-xs uppercase tracking-wider">
+              Demo Profile
+            </span>
+            <span className="text-amber-800">
+              This simulated profile is provided for local presentation preview and is separate from verified live marketplace records.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Back button & actions */}
       <div className="flex items-center justify-between">
         <Link

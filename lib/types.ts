@@ -164,3 +164,63 @@ export interface PublicFreelancer {
   createdAt: string;
 }
 
+export type ContractStatus = 'active' | 'paused' | 'completed' | 'cancelled';
+export type TimesheetStatus = 'open' | 'submitted' | 'under_review' | 'approved' | 'disputed' | 'paid';
+
+export interface Contract {
+  id: string;
+  proposalId: string;
+  jobId: string;
+  jobTitle: string;
+  clientId: string;
+  clientName?: string;
+  companyId?: string | null;
+  companyName?: string | null;
+  freelancerId: string;
+  contractType: ProjectType;
+  title: string;
+  hourlyRate?: number | null;
+  fixedPrice?: number | null;
+  weeklyHourLimit?: number | null;
+  allowManualTime: boolean;
+  status: ContractStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActiveTimerSession {
+  id: string;
+  contractId: string;
+  freelancerId: string;
+  startTime: string;
+  memo: string;
+  createdAt: string;
+}
+
+export interface TimeEntry {
+  id: string;
+  contractId: string;
+  contractTitle?: string;
+  timesheetId?: string | null;
+  freelancerId: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  memo: string;
+  source: 'timer' | 'manual';
+  createdAt: string;
+}
+
+export interface Timesheet {
+  id: string;
+  contractId: string;
+  clientId: string;
+  freelancerId: string;
+  weekStartDate: string;
+  totalMinutes: number;
+  totalAmount: number;
+  status: TimesheetStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+

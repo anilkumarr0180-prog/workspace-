@@ -28,8 +28,11 @@ import {
   Sun,
   DollarSign,
   FileText,
-  Repeat
+  Repeat,
+  Loader2,
+  Clock
 } from 'lucide-react';
+import { switchActiveRole } from '@/lib/actions/profile';
 
 interface UserProfile {
   id?: string;
@@ -56,10 +59,21 @@ export default function Navbar() {
   // Authentication & Profile State
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
+  const [roleSwitchError, setRoleSwitchError] = useState<string | null>(null);
 
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const navDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Close all open dropdowns on route changes (adjusting state during render)
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setActiveDropdown(null);
+    setProfileMenuOpen(false);
+    setMobileMenuOpen(false);
+  }
 
   // Subscribe to Supabase Auth State
   useEffect(() => {
@@ -86,10 +100,13 @@ export default function Navbar() {
         if (!isMounted) return;
         const currentUser = res.data.user;
         setUser(currentUser);
+        setAuthLoaded(true);
 
         if (currentUser) {
           fetchProfile(currentUser.id);
         }
+      }).catch(() => {
+        if (isMounted) setAuthLoaded(true);
       });
 
       const { data: authListener } = supabase.auth.onAuthStateChange(
@@ -97,6 +114,7 @@ export default function Navbar() {
           if (!isMounted) return;
           const sessionUser = session?.user ?? null;
           setUser(sessionUser);
+          setAuthLoaded(true);
 
           if (sessionUser) {
             fetchProfile(sessionUser.id);
@@ -112,17 +130,27 @@ export default function Navbar() {
       };
     } catch {
       // In case of unconfigured env or offline, gracefully stay in public mode
+      setTimeout(() => {
+        if (isMounted) setAuthLoaded(true);
+      }, 0);
     }
   }, []);
 
-  // Handle outside click & Escape key for dropdowns
+  // Handle outside click & Escape key for dropdowns (uses click instead of mousedown to avoid swallowing links)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         profileDropdownRef.current &&
-        !profileDropdownRef.current.contains(event.target as Node)
+        !profileDropdownRef.current.contains(target)
       ) {
         setProfileMenuOpen(false);
+      }
+      if (
+        navDropdownRef.current &&
+        !navDropdownRef.current.contains(target)
+      ) {
+        setActiveDropdown(null);
       }
     };
 
@@ -134,11 +162,11 @@ export default function Navbar() {
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
@@ -151,9 +179,13 @@ export default function Navbar() {
     user?.email?.split('@')[0] ||
     'User';
 
-  const isClientMode =
-    profile?.active_mode === 'client' ||
-    user?.user_metadata?.role === 'client';
+  // Authoritative role source is database profiles.active_mode
+  const currentMode =
+    profile?.active_mode ||
+    (user?.user_metadata?.role as 'client' | 'freelancer') ||
+    'freelancer';
+
+  const isClientMode = currentMode === 'client';
 
   const displayRole = isClientMode ? 'Client' : 'Freelancer';
 
@@ -170,6 +202,31 @@ export default function Navbar() {
     : isClientMode
     ? '/client'
     : '/freelancer';
+
+  // Role switcher handler with persistent database update
+  const handleRoleSwitch = async () => {
+    if (switchingRole) return;
+    const nextRole: 'client' | 'freelancer' = isClientMode ? 'freelancer' : 'client';
+    setSwitchingRole(true);
+    setRoleSwitchError(null);
+
+    try {
+      const res = await switchActiveRole(nextRole);
+      if (res.success) {
+        setProfile((prev) => (prev ? { ...prev, active_mode: nextRole } : null));
+        setProfileMenuOpen(false);
+        setMobileMenuOpen(false);
+        router.push(nextRole === 'client' ? '/client' : '/freelancer');
+        router.refresh();
+      } else {
+        setRoleSwitchError(res.error || 'Failed to switch role.');
+      }
+    } catch {
+      setRoleSwitchError('Network error while switching role.');
+    } finally {
+      setSwitchingRole(false);
+    }
+  };
 
   // Logout handler
   const handleLogout = async () => {
@@ -213,7 +270,9 @@ export default function Navbar() {
             </NextLink>
 
             {/* ---------- AUTHENTICATED FREELANCER NAVIGATION ---------- */}
-            {user && !isClientMode ? (
+            {!authLoaded ? (
+              <div className="hidden lg:flex items-center gap-1 h-9 w-64" />
+            ) : user && !isClientMode ? (
               <nav
                 ref={navDropdownRef}
                 className="hidden lg:flex items-center gap-1 text-[14px] xl:text-[15px] font-medium text-slate-800"
@@ -226,6 +285,11 @@ export default function Navbar() {
                 >
                   <button
                     type="button"
+                    onClick={() =>
+                      setActiveDropdown(
+                        activeDropdown === 'freelancer_find_work' ? null : 'freelancer_find_work'
+                      )
+                    }
                     aria-expanded={activeDropdown === 'freelancer_find_work'}
                     className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
@@ -238,6 +302,7 @@ export default function Navbar() {
                       <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
                         <NextLink
                           href="/jobs"
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
@@ -253,6 +318,7 @@ export default function Navbar() {
 
                         <NextLink
                           href="/saved"
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
@@ -274,7 +340,15 @@ export default function Navbar() {
                         </NextLink>
 
                         <NextLink
-                          href="/freelancer"
+                          href="/freelancer#proposals"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            if (pathname === '/freelancer') {
+                              const el = document.getElementById('proposals');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                              window.dispatchEvent(new CustomEvent('refresh-freelancer-proposals'));
+                            }
+                          }}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
@@ -290,6 +364,7 @@ export default function Navbar() {
 
                         <NextLink
                           href={profileHref}
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
@@ -315,6 +390,11 @@ export default function Navbar() {
                 >
                   <button
                     type="button"
+                    onClick={() =>
+                      setActiveDropdown(
+                        activeDropdown === 'freelancer_deliver_work' ? null : 'freelancer_deliver_work'
+                      )
+                    }
                     aria-expanded={activeDropdown === 'freelancer_deliver_work'}
                     className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
@@ -327,6 +407,7 @@ export default function Navbar() {
                       <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
                         <NextLink
                           href="/freelancer"
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
@@ -341,7 +422,31 @@ export default function Navbar() {
                         </NextLink>
 
                         <NextLink
-                          href="/freelancer"
+                          href="/freelancer/time-tracking"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
+                            <Clock className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Time Tracker
+                            </div>
+                            <div className="text-xs text-slate-500">Log hours and track active sessions</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/freelancer#proposals"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            if (pathname === '/freelancer') {
+                              const el = document.getElementById('proposals');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                              window.dispatchEvent(new CustomEvent('refresh-freelancer-proposals'));
+                            }
+                          }}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
@@ -367,6 +472,11 @@ export default function Navbar() {
                 >
                   <button
                     type="button"
+                    onClick={() =>
+                      setActiveDropdown(
+                        activeDropdown === 'freelancer_finances' ? null : 'freelancer_finances'
+                      )
+                    }
                     aria-expanded={activeDropdown === 'freelancer_finances'}
                     className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
@@ -379,6 +489,7 @@ export default function Navbar() {
                       <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
                         <NextLink
                           href="/freelancer"
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
@@ -394,6 +505,7 @@ export default function Navbar() {
 
                         <NextLink
                           href="/freelancer"
+                          onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
@@ -414,6 +526,7 @@ export default function Navbar() {
                 {/* 4. Messages Link */}
                 <NextLink
                   href="/freelancer"
+                  onClick={() => setActiveDropdown(null)}
                   className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5"
                 >
                   <span>Messages</span>
@@ -424,25 +537,41 @@ export default function Navbar() {
               <nav className="hidden lg:flex items-center gap-1 text-[15px] font-medium text-slate-800">
                 <NextLink
                   href="/client/jobs/new"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors font-semibold text-[#14a800]"
+                  className={`px-3 py-2 rounded-lg transition-colors font-semibold ${
+                    pathname === '/client/jobs/new'
+                      ? 'text-[#14a800] bg-emerald-50/80'
+                      : 'text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   Post a Job
                 </NextLink>
                 <NextLink
                   href="/client"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    pathname === '/client'
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   All Job Posts
                 </NextLink>
                 <NextLink
                   href="/freelancers"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    pathname === '/freelancers' || pathname.startsWith('/freelancers/')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   Discover Talent
                 </NextLink>
                 <NextLink
-                  href="/client"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
+                  href="/client/reports"
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    pathname === '/client/reports' || pathname.startsWith('/client/reports')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   Reports
                 </NextLink>
@@ -458,6 +587,7 @@ export default function Navbar() {
                 >
                   <button
                     type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'hire' ? null : 'hire')}
                     aria-expanded={activeDropdown === 'hire'}
                     className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
@@ -525,6 +655,7 @@ export default function Navbar() {
                 >
                   <button
                     type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'work' ? null : 'work')}
                     aria-expanded={activeDropdown === 'work'}
                     className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
@@ -647,7 +778,9 @@ export default function Navbar() {
             </NextLink>
 
             {/* ---------- AUTHENTICATED RIGHT ELEMENTS ---------- */}
-            {user ? (
+            {!authLoaded ? (
+              <div className="h-9 w-20 sm:w-28" />
+            ) : user ? (
               <>
                 {/* Help Icon */}
                 <NextLink
@@ -792,13 +925,18 @@ export default function Navbar() {
 
                       {/* 3. Role Switcher (Client / Freelancer) */}
                       <div className="p-2 border-b border-slate-800/80">
-                        <NextLink
-                          href={isClientMode ? '/freelancer' : '/client'}
-                          onClick={() => setProfileMenuOpen(false)}
-                          className="flex items-center justify-between px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors group"
+                        <button
+                          type="button"
+                          onClick={handleRoleSwitch}
+                          disabled={switchingRole}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors group cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed text-left"
                         >
                           <div className="flex items-center gap-2.5">
-                            <Repeat className="w-4 h-4 text-emerald-400 group-hover:rotate-180 transition-transform duration-300" />
+                            {switchingRole ? (
+                              <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+                            ) : (
+                              <Repeat className="w-4 h-4 text-emerald-400 group-hover:rotate-180 transition-transform duration-300" />
+                            )}
                             <span>
                               {isClientMode ? 'Switch to Freelancer' : 'Switch to Client'}
                             </span>
@@ -806,7 +944,12 @@ export default function Navbar() {
                           <span className="text-[11px] text-slate-400">
                             {isClientMode ? 'Find work' : 'Hire'}
                           </span>
-                        </NextLink>
+                        </button>
+                        {roleSwitchError && (
+                          <div className="px-3 pt-1 text-[11px] text-rose-400">
+                            {roleSwitchError}
+                          </div>
+                        )}
                       </div>
 
                       {/* 4. Appearance & Preferences */}
@@ -882,14 +1025,34 @@ export default function Navbar() {
         <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3 shadow-lg">
           {/* Authenticated Mobile User Header */}
           {user ? (
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#14a800] text-white font-bold flex items-center justify-center text-sm">
-                {initials}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-[#14a800] text-white font-bold flex items-center justify-center text-sm">
+                  {initials}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-900 truncate">{displayName}</div>
+                  <div className="text-xs text-emerald-700 font-medium">{displayRole}</div>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-slate-900 truncate">{displayName}</div>
-                <div className="text-xs text-emerald-700 font-medium">{displayRole}</div>
-              </div>
+              <button
+                type="button"
+                onClick={handleRoleSwitch}
+                disabled={switchingRole}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {switchingRole ? (
+                  <Loader2 className="w-3.5 h-3.5 text-[#14a800] animate-spin" />
+                ) : (
+                  <Repeat className="w-3.5 h-3.5 text-[#14a800]" />
+                )}
+                <span>{isClientMode ? 'Switch to Freelancer Mode' : 'Switch to Client Mode'}</span>
+              </button>
+              {roleSwitchError && (
+                <div className="text-[11px] text-rose-600 font-medium text-center">
+                  {roleSwitchError}
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -914,8 +1077,15 @@ export default function Navbar() {
             </NextLink>
 
             <NextLink
-              href="/freelancer"
-              onClick={() => setMobileMenuOpen(false)}
+              href="/freelancer#proposals"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                if (pathname === '/freelancer') {
+                  const el = document.getElementById('proposals');
+                  el?.scrollIntoView({ behavior: 'smooth' });
+                  window.dispatchEvent(new CustomEvent('refresh-freelancer-proposals'));
+                }
+              }}
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
               <span>Freelancer Hub & Proposals</span>
@@ -928,6 +1098,15 @@ export default function Navbar() {
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
               <span>Client Dashboard</span>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
+              href="/client/reports"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <span>Reports & Timesheets</span>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </NextLink>
 

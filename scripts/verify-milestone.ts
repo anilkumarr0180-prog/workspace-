@@ -253,6 +253,32 @@ async function runTests() {
           details: { status: res.status, body: json }
         };
       }
+    },
+    {
+      name: '14. GET /api/proposals?jobId=...&as=client — Unauthenticated Scoped Client Access',
+      run: async () => {
+        const res = await fetch(`${BASE_URL}/api/proposals?jobId=00000000-0000-0000-0000-000000000001&as=client`);
+        const json = await res.json();
+        const passed = res.status === 401 && (json.code === 'UNAUTHENTICATED' || json.error?.includes('Authentication'));
+        return {
+          passed,
+          message: passed ? 'Blocked unauthenticated scoped client proposals with 401' : `Failed: HTTP ${res.status}`,
+          details: { status: res.status, body: json }
+        };
+      }
+    },
+    {
+      name: '15. GET /api/proposals?jobId=invalid-uuid&as=client — Invalid UUID Format Handling',
+      run: async () => {
+        const res = await fetch(`${BASE_URL}/api/proposals?jobId=invalid-uuid&as=client`);
+        const json = await res.json();
+        const passed = res.status === 400 || res.status === 401;
+        return {
+          passed,
+          message: passed ? `Rejected or challenged invalid UUID with HTTP ${res.status}` : `Failed: HTTP ${res.status}`,
+          details: { status: res.status, body: json }
+        };
+      }
     }
   ];
 

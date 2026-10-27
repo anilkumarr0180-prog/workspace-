@@ -263,7 +263,8 @@ export async function getJobs(filters: GetJobsFilters = {}): Promise<GetJobsResu
       return getFilteredFallbackJobs(filters, page, limit);
     }
 
-    if (data && data.length > 0) {
+    if (data) {
+      // Database query executed successfully. Return genuine live records (empty or populated)
       const mappedJobs = (data as unknown as SupabaseJobRow[]).map(mapSupabaseJobToFrontend);
       return {
         jobs: mappedJobs,
@@ -274,7 +275,6 @@ export async function getJobs(filters: GetJobsFilters = {}): Promise<GetJobsResu
       };
     }
 
-    // If database table is empty, return initial mock dataset so UI is immediately useful
     return getFilteredFallbackJobs(filters, page, limit);
   } catch {
     return getFilteredFallbackJobs(filters, page, limit);
@@ -374,6 +374,15 @@ export async function getJobById(id: string): Promise<{ job: Job | null; source:
     if (!error && data) {
       return { job: mapSupabaseJobToFrontend(data as unknown as SupabaseJobRow), source: 'supabase' };
     }
+
+    if (!error && !data) {
+      // Record does not exist in database. Only match demo fallback if ID explicitly matches mock dataset
+      const fallback = INITIAL_JOBS.find((j) => j.id === id);
+      if (fallback) {
+        return { job: fallback, source: 'fallback' };
+      }
+      return { job: null, source: 'supabase' };
+    }
   } catch {
     // Continue to fallback
   }
@@ -405,8 +414,8 @@ export async function createJob(input: CreateJobInput): Promise<{
   const trimmedDesc = input.description?.trim() || '';
   if (!trimmedDesc) {
     fieldErrors.description = 'Description is required.';
-  } else if (trimmedDesc.length < 40) {
-    fieldErrors.description = 'Description must be at least 40 characters.';
+  } else if (trimmedDesc.length < 50) {
+    fieldErrors.description = 'Description must be at least 50 characters.';
   }
 
   if (!input.skills || input.skills.length === 0) {

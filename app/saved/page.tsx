@@ -35,7 +35,7 @@ export default function SavedJobsPage() {
     };
   }, []);
 
-  const baseJobs = apiSavedJobs && apiSavedJobs.length > 0 ? apiSavedJobs : contextSavedJobs;
+  const baseJobs = apiSavedJobs !== null ? apiSavedJobs : contextSavedJobs;
   const displayJobs = baseJobs.filter((job) => isJobSaved(job.id));
 
   return (

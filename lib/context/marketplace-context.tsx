@@ -31,7 +31,8 @@ function generateUniqueId(prefix: string): string {
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
   const [freelancers] = useState<Freelancer[]>(INITIAL_FREELANCERS);
-  const [savedJobIds, setSavedJobIds] = useState<string[]>(['job-101', 'job-103']);
+  const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
+  const [persistedSavedJobs, setPersistedSavedJobs] = useState<Job[]>([]);
   const [proposals, setProposals] = useState<ProposalSubmission[]>(INITIAL_PROPOSALS);
   const [contactMessagesCount, setContactMessagesCount] = useState<number>(0);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
@@ -90,6 +91,53 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     return () => clearTimeout(timer);
   }, []);
 
+  // Fetch genuine saved jobs from Supabase API on mount
+  React.useEffect(() => {
+    fetch('/api/saved-jobs')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.savedJobIds)) {
+          setSavedJobIds(data.savedJobIds);
+          if (Array.isArray(data.savedJobs)) {
+            setPersistedSavedJobs(data.savedJobs);
+          }
+        }
+      })
+      .catch(() => {});
+
+    // Fetch genuine proposals from Supabase API on mount
+    fetch('/api/proposals')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.proposals)) {
+          setProposals(
+            data.proposals.map((p: {
+              id: string;
+              jobId: string;
+              jobTitle: string;
+              bidAmount: number;
+              rateType: ProposalSubmission['rateType'];
+              coverLetter: string;
+              deliveryDays?: number;
+              createdAt: string;
+              status: ProposalSubmission['status'];
+            }) => ({
+              id: p.id,
+              jobId: p.jobId,
+              jobTitle: p.jobTitle,
+              bidAmount: Number(p.bidAmount),
+              rateType: p.rateType,
+              coverLetter: p.coverLetter,
+              deliveryDays: p.deliveryDays || 14,
+              submittedAt: p.createdAt,
+              status: p.status,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Reactively sync custom jobs to localStorage whenever jobs state changes (after hydration)
   React.useEffect(() => {
     if (!isHydrated) return;
@@ -124,12 +172,16 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   // Pure state updater: toggle job saved status with API synchronization
   const toggleSaveJob = (jobId: string) => {
     const isCurrentlySaved = savedJobIds.includes(jobId);
-    setSavedJobIds((prev) => (prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]));
-
-    // Background sync to /api/saved-jobs
     if (isCurrentlySaved) {
+      setSavedJobIds((prev) => prev.filter((id) => id !== jobId));
+      setPersistedSavedJobs((prev) => prev.filter((j) => j.id !== jobId));
       fetch(`/api/saved-jobs/${jobId}`, { method: 'DELETE' }).catch(() => {});
     } else {
+      setSavedJobIds((prev) => [...prev, jobId]);
+      const existingJob = jobs.find((j) => j.id === jobId);
+      if (existingJob) {
+        setPersistedSavedJobs((prev) => [...prev, existingJob]);
+      }
       fetch('/api/saved-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,7 +247,16 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setContactMessagesCount((prev) => prev + 1);
   };
 
-  const savedJobs = jobs.filter((job) => savedJobIds.includes(job.id));
+  const savedJobs = React.useMemo(() => {
+    const jobMap = new Map<string, Job>();
+    persistedSavedJobs.forEach((j) => jobMap.set(j.id, j));
+    jobs.forEach((j) => {
+      if (savedJobIds.includes(j.id)) {
+        jobMap.set(j.id, j);
+      }
+    });
+    return savedJobIds.map((id) => jobMap.get(id)).filter((j): j is Job => Boolean(j));
+  }, [savedJobIds, persistedSavedJobs, jobs]);
 
   return (
     <MarketplaceContext.Provider
