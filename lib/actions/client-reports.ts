@@ -62,6 +62,8 @@ export interface ClientReportsData {
     activeHourlyContracts: number;
     activeFixedContracts: number;
     totalAgreedFixedValue: number;
+    simulatedMilestoneReleased: number;
+    simulatedEscrowHeld: number;
     invoicedAmount: number;
     paidAmount: number;
     paymentsImplemented: false;
@@ -151,6 +153,8 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
         activeHourlyContracts: 0,
         activeFixedContracts: 0,
         totalAgreedFixedValue: 0,
+        simulatedMilestoneReleased: 0,
+        simulatedEscrowHeld: 0,
         invoicedAmount: 0,
         paidAmount: 0,
         paymentsImplemented: false,
@@ -280,6 +284,36 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
       };
     });
 
+    // 5. Fetch Milestones for client's contracts
+    const contractIds = ((rawContracts as unknown as RawContract[]) || []).map((c) => c.id);
+    let rawMilestones: { contract_id: string; amount: number; status: string }[] = [];
+    if (contractIds.length > 0) {
+      const { data: milestonesData } = await supabase
+        .from('contract_milestones')
+        .select('contract_id, amount, status')
+        .in('contract_id', contractIds);
+      if (milestonesData) {
+        rawMilestones = milestonesData;
+      }
+    }
+
+    const contractMilestoneTotals = new Map<string, { released: number; escrow: number }>();
+    let simulatedMilestoneReleased = 0;
+    let simulatedEscrowHeld = 0;
+
+    rawMilestones.forEach((m) => {
+      const current = contractMilestoneTotals.get(m.contract_id) || { released: 0, escrow: 0 };
+      const amount = Number(m.amount) || 0;
+      if (m.status === 'approved') {
+        current.released += amount;
+        simulatedMilestoneReleased += amount;
+      } else if (['funded', 'in_progress', 'submitted'].includes(m.status)) {
+        current.escrow += amount;
+        simulatedEscrowHeld += amount;
+      }
+      contractMilestoneTotals.set(m.contract_id, current);
+    });
+
     // Compute aggregations per contract
     const contractTimesheetTotals = new Map<string, { minutes: number; amount: number }>();
     timesheets.forEach((ts) => {
@@ -299,6 +333,7 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
       const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
       const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
       const totals = contractTimesheetTotals.get(row.id) || { minutes: 0, amount: 0 };
+      const mTotals = contractMilestoneTotals.get(row.id) || { released: 0, escrow: 0 };
 
       totalLoggedMinutes += totals.minutes;
       totalAccruedAmount += totals.amount;
@@ -315,6 +350,10 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
       if (!isHourly && row.fixed_price) {
         totalAgreedFixedValue += Number(row.fixed_price);
       }
+
+      const accruedForContract = isHourly
+        ? Math.round(totals.amount * 100) / 100
+        : Math.round(mTotals.released * 100) / 100;
 
       return {
         id: row.id,
@@ -333,7 +372,7 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
         jobTitle: jobObj?.title || row.title,
         createdAt: row.created_at,
         loggedMinutes: totals.minutes,
-        accruedAmount: Math.round(totals.amount * 100) / 100,
+        accruedAmount: accruedForContract,
       };
     });
 
@@ -350,6 +389,8 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
         activeHourlyContracts,
         activeFixedContracts,
         totalAgreedFixedValue: Math.round(totalAgreedFixedValue * 100) / 100,
+        simulatedMilestoneReleased: Math.round(simulatedMilestoneReleased * 100) / 100,
+        simulatedEscrowHeld: Math.round(simulatedEscrowHeld * 100) / 100,
         invoicedAmount: 0,
         paidAmount: 0,
         paymentsImplemented: false,
@@ -370,6 +411,8 @@ export async function getClientReportsData(): Promise<ClientReportsData> {
         activeHourlyContracts: 0,
         activeFixedContracts: 0,
         totalAgreedFixedValue: 0,
+        simulatedMilestoneReleased: 0,
+        simulatedEscrowHeld: 0,
         invoicedAmount: 0,
         paidAmount: 0,
         paymentsImplemented: false,

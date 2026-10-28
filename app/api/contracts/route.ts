@@ -8,11 +8,13 @@ export async function GET(request: NextRequest) {
     const as = searchParams.get('as') as 'freelancer' | 'client' | null;
     const status = searchParams.get('status') as ContractStatus | null;
     const jobId = searchParams.get('jobId') || undefined;
+    const proposalId = searchParams.get('proposalId') || undefined;
 
     const result = await getContracts({
       as: as || undefined,
       status: status || undefined,
       jobId,
+      proposalId,
     });
 
     if (!result.success) {

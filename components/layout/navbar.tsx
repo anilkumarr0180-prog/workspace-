@@ -256,11 +256,11 @@ export default function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-2xs">
-      <div className="w-full px-4 sm:px-6 lg:px-10 xl:px-12">
-        <div className="flex items-center justify-between h-16 sm:h-18">
+    <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-2xs w-full">
+      <div className="w-full px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 2xl:px-14">
+        <div className="flex items-center justify-between h-16 sm:h-[68px]">
           {/* ================= LEFT: Brand & Navigation ================= */}
-          <div className="flex items-center gap-4 sm:gap-6 lg:gap-8">
+          <div className="flex items-center gap-6 sm:gap-7 lg:gap-8 xl:gap-10">
             <NextLink
               href={user ? (isClientMode ? '/client' : '/freelancer') : '/'}
               className="flex items-center shrink-0"
@@ -269,15 +269,327 @@ export default function Navbar() {
               <WorkspaceLogo />
             </NextLink>
 
-            {/* ---------- AUTHENTICATED FREELANCER NAVIGATION ---------- */}
-            {!authLoaded ? (
-              <div className="hidden lg:flex items-center gap-1 h-9 w-64" />
-            ) : user && !isClientMode ? (
+            {/* ---------- NAVIGATION (UPWORK MARKETING NAV ON HOMEPAGE OR WHEN LOGGED OUT) ---------- */}
+            {pathname === '/' || !user ? (
+              /* Upwork Marketing Navigation matching Screenshot 1 */
               <nav
                 ref={navDropdownRef}
-                className="hidden lg:flex items-center gap-1 text-[14px] xl:text-[15px] font-medium text-slate-800"
+                className="hidden lg:flex items-center gap-1 xl:gap-2 text-[14px] font-medium text-[#001e00]"
               >
-                {/* 1. Find Work Dropdown */}
+                {/* 1. Hire talent Dropdown */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown('hire')}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'hire' ? null : 'hire')}
+                    aria-expanded={activeDropdown === 'hire'}
+                    className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    <span>Hire talent</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+
+                  {activeDropdown === 'hire' && (
+                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
+                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                        <NextLink
+                          href="/client/jobs/new"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
+                            <Briefcase className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Post a Job
+                            </div>
+                            <div className="text-xs text-slate-500">Find talent and hire fast</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/freelancers"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Users className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Explore Freelancers
+                            </div>
+                            <div className="text-xs text-slate-500">Browse verified specialist profiles</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/client"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Layers className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Client Dashboard
+                            </div>
+                            <div className="text-xs text-slate-500">Manage posted jobs and hires</div>
+                          </div>
+                        </NextLink>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Get outcomes Dropdown */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown('outcomes')}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'outcomes' ? null : 'outcomes')}
+                    aria-expanded={activeDropdown === 'outcomes'}
+                    className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    <span>Get outcomes</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+
+                  {activeDropdown === 'outcomes' && (
+                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
+                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                        <NextLink
+                          href="/jobs?category=AI+%26+Machine+Learning"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              AI & Machine Learning
+                            </div>
+                            <div className="text-xs text-slate-500">Generative AI, LLMs, Computer Vision</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/jobs?category=Development+%26+IT"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Layers className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Development & IT
+                            </div>
+                            <div className="text-xs text-slate-500">Web, Mobile, Cloud, DevOps</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/jobs?category=Design+%26+Creative"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Briefcase className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Design & Creative
+                            </div>
+                            <div className="text-xs text-slate-500">UI/UX, Product, Branding</div>
+                          </div>
+                        </NextLink>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Find work Dropdown */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown('work')}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'work' ? null : 'work')}
+                    aria-expanded={activeDropdown === 'work'}
+                    className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    <span>Find work</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+
+                  {activeDropdown === 'work' && (
+                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
+                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                        <NextLink
+                          href="/jobs"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
+                            <Briefcase className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Browse All Jobs
+                            </div>
+                            <div className="text-xs text-slate-500">Search high-budget contracts</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/freelancer"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Freelancer Hub
+                            </div>
+                            <div className="text-xs text-slate-500">Track submitted proposals and bids</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/saved"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Bookmark className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                                Saved Jobs
+                              </span>
+                              {savedJobIds.length > 0 && (
+                                <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[11px] font-bold rounded-full">
+                                  {savedJobIds.length}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-500">Your bookmarked opportunities</div>
+                          </div>
+                        </NextLink>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Why Upwork Dropdown */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setActiveDropdown('why_upwork')}
+                  onMouseLeave={() => setActiveDropdown(null)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === 'why_upwork' ? null : 'why_upwork')}
+                    aria-expanded={activeDropdown === 'why_upwork'}
+                    className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    <span>Why Upwork</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+
+                  {activeDropdown === 'why_upwork' && (
+                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
+                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                        <NextLink
+                          href="/freelancers"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
+                            <Users className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              How to Hire
+                            </div>
+                            <div className="text-xs text-slate-500">Learn the hiring workflow</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/jobs"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Briefcase className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              How to Find Work
+                            </div>
+                            <div className="text-xs text-slate-500">Build your freelance career</div>
+                          </div>
+                        </NextLink>
+
+                        <NextLink
+                          href="/client"
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                        >
+                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
+                            <Layers className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
+                              Trust & Security
+                            </div>
+                            <div className="text-xs text-slate-500">Escrow milestone protection</div>
+                          </div>
+                        </NextLink>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Pricing Direct Link */}
+                <NextLink
+                  href="/jobs"
+                  className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
+                >
+                  Pricing
+                </NextLink>
+
+                {/* 6. Enterprise Direct Link */}
+                <NextLink
+                  href="/client"
+                  className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
+                >
+                  Enterprise
+                </NextLink>
+              </nav>
+            ) : user && !isClientMode ? (
+              /* ---------- AUTHENTICATED FREELANCER NAVIGATION (ON DASHBOARDS) ---------- */
+              <nav
+                ref={navDropdownRef}
+                className="hidden lg:flex items-center gap-1 xl:gap-2 text-[14px] font-medium text-slate-800"
+              >
+                {/* Find Work Dropdown */}
                 <div
                   className="relative"
                   onMouseEnter={() => setActiveDropdown('freelancer_find_work')}
@@ -382,7 +694,7 @@ export default function Navbar() {
                   )}
                 </div>
 
-                {/* 2. Deliver Work Dropdown */}
+                {/* Deliver Work Dropdown */}
                 <div
                   className="relative"
                   onMouseEnter={() => setActiveDropdown('freelancer_deliver_work')}
@@ -406,7 +718,7 @@ export default function Navbar() {
                     <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
                       <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
                         <NextLink
-                          href="/freelancer"
+                          href="/contracts"
                           onClick={() => setActiveDropdown(null)}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
@@ -436,35 +748,12 @@ export default function Navbar() {
                             <div className="text-xs text-slate-500">Log hours and track active sessions</div>
                           </div>
                         </NextLink>
-
-                        <NextLink
-                          href="/freelancer#proposals"
-                          onClick={() => {
-                            setActiveDropdown(null);
-                            if (pathname === '/freelancer') {
-                              const el = document.getElementById('proposals');
-                              el?.scrollIntoView({ behavior: 'smooth' });
-                              window.dispatchEvent(new CustomEvent('refresh-freelancer-proposals'));
-                            }
-                          }}
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Submitted Proposals
-                            </div>
-                            <div className="text-xs text-slate-500">Monitor active bids and interviews</div>
-                          </div>
-                        </NextLink>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* 3. Manage Finances Dropdown */}
+                {/* Manage Finances Dropdown */}
                 <div
                   className="relative"
                   onMouseEnter={() => setActiveDropdown('freelancer_finances')}
@@ -523,7 +812,7 @@ export default function Navbar() {
                   )}
                 </div>
 
-                {/* 4. Messages Link */}
+                {/* Messages Link */}
                 <NextLink
                   href="/freelancer"
                   onClick={() => setActiveDropdown(null)}
@@ -532,9 +821,9 @@ export default function Navbar() {
                   <span>Messages</span>
                 </NextLink>
               </nav>
-            ) : user && isClientMode ? (
-              /* ---------- AUTHENTICATED CLIENT NAVIGATION ---------- */
-              <nav className="hidden lg:flex items-center gap-1 text-[15px] font-medium text-slate-800">
+            ) : (
+              /* ---------- AUTHENTICATED CLIENT NAVIGATION (ON DASHBOARDS) ---------- */
+              <nav className="hidden lg:flex items-center gap-1 xl:gap-2 text-[14px] font-medium text-slate-800">
                 <NextLink
                   href="/client/jobs/new"
                   className={`px-3 py-2 rounded-lg transition-colors font-semibold ${
@@ -576,240 +865,87 @@ export default function Navbar() {
                   Reports
                 </NextLink>
               </nav>
-            ) : (
-              /* ---------- PUBLIC MARKETING NAVIGATION (LOGGED OUT) ---------- */
-              <nav className="hidden lg:flex items-center gap-1 text-[15px] font-medium text-slate-800">
-                {/* Hire Talent Dropdown */}
-                <div
-                  className="relative"
-                  onMouseEnter={() => setActiveDropdown('hire')}
-                  onMouseLeave={() => setActiveDropdown(null)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setActiveDropdown(activeDropdown === 'hire' ? null : 'hire')}
-                    aria-expanded={activeDropdown === 'hire'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
-                  >
-                    <span>Hire talent</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                  </button>
-
-                  {activeDropdown === 'hire' && (
-                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
-                        <NextLink
-                          href="/client/jobs/new"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
-                            <Briefcase className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Post a Job
-                            </div>
-                            <div className="text-xs text-slate-500">Find talent and hire fast</div>
-                          </div>
-                        </NextLink>
-
-                        <NextLink
-                          href="/freelancers"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                            <Users className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Explore Freelancers
-                            </div>
-                            <div className="text-xs text-slate-500">Browse verified specialist profiles</div>
-                          </div>
-                        </NextLink>
-
-                        <NextLink
-                          href="/client"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                            <Layers className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Client Dashboard
-                            </div>
-                            <div className="text-xs text-slate-500">Manage posted jobs and hires</div>
-                          </div>
-                        </NextLink>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Find Work Dropdown */}
-                <div
-                  className="relative"
-                  onMouseEnter={() => setActiveDropdown('work')}
-                  onMouseLeave={() => setActiveDropdown(null)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setActiveDropdown(activeDropdown === 'work' ? null : 'work')}
-                    aria-expanded={activeDropdown === 'work'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
-                  >
-                    <span>Find work</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                  </button>
-
-                  {activeDropdown === 'work' && (
-                    <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
-                        <NextLink
-                          href="/jobs"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
-                            <Briefcase className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Browse All Jobs
-                            </div>
-                            <div className="text-xs text-slate-500">Search high-budget contracts</div>
-                          </div>
-                        </NextLink>
-
-                        <NextLink
-                          href="/freelancer"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                            <Sparkles className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                              Freelancer Hub
-                            </div>
-                            <div className="text-xs text-slate-500">Track submitted proposals and bids</div>
-                          </div>
-                        </NextLink>
-
-                        <NextLink
-                          href="/saved"
-                          className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                        >
-                          <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                            <Bookmark className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-slate-900 group-hover:text-emerald-700">
-                                Saved Jobs
-                              </span>
-                              {savedJobIds.length > 0 && (
-                                <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[11px] font-bold rounded-full">
-                                  {savedJobIds.length}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-slate-500">Your bookmarked opportunities</div>
-                          </div>
-                        </NextLink>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <NextLink
-                  href="/jobs?category=AI+%26+Machine+Learning"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
-                >
-                  Get outcomes
-                </NextLink>
-
-                <NextLink
-                  href="/freelancers"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
-                >
-                  Why Workspace
-                </NextLink>
-
-                <NextLink
-                  href="/client"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors"
-                >
-                  Enterprise
-                </NextLink>
-              </nav>
             )}
           </div>
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
-          <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 shrink-0">
-            {/* Quick Search (Expanded or compact) */}
-            <form
-              onSubmit={handleSearchSubmit}
-              className="relative hidden sm:flex items-center"
-            >
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={user ? 'Search jobs...' : 'Search'}
-                className="w-36 md:w-52 lg:w-60 h-9 pl-9 pr-3 rounded-full border border-slate-200 bg-slate-50 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-[#14a800] focus:bg-white focus:ring-1 focus:ring-[#14a800] transition-all placeholder:text-slate-400"
-              />
-            </form>
+          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+            {/* Quick Search & Saved Jobs only on authenticated dashboard routes */}
+            {pathname !== '/' && user && (
+              <>
+                <form
+                  onSubmit={handleSearchSubmit}
+                  className="relative hidden sm:flex items-center"
+                >
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search jobs..."
+                    className="w-36 md:w-48 lg:w-56 h-9 pl-9 pr-3 rounded-full border border-slate-200 bg-slate-50 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-[#14a800] focus:bg-white focus:ring-1 focus:ring-[#14a800] transition-all placeholder:text-slate-400"
+                  />
+                </form>
 
-            {/* Saved Jobs Icon (Bookmark) */}
-            <NextLink
-              href="/saved"
-              className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
-              title="Saved jobs"
-            >
-              <Bookmark className="w-4.5 h-4.5" />
-              {savedJobIds.length > 0 && (
-                <span className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {savedJobIds.length}
-                </span>
-              )}
-            </NextLink>
+                <NextLink
+                  href="/saved"
+                  className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+                  title="Saved jobs"
+                >
+                  <Bookmark className="w-4.5 h-4.5" />
+                  {savedJobIds.length > 0 && (
+                    <span className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {savedJobIds.length}
+                    </span>
+                  )}
+                </NextLink>
+              </>
+            )}
 
-            {/* ---------- AUTHENTICATED RIGHT ELEMENTS ---------- */}
+            {/* ---------- AUTHENTICATED OR MARKETING RIGHT ELEMENTS ---------- */}
             {!authLoaded ? (
               <div className="h-9 w-20 sm:w-28" />
             ) : user ? (
               <>
-                {/* Help Icon */}
-                <NextLink
-                  href="/jobs"
-                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
-                  title="Help & Support"
-                >
-                  <HelpCircle className="w-4.5 h-4.5" />
-                </NextLink>
+                {pathname !== '/' ? (
+                  <>
+                    {/* Help Icon */}
+                    <NextLink
+                      href="/jobs"
+                      className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                      title="Help & Support"
+                    >
+                      <HelpCircle className="w-4.5 h-4.5" />
+                    </NextLink>
 
-                {/* Notifications Bell */}
-                <button
-                  type="button"
-                  onClick={() => router.push(isClientMode ? '/client' : '/freelancer')}
-                  className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors"
-                  title="Notifications"
-                >
-                  <Bell className="w-4.5 h-4.5" />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#14a800] rounded-full ring-2 ring-white" />
-                </button>
+                    {/* Notifications Bell */}
+                    <button
+                      type="button"
+                      onClick={() => router.push(isClientMode ? '/client' : '/freelancer')}
+                      className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                      title="Notifications"
+                    >
+                      <Bell className="w-4.5 h-4.5" />
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#14a800] rounded-full ring-2 ring-white" />
+                    </button>
 
-                {/* Direct Messages / Chat Link */}
-                <NextLink
-                  href={isClientMode ? '/client' : '/freelancer'}
-                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
-                  title="Messages"
-                >
-                  <MessageSquare className="w-4.5 h-4.5" />
-                </NextLink>
+                    {/* Direct Messages / Chat Link */}
+                    <NextLink
+                      href={isClientMode ? '/client' : '/freelancer'}
+                      className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                      title="Messages"
+                    >
+                      <MessageSquare className="w-4.5 h-4.5" />
+                    </NextLink>
+                  </>
+                ) : (
+                  <NextLink
+                    href={isClientMode ? '/client' : '/freelancer'}
+                    className="text-[14px] font-semibold text-[#001e00] hover:text-[#14a800] transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100 hidden sm:inline-block"
+                  >
+                    Dashboard
+                  </NextLink>
+                )}
 
                 {/* Profile Avatar & Dark Upwork-Style Dropdown */}
                 <div className="relative" ref={profileDropdownRef}>
@@ -989,18 +1125,18 @@ export default function Navbar() {
                 </div>
               </>
             ) : (
-              /* ---------- LOGGED OUT PUBLIC BUTTONS ---------- */
+              /* ---------- LOGGED OUT PUBLIC BUTTONS (UPWORK STYLE) ---------- */
               <>
                 <NextLink
                   href="/login"
-                  className="text-sm font-semibold text-slate-800 hover:text-[#14a800] transition-colors hidden sm:inline-block px-2"
+                  className="text-[14px] font-semibold text-[#001e00] hover:text-[#14a800] transition-colors hidden sm:inline-block px-3 py-2"
                 >
                   Log in
                 </NextLink>
 
                 <NextLink
                   href="/signup"
-                  className="inline-flex items-center justify-center px-4 py-2 sm:px-5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0"
+                  className="inline-flex items-center justify-center px-5 py-2 sm:px-6 sm:py-2.5 rounded-full text-xs sm:text-[14px] font-semibold text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0"
                 >
                   <span>Sign up</span>
                 </NextLink>

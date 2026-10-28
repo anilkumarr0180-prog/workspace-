@@ -19,7 +19,8 @@ import {
   Archive,
   RefreshCw,
   X,
-  ExternalLink
+  ExternalLink,
+  Layers
 } from 'lucide-react';
 import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 import ContactModal from '@/components/freelancers/contact-modal';
@@ -901,9 +902,17 @@ export default function ClientDashboardPage() {
                                     </>
                                   )}
 
-                                  {['accepted', 'rejected', 'withdrawn'].includes(prop.status) && (
+                                  {prop.status === 'accepted' ? (
+                                    <Link
+                                      href="/contracts"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold transition-colors"
+                                    >
+                                      <Layers className="w-3.5 h-3.5" />
+                                      <span>View Contract & Milestones</span>
+                                    </Link>
+                                  ) : ['rejected', 'withdrawn'].includes(prop.status) ? (
                                     <span className="text-[11px] text-slate-400 italic">Terminal Status</span>
-                                  )}
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
