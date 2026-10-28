@@ -2,57 +2,51 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, Search } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export default function UpworkHero() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'hire' | 'work'>('hire');
-  const [quickSearch, setQuickSearch] = useState('');
 
   return (
-    <div className="relative w-full rounded-2xl sm:rounded-3xl lg:rounded-[28px] overflow-hidden bg-slate-900 min-h-[480px] sm:min-h-[520px] lg:h-[560px] lg:min-h-[560px] xl:h-[570px] xl:min-h-[570px] flex items-center shadow-xl">
-      {/* Background Video - Workplace / Team collaboration */}
+    <div
+      className="relative w-full rounded-2xl sm:rounded-3xl lg:rounded-[28px] overflow-hidden bg-[#0d1519] min-h-[500px] sm:min-h-[560px] lg:h-[600px] lg:min-h-[600px] xl:h-[620px] xl:min-h-[620px] flex items-center shadow-xl group"
+    >
+      {/* Official Upwork Background Video Loop */}
       <video
         autoPlay
         muted
         loop
         playsInline
         preload="auto"
-        poster="/videos/open-office-poster.jpg"
-        className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none motion-reduce:hidden"
+        poster="/images/upwork-hero-bg.jpg"
+        className="absolute inset-0 w-full h-full object-cover object-[75%_center] sm:object-center pointer-events-none z-0"
       >
-        <source src="/videos/open-office-space.mp4" type="video/mp4" />
-        {/* Graceful fallback img if video cannot be rendered */}
+        <source src="/videos/hero-video-sm.mp4" type="video/mp4" />
+        <source src="/videos/upwork-hero.mp4" type="video/mp4" />
+        {/* Graceful fallback if video is not supported */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/videos/open-office-poster.jpg"
-          alt="Workspace team collaboration"
-          className="w-full h-full object-cover object-center"
+          src="/images/upwork-hero-bg.jpg"
+          alt="Work at the speed of your ambition"
+          className="w-full h-full object-cover object-[70%_center] sm:object-center"
         />
       </video>
 
-      {/* Fallback Static Poster for Reduced Motion Preferences */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-cover bg-center pointer-events-none hidden motion-reduce:block"
-        style={{ backgroundImage: `url('/videos/open-office-poster.jpg')` }}
-      />
+      {/* Balanced Vignette & Overlay for high text contrast without darkening the subject */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 via-50% to-transparent pointer-events-none z-10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none z-10" />
 
-      {/* High-Contrast Gradient Overlay for Crisp Legibility */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/80 via-45% to-black/35 sm:to-black/20 pointer-events-none" />
-
-      {/* Content Container - Constrained to left to leave hero subject visible */}
-      <div className="relative z-10 w-full p-6 sm:p-10 lg:p-14 xl:px-16 xl:py-14 max-w-xl lg:max-w-[560px] xl:max-w-[600px]">
+      {/* Content Container - Positioned on left with plenty of breathing room */}
+      <div className="relative z-20 w-full p-8 sm:p-12 lg:p-16 xl:px-20 xl:py-16 max-w-xl lg:max-w-[620px] xl:max-w-[660px]">
         {/* Hire / Work Toggle Pill */}
-        <div className="inline-flex items-center p-1 rounded-full bg-black/40 backdrop-blur-md border border-white/20 mb-5 sm:mb-6 shadow-inner">
+        <div className="inline-flex items-center p-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10 mb-6 sm:mb-8 shadow-inner">
           <button
             type="button"
             onClick={() => setActiveTab('hire')}
-            className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer ${
+            className={`px-6 py-2 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer ${
               activeTab === 'hire'
-                ? 'bg-white/25 text-white shadow-xs backdrop-blur-xs'
-                : 'text-white/70 hover:text-white font-medium'
+                ? 'bg-[#141414] text-white shadow-xs'
+                : 'text-white/75 hover:text-white font-medium'
             }`}
           >
             Hire
@@ -60,18 +54,18 @@ export default function UpworkHero() {
           <button
             type="button"
             onClick={() => setActiveTab('work')}
-            className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer ${
+            className={`px-6 py-2 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer ${
               activeTab === 'work'
-                ? 'bg-white/25 text-white shadow-xs backdrop-blur-xs'
-                : 'text-white/70 hover:text-white font-medium'
+                ? 'bg-[#141414] text-white shadow-xs'
+                : 'text-white/75 hover:text-white font-medium'
             }`}
           >
             Work
           </button>
         </div>
 
-        {/* Dynamic Headline Based on Toggle - Serif Upwork Editorial Sizing */}
-        <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-[52px] xl:text-[54px] font-serif font-medium tracking-tight text-white leading-[1.08] sm:leading-[1.1] transition-all duration-300">
+        {/* Dynamic Headline Based on Toggle - Authentic Upwork Bold Neo-Grotesque Sans */}
+        <h1 className="text-4xl sm:text-5xl md:text-[56px] lg:text-[62px] xl:text-[66px] font-semibold tracking-[-0.03em] text-white leading-[1.08] transition-all duration-300">
           {activeTab === 'hire' ? (
             <>
               Work at the speed of <br className="hidden sm:inline" />
@@ -86,43 +80,21 @@ export default function UpworkHero() {
         </h1>
 
         {/* Dynamic Subtitle */}
-        <p className="mt-3.5 sm:mt-4 text-sm sm:text-base lg:text-[17px] text-white/85 leading-relaxed max-w-[460px] font-normal transition-all duration-300">
+        <p className="mt-4 sm:mt-5 text-base sm:text-lg lg:text-[19px] text-white/90 leading-[1.45] max-w-[500px] font-normal transition-all duration-300">
           {activeTab === 'hire'
             ? 'Hire experts who use AI to amplify their talent, turning complex work into high impact business outcomes'
             : 'Meet clients you’re excited to work with and take your career or business to new heights with transparent contracts and escrow.'}
         </p>
 
-        {/* Primary CTA Button & Quick Search */}
-        <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 sm:gap-4">
+        {/* Primary CTA Button - Exactly matching Upwork's signature green button */}
+        <div className="mt-8 sm:mt-10">
           <Link
             href={activeTab === 'hire' ? '/client/jobs/new' : '/jobs'}
-            className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 rounded-full bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] text-white font-semibold text-[15px] sm:text-base transition-all duration-150 shadow-md shadow-black/20 shrink-0"
+            className="inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-full bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] text-white font-semibold text-[15px] sm:text-base transition-all duration-150 shadow-md shadow-black/25"
           >
             <span>{activeTab === 'hire' ? 'Get started' : 'Find opportunities'}</span>
             <ArrowRight className="w-4.5 h-4.5" />
           </Link>
-
-          {/* Quick Search Trigger */}
-          <div className="relative flex-1 max-w-sm hidden sm:block">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (quickSearch.trim()) {
-                  router.push(`/jobs?q=${encodeURIComponent(quickSearch.trim())}`);
-                }
-              }}
-              className="relative flex items-center"
-            >
-              <Search className="w-4 h-4 text-white/60 absolute left-3.5 pointer-events-none" />
-              <input
-                type="text"
-                value={quickSearch}
-                onChange={(e) => setQuickSearch(e.target.value)}
-                placeholder={activeTab === 'hire' ? 'Search talent by skill...' : 'Search jobs by title, keyword...'}
-                className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/20 text-white placeholder:text-white/60 text-xs sm:text-sm pl-9 pr-3 py-3 rounded-full border border-white/20 focus:outline-hidden focus:ring-1 focus:ring-white/40 transition-colors"
-              />
-            </form>
-          </div>
         </div>
       </div>
     </div>

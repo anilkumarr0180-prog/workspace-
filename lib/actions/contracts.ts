@@ -9,6 +9,7 @@ export interface GetContractsFilters {
   as?: 'freelancer' | 'client';
   status?: ContractStatus;
   jobId?: string;
+  proposalId?: string;
 }
 
 export interface ContractDetailsResult {
@@ -157,6 +158,13 @@ export async function getContracts(filters: GetContractsFilters = {}): Promise<C
         return { success: true, contracts: [], total: 0 };
       }
       query = query.eq('job_id', filters.jobId.trim());
+    }
+
+    if (filters.proposalId) {
+      if (!UUID_REGEX.test(filters.proposalId.trim())) {
+        return { success: true, contracts: [], total: 0 };
+      }
+      query = query.eq('proposal_id', filters.proposalId.trim());
     }
 
     query = query.order('created_at', { ascending: false });

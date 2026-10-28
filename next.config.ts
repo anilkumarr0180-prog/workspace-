@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/webhooks/razorpa',
+        destination: '/api/webhooks/razorpay',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

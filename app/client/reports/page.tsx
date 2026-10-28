@@ -68,6 +68,8 @@ export default function ClientReportsPage() {
     activeHourlyContracts: 0,
     activeFixedContracts: 0,
     totalAgreedFixedValue: 0,
+    simulatedMilestoneReleased: 0,
+    simulatedEscrowHeld: 0,
     invoicedAmount: 0,
     paidAmount: 0,
     paymentsImplemented: false as const,
@@ -122,11 +124,11 @@ export default function ClientReportsPage() {
             </h1>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Verified Time Records
+              Verified Time & Ledger
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Review tracked hours, verified weekly timesheets, and agreed project rates for your team.
+            Review tracked hours, weekly timesheets, and simulated milestone escrow and release status.
           </p>
         </div>
 
@@ -149,13 +151,13 @@ export default function ClientReportsPage() {
         </div>
       </div>
 
-      {/* Notice Banner: Strict separation of tracked work vs payments */}
+      {/* Notice Banner: Strict separation of tracked work vs simulated milestones vs real payments */}
       <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3 text-amber-900 shadow-2xs">
         <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
         <div className="text-xs sm:text-sm space-y-1">
-          <div className="font-bold text-amber-950">Payment & Invoicing Status: Not Yet Implemented</div>
+          <div className="font-bold text-amber-950">Financial Separation & Simulation Notice</div>
           <p className="text-amber-800 leading-relaxed">
-            Workspace currently tracks authoritative hours and weekly timesheet accruals from genuine database timer sessions. Automatic credit card billing, invoicing, and escrow disbursements are not yet enabled in this milestone. Accrued amounts reflect verified work performed at your agreed contract rates.
+            Workspace tracks authoritative hours for hourly contracts and simulated milestone escrow/releases for fixed-price contracts. Simulated milestone releases and simulated platform service fees (10%) are recorded in the milestone ledger for workflow auditing purposes only. Real automated billing, payment gateways, and bank disbursements are not configured; actual money paid out is $0.00.
           </p>
         </div>
       </div>
@@ -181,12 +183,12 @@ export default function ClientReportsPage() {
       )}
 
       {/* KPI Overview Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
         {/* 1. Total Logged Time */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Total Logged Time
+              Hourly Tracked
             </span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <Clock className="w-4 h-4" />
@@ -208,11 +210,11 @@ export default function ClientReportsPage() {
           </div>
         </div>
 
-        {/* 2. Accrued Work Total */}
+        {/* 2. Accrued Hourly Work Total */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Accrued Work Value
+              Hourly Accrued
             </span>
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
               <DollarSign className="w-4 h-4" />
@@ -227,14 +229,40 @@ export default function ClientReportsPage() {
                   ${stats.totalAccruedAmount.toFixed(2)}
                 </span>
                 <span className="text-xs text-blue-600 font-semibold block mt-0.5">
-                  Accrued at agreed rates
+                  Verified timesheet rate
                 </span>
               </>
             )}
           </div>
         </div>
 
-        {/* 3. Active Contracts */}
+        {/* 3. Simulated Milestones Released */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Milestones Released
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            {loading ? (
+              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
+            ) : (
+              <>
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                  ${stats.simulatedMilestoneReleased.toFixed(2)}
+                </span>
+                <span className="text-xs text-indigo-600 font-semibold block mt-0.5">
+                  Simulated escrow: ${stats.simulatedEscrowHeld.toFixed(2)}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 4. Active Contracts */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -260,7 +288,7 @@ export default function ClientReportsPage() {
           </div>
         </div>
 
-        {/* 4. Invoiced & Paid (Accurate Unimplemented State) */}
+        {/* 5. Invoiced & Paid (Accurate Unimplemented State) */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -487,7 +515,9 @@ export default function ClientReportsPage() {
                       {data.contracts.map((contract) => (
                         <tr key={contract.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3.5 pr-4 font-semibold text-slate-900">
-                            <div>{contract.title}</div>
+                            <Link href={`/contracts/${contract.id}`} className="hover:text-emerald-700 hover:underline">
+                              {contract.title}
+                            </Link>
                             <div className="text-xs text-slate-400 font-normal">{contract.jobTitle}</div>
                           </td>
                           <td className="py-3.5 pr-4 text-slate-700 whitespace-nowrap">
@@ -513,6 +543,9 @@ export default function ClientReportsPage() {
                           </td>
                           <td className="py-3.5 pr-4 text-right font-semibold text-emerald-700 whitespace-nowrap">
                             ${contract.accruedAmount.toFixed(2)}
+                            {contract.contractType === 'fixed' && (
+                              <span className="block text-[10px] text-slate-400 font-normal">Simulated release</span>
+                            )}
                           </td>
                           <td className="py-3.5 text-right whitespace-nowrap">
                             <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${

@@ -224,3 +224,84 @@ export interface Timesheet {
   updatedAt: string;
 }
 
+export type MilestoneStatus =
+  | 'planned'
+  | 'funded'
+  | 'in_progress'
+  | 'submitted'
+  | 'revision_requested'
+  | 'approved'
+  | 'released'
+  | 'cancelled';
+
+export type DeliveryReviewStatus = 'pending' | 'approved' | 'revision_requested' | 'superseded';
+
+export type LedgerEventType =
+  | 'escrow_funded'
+  | 'escrow_released'
+  | 'payout_disbursed'
+  | 'service_fee_deducted'
+  | 'escrow_refund';
+
+export type LedgerStatus = 'succeeded' | 'pending' | 'reversed';
+
+export interface DeliveryAttachment {
+  title: string;
+  url: string;
+  type?: string;
+}
+
+export interface MilestoneDelivery {
+  id: string;
+  milestoneId: string;
+  freelancerId: string;
+  freelancerName?: string;
+  freelancerAvatar?: string | null;
+  deliveryNotes: string;
+  attachments: DeliveryAttachment[];
+  submittedAt: string;
+  reviewStatus: DeliveryReviewStatus;
+  clientFeedback?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  version: number;
+  createdAt: string;
+}
+
+export interface ContractMilestone {
+  id: string;
+  contractId: string;
+  clientId: string;
+  clientName?: string;
+  freelancerId: string;
+  freelancerName?: string;
+  title: string;
+  description: string;
+  amount: number;
+  currency: string;
+  sequenceOrder: number;
+  dueDate?: string | null;
+  status: MilestoneStatus;
+  createdAt: string;
+  updatedAt: string;
+  deliveries?: MilestoneDelivery[];
+}
+
+export interface PaymentLedgerEntry {
+  id: string;
+  contractId: string;
+  milestoneId?: string | null;
+  milestoneTitle?: string | null;
+  fromUserId?: string | null;
+  fromUserName?: string | null;
+  toUserId?: string | null;
+  toUserName?: string | null;
+  amount: number;
+  currency: string;
+  eventType: LedgerEventType;
+  status: LedgerStatus;
+  description: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
