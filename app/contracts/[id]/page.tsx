@@ -1704,33 +1704,35 @@ function ContractDetailsContent() {
               </button>
             </div>
 
-            {/* Payment Method 2: Instant Simulated Funding */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-slate-800">Alternative: Direct Mock Deposit</span>
-                  <p className="text-[11px] text-slate-500">
-                    Simulate escrow funding immediately without opening the gateway modal.
-                  </p>
+            {/* Payment Method 2: Instant Simulated Funding (Development / Demo Mode Only) */}
+            {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true') && (
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">Alternative: Direct Mock Deposit</span>
+                    <p className="text-[11px] text-slate-500">
+                      Simulate escrow funding immediately without opening the gateway modal.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => handleSimulatedFunding(selectedMilestoneForFund.id)}
-                disabled={isFundingWithRazorpay || isFundingSimulated}
-                className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                {isFundingSimulated ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Simulating Deposit...</span>
-                  </>
-                ) : (
-                  <span>Deposit via Simulation (Skip Card)</span>
-                )}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => handleSimulatedFunding(selectedMilestoneForFund.id)}
+                  disabled={isFundingWithRazorpay || isFundingSimulated}
+                  className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {isFundingSimulated ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Simulating Deposit...</span>
+                    </>
+                  ) : (
+                    <span>Deposit via Simulation (Skip Card)</span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

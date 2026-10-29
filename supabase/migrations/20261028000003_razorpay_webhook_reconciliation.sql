@@ -172,7 +172,7 @@ REVOKE ALL ON FUNCTION public.reconcile_webhook_payment FROM PUBLIC, anon, authe
 GRANT EXECUTE ON FUNCTION public.reconcile_webhook_payment TO service_role;
 
 -- 2. ENHANCE SYNCHRONOUS FUNDING FOR BIDIRECTIONAL IDEMPOTENCY
--- If already funded by webhook with the same order ID, return existing milestone gracefully
+-- Restricted strictly to service_role (invoked exclusively by server-verified actions)
 CREATE OR REPLACE FUNCTION public.fund_milestone_with_payment(
     p_milestone_id uuid,
     p_payment_metadata jsonb DEFAULT '{}'::jsonb
@@ -183,7 +183,7 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_actor_id uuid := auth.uid();
+    v_actor_id uuid;
     v_milestone public.contract_milestones;
     v_contract RECORD;
     v_provider text;
@@ -191,8 +191,10 @@ DECLARE
     v_order_id text;
     v_payment_id text;
 BEGIN
-    IF v_actor_id IS NULL THEN
-        RAISE EXCEPTION 'Authentication required' USING ERRCODE = '42501';
+    -- Strict least-privilege authorization check: caller must be service_role or superuser/postgres
+    IF current_user <> 'service_role' AND COALESCE(auth.role(), '') <> 'service_role' AND current_user NOT IN ('postgres', 'supabase_admin') THEN
+        RAISE EXCEPTION 'Access denied: fund_milestone_with_payment is restricted to service_role'
+            USING ERRCODE = '42501';
     END IF;
 
     -- Strict atomic row lock on milestone to eliminate race conditions
@@ -203,7 +205,15 @@ BEGIN
 
     SELECT * INTO v_contract FROM public.contracts WHERE id = v_milestone.contract_id;
 
-    -- Authorization check
+    -- Resolve authoritative funding actor from server-verified metadata or session
+    v_actor_id := COALESCE(
+        NULLIF(p_payment_metadata->>'funded_by', '')::uuid,
+        NULLIF(p_payment_metadata->>'client_id', '')::uuid,
+        auth.uid(),
+        v_milestone.client_id
+    );
+
+    -- Authorization check on actor
     IF v_milestone.client_id <> v_actor_id THEN
         IF v_contract.company_id IS NULL OR NOT EXISTS (
             SELECT 1 FROM public.company_members cm
@@ -297,5 +307,88 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fund_milestone_with_payment FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fund_milestone_with_payment TO authenticated;
+-- Revoke all client access from fund_milestone_with_payment; restrict to service_role
+REVOKE ALL ON FUNCTION public.fund_milestone_with_payment(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fund_milestone_with_payment(uuid, jsonb) TO service_role;
+
+-- ============================================================================
+-- 3. HARDEN SIMULATED ESCROW FUNDING: PREVENT DIRECT CLIENT BYPASS
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fund_milestone(
+    p_milestone_id uuid
+)
+RETURNS public.contract_milestones
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_actor_id uuid;
+    v_milestone public.contract_milestones;
+    v_contract RECORD;
+BEGIN
+    -- Strict authorization check: caller must be service_role or superuser/postgres
+    IF current_user <> 'service_role' AND COALESCE(auth.role(), '') <> 'service_role' AND current_user NOT IN ('postgres', 'supabase_admin') THEN
+        RAISE EXCEPTION 'Access denied: fund_milestone is restricted to service_role'
+            USING ERRCODE = '42501';
+    END IF;
+
+    SELECT * INTO v_milestone FROM public.contract_milestones WHERE id = p_milestone_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Milestone % not found', p_milestone_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT * INTO v_contract FROM public.contracts WHERE id = v_milestone.contract_id;
+
+    v_actor_id := COALESCE(auth.uid(), v_milestone.client_id);
+
+    IF v_milestone.status <> 'planned' THEN
+        RAISE EXCEPTION 'Milestone % is in state "%" and cannot be funded', p_milestone_id, v_milestone.status
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- Update milestone status
+    UPDATE public.contract_milestones
+       SET status = 'funded',
+           updated_at = clock_timestamp()
+     WHERE id = p_milestone_id
+ RETURNING * INTO v_milestone;
+
+    -- Record append-only escrow deposit ledger entry
+    INSERT INTO public.payment_ledger (
+        contract_id,
+        milestone_id,
+        from_user_id,
+        to_user_id,
+        amount,
+        currency,
+        event_type,
+        status,
+        description,
+        metadata
+    ) VALUES (
+        v_milestone.contract_id,
+        v_milestone.id,
+        v_milestone.client_id,
+        NULL,
+        v_milestone.amount,
+        v_milestone.currency,
+        'escrow_funded',
+        'succeeded',
+        'Escrow Funded: Milestone #' || v_milestone.sequence_order || ' (' || v_milestone.title || ')',
+        jsonb_build_object(
+            'milestone_id', v_milestone.id,
+            'contract_id', v_milestone.contract_id,
+            'funded_by', v_actor_id,
+            'timestamp', clock_timestamp()
+        )
+    );
+
+    RETURN v_milestone;
+END;
+$$;
+
+-- Revoke all client access from fund_milestone; restrict to service_role
+REVOKE ALL ON FUNCTION public.fund_milestone(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fund_milestone(uuid) TO service_role;
+

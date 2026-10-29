@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
   ContractMilestone,
   DeliveryAttachment,
@@ -490,8 +491,52 @@ export async function fundMilestone(milestoneId: string): Promise<MilestoneResul
     return { success: false, error: 'Authentication required to fund milestones.', code: 'UNAUTHENTICATED' };
   }
 
+  // Protect against simulated funding bypassing real payments in production
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowSimulated = process.env.ENABLE_SIMULATED_PAYMENTS === 'true' || process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true';
+
+  if (isProduction && !allowSimulated) {
+    return {
+      success: false,
+      error: 'Simulated escrow funding is disabled in production. Please use Razorpay to fund milestones.',
+      code: 'SIMULATED_PAYMENTS_DISABLED',
+    };
+  }
+
   try {
-    const { data, error } = await supabase.rpc('fund_milestone', {
+    // Authorize caller against milestone and parent contract
+    const { data: milestoneData, error: milestoneError } = await supabase
+      .from('contract_milestones')
+      .select('id, client_id, status, contracts:contract_id (id, client_id, company_id)')
+      .eq('id', milestoneId.trim())
+      .single();
+
+    if (milestoneError || !milestoneData) {
+      return { success: false, error: 'Milestone not found.', code: 'NOT_FOUND' };
+    }
+
+    const rawContract = Array.isArray(milestoneData.contracts) ? milestoneData.contracts[0] : milestoneData.contracts;
+    const isDirectClient = milestoneData.client_id === user.id || rawContract?.client_id === user.id;
+
+    if (!isDirectClient) {
+      if (rawContract?.company_id) {
+        const { data: membership } = await supabase
+          .from('company_members')
+          .select('role')
+          .eq('company_id', rawContract.company_id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!membership || !['owner', 'admin', 'hiring_manager'].includes(membership.role)) {
+          return { success: false, error: 'You are not authorized to fund this milestone.', code: 'FORBIDDEN' };
+        }
+      } else {
+        return { success: false, error: 'You are not authorized to fund this milestone.', code: 'FORBIDDEN' };
+      }
+    }
+
+    const adminSupabase = getAdminSupabaseClient();
+    const { data, error } = await adminSupabase.rpc('fund_milestone', {
       p_milestone_id: milestoneId.trim(),
     });
 

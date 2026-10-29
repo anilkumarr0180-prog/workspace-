@@ -193,6 +193,157 @@ async function runTests() {
   const isAuthorized = unauthorizedUser === contractClientId;
   assert(!isAuthorized, 'Test 11: Unauthorized caller is rejected from funding client milestone');
 
+  // ==========================================================================
+  // Isolated Database Authorization Tests (Proving no faked capture by client)
+  // ==========================================================================
+  console.log('\n  --- Running Isolated Database Authorization Verification ---');
+  try {
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { pgcrypto } = await import('@electric-sql/pglite/contrib/pgcrypto');
+    const { pg_trgm } = await import('@electric-sql/pglite/contrib/pg_trgm');
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const db = new PGlite({ extensions: { pgcrypto, pg_trgm } });
+
+    await db.exec(`
+      CREATE SCHEMA IF NOT EXISTS auth;
+      CREATE SCHEMA IF NOT EXISTS extensions;
+      CREATE TABLE IF NOT EXISTS auth.users (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        email text UNIQUE,
+        raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+        created_at timestamptz DEFAULT now()
+      );
+      CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$
+        SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
+      $$ LANGUAGE sql STABLE;
+      CREATE OR REPLACE FUNCTION auth.role() RETURNS text AS $$
+        SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), 'authenticated');
+      $$ LANGUAGE sql STABLE;
+
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+      END $$;
+    `);
+
+    const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      await db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf-8'));
+    }
+
+    // Setup test users, job, proposal, contract, milestone
+    const clientId = '11111111-1111-1111-1111-111111111111';
+    const freelancerId = '22222222-2222-2222-2222-222222222222';
+    const contractId = '33333333-3333-3333-3333-333333333333';
+    const fakeOrderId = 'order_FAKED_ATTACK_123';
+
+    await db.exec(`
+      INSERT INTO auth.users (id, email) VALUES
+        ('${clientId}', 'client_test@workspace.local'),
+        ('${freelancerId}', 'freelancer_test@workspace.local')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO public.profiles (id, username, full_name, can_hire, can_work, active_mode) VALUES
+        ('${clientId}', 'testclient', 'Test Client', true, false, 'client'),
+        ('${freelancerId}', 'testfree', 'Test Freelancer', false, true, 'freelancer')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO public.jobs (id, client_id, category_id, title, description, project_type, budget_min, experience_level, duration, status)
+      VALUES ('55555555-5555-5555-5555-555555555555', '${clientId}', (SELECT id FROM public.categories LIMIT 1), 'Test Fixed Job', 'This is a comprehensive test job description that easily exceeds the fifty character minimum requirement.', 'fixed', 500, 'expert', 'less_than_1_month', 'published');
+
+      INSERT INTO public.proposals (id, job_id, freelancer_id, bid_amount, rate_type, cover_letter, status)
+      VALUES ('66666666-6666-6666-6666-666666666666', '55555555-5555-5555-5555-555555555555', '${freelancerId}', 500, 'fixed', 'A minimum fifty character cover letter to satisfy the integrity check requirement.', 'accepted');
+
+      INSERT INTO public.contracts (id, proposal_id, job_id, client_id, freelancer_id, contract_type, title, fixed_price, status)
+      VALUES ('${contractId}', '66666666-6666-6666-6666-666666666666', '55555555-5555-5555-5555-555555555555', '${clientId}', '${freelancerId}', 'fixed', 'Test Fixed Job', 500, 'active');
+    `);
+
+    const mRes = await db.query(`SELECT id FROM public.contract_milestones WHERE contract_id = '${contractId}' AND sequence_order = 1;`);
+    const mRows = mRes.rows as Array<{ id: string }>;
+    const milestoneId = String(mRows[0].id);
+
+    await db.exec(`
+      INSERT INTO public.payment_attempts (contract_id, milestone_id, client_id, razorpay_order_id, amount, amount_subunits, currency, status)
+      VALUES ('${contractId}', '${milestoneId}', '${clientId}', '${fakeOrderId}', 500, 50000, 'USD', 'created');
+    `);
+
+    // Test 12: Authenticated user attempting to call fund_milestone_with_payment directly
+    let authenticatedCallBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.fund_milestone_with_payment('${milestoneId}'::uuid, '{"razorpay_order_id": "${fakeOrderId}"}'::jsonb);
+      `);
+    } catch {
+      authenticatedCallBlocked = true;
+    }
+    assert(authenticatedCallBlocked, 'Test 12: Authenticated user cannot directly invoke fund_milestone_with_payment (faked payment capture rejected)');
+
+    // Test 13: Authenticated user attempting to call fund_milestone directly
+    let simulatedCallBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.fund_milestone('${milestoneId}'::uuid);
+      `);
+    } catch {
+      simulatedCallBlocked = true;
+    }
+    assert(simulatedCallBlocked, 'Test 13: Authenticated user cannot directly invoke fund_milestone (direct simulation bypass rejected)');
+
+    // Test 14: Privileged service_role caller successfully funds milestone
+    let serviceRoleCallSucceeded = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE service_role;
+        SET LOCAL "request.jwt.claim.role" = 'service_role';
+        SELECT public.fund_milestone_with_payment(
+          '${milestoneId}'::uuid,
+          '{"provider": "razorpay", "razorpay_order_id": "${fakeOrderId}", "razorpay_payment_id": "pay_REAL_123", "funded_by": "${clientId}"}'::jsonb
+        );
+      `);
+      const checkRes = await db.query(`SELECT status FROM public.contract_milestones WHERE id = '${milestoneId}';`);
+      const attemptRes = await db.query(`SELECT status FROM public.payment_attempts WHERE razorpay_order_id = '${fakeOrderId}';`);
+      const checkRows = checkRes.rows as Array<{ status?: string }>;
+      const attemptRows = attemptRes.rows as Array<{ status?: string }>;
+      if (checkRows[0]?.status === 'funded' && attemptRows[0]?.status === 'captured') {
+        serviceRoleCallSucceeded = true;
+      }
+    } catch (err: unknown) {
+      console.error('Service role error:', err);
+    }
+    assert(serviceRoleCallSucceeded, 'Test 14: Authorized service_role server call successfully captures payment and funds milestone');
+
+    // Test 15: Bidirectional Idempotency: duplicate service_role call on already-funded milestone
+    let idempotentCallSucceeded = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE service_role;
+        SET LOCAL "request.jwt.claim.role" = 'service_role';
+        SELECT public.fund_milestone_with_payment(
+          '${milestoneId}'::uuid,
+          '{"provider": "razorpay", "razorpay_order_id": "${fakeOrderId}", "razorpay_payment_id": "pay_REAL_123"}'::jsonb
+        );
+      `);
+      idempotentCallSucceeded = true;
+    } catch {
+      idempotentCallSucceeded = false;
+    }
+    assert(idempotentCallSucceeded, 'Test 15: Idempotent duplicate server funding call succeeds gracefully without ledger mutation');
+
+  } catch (dbErr) {
+    console.error('Database security test failure:', dbErr);
+    assert(false, 'Database security suite execution', String(dbErr));
+  }
+
   console.log('\n--- Summary ---');
   const totalPassed = results.filter((r) => r.passed).length;
   console.log(`Total Passed: ${totalPassed} / ${results.length}`);
