@@ -118,3 +118,51 @@ export function verifyRazorpayWebhookSignature(
   }
 }
 
+/**
+ * Safely extracts human-readable error messages from diverse error types:
+ * - Standard Error instances (err.message)
+ * - Razorpay SDK normalized error objects ({ error: { description: '...' } } or { error: { message: '...' } })
+ * - Direct object shapes ({ message: '...' } or { description: '...' })
+ * - String errors
+ * Sanitizes against accidental token/secret exposure and falls back to a safe default.
+ */
+export function extractPaymentErrorMessage(err: unknown, fallbackMessage: string): string {
+  if (!err) {
+    return fallbackMessage;
+  }
+
+  if (err instanceof Error) {
+    return err.message && err.message.trim() ? err.message.trim() : fallbackMessage;
+  }
+
+  if (typeof err === 'string' && err.trim().length > 0) {
+    return err.trim();
+  }
+
+  if (typeof err === 'object' && err !== null) {
+    const obj = err as Record<string, unknown>;
+
+    // Razorpay SDK error structure: { statusCode: number, error: { description: string, code?: string } }
+    if (obj.error && typeof obj.error === 'object' && obj.error !== null) {
+      const nested = obj.error as Record<string, unknown>;
+      if (typeof nested.description === 'string' && nested.description.trim().length > 0) {
+        return nested.description.trim();
+      }
+      if (typeof nested.message === 'string' && nested.message.trim().length > 0) {
+        return nested.message.trim();
+      }
+    }
+
+    if (typeof obj.description === 'string' && obj.description.trim().length > 0) {
+      return obj.description.trim();
+    }
+
+    if (typeof obj.message === 'string' && obj.message.trim().length > 0) {
+      return obj.message.trim();
+    }
+  }
+
+  return fallbackMessage;
+}
+
+
