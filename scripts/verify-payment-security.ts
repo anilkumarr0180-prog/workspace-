@@ -9,6 +9,7 @@ import {
   verifyRazorpayPaymentSignature,
   verifyRazorpayWebhookSignature,
   isRazorpayWebhookConfigured,
+  extractPaymentErrorMessage,
 } from '../lib/razorpay';
 
 interface TestResult {
@@ -343,6 +344,72 @@ async function runTests() {
     console.error('Database security test failure:', dbErr);
     assert(false, 'Database security suite execution', String(dbErr));
   }
+
+  // 16. Payment Error Handling Robustness Suite
+  console.log('\n  --- Running Payment Error Extraction Verification ---');
+
+  // 16a. Standard Error object
+  const stdError = new Error('Gateway network timeout');
+  const stdMsg = extractPaymentErrorMessage(stdError, 'Fallback error');
+  assert(stdMsg === 'Gateway network timeout', 'Test 16a: Extracts message from standard Error instance');
+
+  // 16b. Razorpay SDK normalized error with nested error.description
+  const rzpSdkDescError = {
+    statusCode: 400,
+    error: {
+      code: 'BAD_REQUEST_ERROR',
+      description: 'Invalid API key',
+      source: 'NA',
+      step: 'NA',
+      reason: 'NA',
+    },
+  };
+  const rzpDescMsg = extractPaymentErrorMessage(rzpSdkDescError, 'Fallback error');
+  assert(rzpDescMsg === 'Invalid API key', 'Test 16b: Extracts description from Razorpay SDK error object');
+
+  // 16c. Razorpay SDK error with nested error.message
+  const rzpSdkMsgError = {
+    statusCode: 500,
+    error: {
+      code: 'GATEWAY_ERROR',
+      message: 'Payment service temporarily unavailable',
+    },
+  };
+  const rzpMsg = extractPaymentErrorMessage(rzpSdkMsgError, 'Fallback error');
+  assert(rzpMsg === 'Payment service temporarily unavailable', 'Test 16c: Extracts message from Razorpay SDK nested error.message');
+
+  // 16d. Direct object error with description or message
+  const directDescObj = { description: 'Card expired or declined by issuer' };
+  assert(
+    extractPaymentErrorMessage(directDescObj, 'Fallback error') === 'Card expired or declined by issuer',
+    'Test 16d: Extracts description from direct object'
+  );
+
+  const directMsgObj = { message: 'Transaction rejected' };
+  assert(
+    extractPaymentErrorMessage(directMsgObj, 'Fallback error') === 'Transaction rejected',
+    'Test 16e: Extracts message from direct object'
+  );
+
+  // 16e. String error
+  const stringErr = 'Direct failure string';
+  assert(
+    extractPaymentErrorMessage(stringErr, 'Fallback error') === 'Direct failure string',
+    'Test 16f: Extracts direct string error'
+  );
+
+  // 16f. Unknown error shapes fall back safely without leaking secrets
+  const fallbackDefault = 'Default fallback error';
+  assert(extractPaymentErrorMessage(null, fallbackDefault) === fallbackDefault, 'Test 16g: null falls back safely');
+  assert(extractPaymentErrorMessage(undefined, fallbackDefault) === fallbackDefault, 'Test 16h: undefined falls back safely');
+  assert(extractPaymentErrorMessage({}, fallbackDefault) === fallbackDefault, 'Test 16i: empty object falls back safely');
+  assert(extractPaymentErrorMessage({ error: {} }, fallbackDefault) === fallbackDefault, 'Test 16j: empty nested error object falls back safely');
+  assert(extractPaymentErrorMessage(12345, fallbackDefault) === fallbackDefault, 'Test 16k: numeric error falls back safely');
+  assert(extractPaymentErrorMessage(true, fallbackDefault) === fallbackDefault, 'Test 16l: boolean error falls back safely');
+  assert(
+    extractPaymentErrorMessage({ secret_token: 'super_secret_value' }, fallbackDefault) === fallbackDefault,
+    'Test 16m: Sensitive property object falls back safely without leaking tokens'
+  );
 
   console.log('\n--- Summary ---');
   const totalPassed = results.filter((r) => r.passed).length;

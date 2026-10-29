@@ -2,7 +2,11 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
-import { getRazorpayClient, verifyRazorpayPaymentSignature } from '@/lib/razorpay';
+import {
+  getRazorpayClient,
+  verifyRazorpayPaymentSignature,
+  extractPaymentErrorMessage,
+} from '@/lib/razorpay';
 import { MilestoneResult } from '@/lib/actions/milestones';
 import { MilestoneStatus } from '@/lib/types';
 
@@ -47,6 +51,7 @@ interface RawPaymentAttemptRow {
   created_at: string;
   updated_at: string;
 }
+
 
 /**
  * Creates and persists a server-verified Razorpay Order for milestone escrow funding.
@@ -226,7 +231,7 @@ export async function createMilestoneRazorpayOrder(
       contractId: rawContract.id,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to create Razorpay payment order.';
+    const message = extractPaymentErrorMessage(err, 'Failed to create Razorpay payment order.');
     return { success: false, error: message };
   }
 }
@@ -360,7 +365,7 @@ export async function verifyAndFundMilestoneRazorpay(
     const razorpay = getRazorpayClient();
     payment = (await razorpay.payments.fetch(razorpayPaymentId.trim())) as typeof payment;
   } catch (apiErr) {
-    const message = apiErr instanceof Error ? apiErr.message : 'Communication error with Razorpay API';
+    const message = extractPaymentErrorMessage(apiErr, 'Communication error with Razorpay API');
     return {
       success: false,
       error: `Failed to verify payment with Razorpay: ${message}. Payment funding rejected.`,
@@ -473,7 +478,7 @@ export async function verifyAndFundMilestoneRazorpay(
       },
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to finalize milestone payment.';
+    const message = extractPaymentErrorMessage(err, 'Failed to finalize milestone payment.');
     return { success: false, error: message };
   }
 }
