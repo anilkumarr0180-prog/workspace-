@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getRazorpayClient, verifyRazorpayPaymentSignature } from '@/lib/razorpay';
 import { MilestoneResult } from '@/lib/actions/milestones';
 import { MilestoneStatus } from '@/lib/types';
@@ -415,10 +416,13 @@ export async function verifyAndFundMilestoneRazorpay(
     captured_amount: payment.amount,
     captured_currency: payment.currency,
     verified_at: new Date().toISOString(),
+    funded_by: user.id,
+    client_id: user.id,
   };
 
   try {
-    const { data: rawMilestoneData, error: rpcError } = await supabase.rpc('fund_milestone_with_payment', {
+    const adminSupabase = getAdminSupabaseClient();
+    const { data: rawMilestoneData, error: rpcError } = await adminSupabase.rpc('fund_milestone_with_payment', {
       p_milestone_id: milestoneId.trim(),
       p_payment_metadata: paymentMetadata,
     });
