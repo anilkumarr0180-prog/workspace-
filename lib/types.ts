@@ -305,3 +305,29 @@ export interface PaymentLedgerEntry {
   createdAt: string;
 }
 
+export type NotificationType =
+  | 'proposal_received'
+  | 'proposal_status_updated'
+  | 'milestone_funded'
+  | 'milestone_work_submitted'
+  | 'milestone_revision_requested'
+  | 'milestone_approved'
+  | 'contract_created'
+  | 'payment_processed'
+  | 'system_announcement';
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string | null;
+  read: boolean;
+  readAt?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+

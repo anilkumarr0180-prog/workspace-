@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { ProjectType } from '@/lib/types';
+import { createNotification } from '@/lib/actions/notifications';
 
 export interface SubmitProposalInput {
   jobId: string;
@@ -251,6 +252,17 @@ export async function submitProposal(input: SubmitProposalInput): Promise<{
         error: `Database error: ${insertError.message}`,
         code: insertError.code,
       };
+    }
+
+    if (job.client_id) {
+      createNotification({
+        userId: job.client_id,
+        type: 'proposal_received',
+        title: 'New Proposal Received',
+        message: `A freelancer submitted a proposal for "${job.title}".`,
+        link: `/client`,
+        metadata: { jobId: job.id, proposalId: newProposal.id },
+      }).catch(() => {});
     }
 
     return {
@@ -614,6 +626,17 @@ export async function updateProposalStatus(
         error: `Database rejected update: ${updateError.message}`,
         code: updateError.code,
       };
+    }
+
+    if (!isFreelancer && proposal.freelancer_id) {
+      createNotification({
+        userId: proposal.freelancer_id,
+        type: 'proposal_status_updated',
+        title: 'Proposal Status Updated',
+        message: `Your proposal for "${job?.title || 'the job'}" is now ${newStatus.replace('_', ' ')}.`,
+        link: `/freelancer`,
+        metadata: { proposalId: proposal.id, jobId: proposal.job_id, status: newStatus },
+      }).catch(() => {});
     }
 
     return {

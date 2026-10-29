@@ -28,9 +28,27 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Parse initial error from searchParams (e.g. OAuth callback redirection)
+  const initialOAuthError = (() => {
+    const err = searchParams.get('error');
+    if (!err) return null;
+    const errLower = err.toLowerCase();
+    const desc = searchParams.get('error_description');
+    if (errLower === 'access_denied') {
+      return 'Google sign-in was cancelled or access was denied. Please try again or use your email and password.';
+    }
+    if (errLower === 'auth_callback_failed') {
+      return 'Authentication could not be completed. Please try again or sign in with your email and password.';
+    }
+    if (desc) {
+      return desc;
+    }
+    return 'Authentication failed. Please try again.';
+  })();
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(initialOAuthError);
 
   // Advance from Step 1 to Step 2
   const handleContinueWithEmail = (e: React.FormEvent) => {
@@ -177,6 +195,14 @@ function LoginForm() {
         >
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
           <p className="flex-1 leading-relaxed">{errorMessage}</p>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-red-400 hover:text-red-700 font-bold text-base leading-none p-0.5 cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
         </div>
       )}
 

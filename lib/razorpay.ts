@@ -118,6 +118,14 @@ export function verifyRazorpayWebhookSignature(
   }
 }
 
+function formatKnownGatewayError(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.toLowerCase() === 'authentication failed') {
+    return 'Razorpay Gateway Authentication Failed: Your Razorpay Key ID and Key Secret do not match or are invalid in server environment variables.';
+  }
+  return trimmed;
+}
+
 /**
  * Safely extracts human-readable error messages from diverse error types:
  * - Standard Error instances (err.message)
@@ -132,11 +140,11 @@ export function extractPaymentErrorMessage(err: unknown, fallbackMessage: string
   }
 
   if (err instanceof Error) {
-    return err.message && err.message.trim() ? err.message.trim() : fallbackMessage;
+    return err.message && err.message.trim() ? formatKnownGatewayError(err.message) : fallbackMessage;
   }
 
   if (typeof err === 'string' && err.trim().length > 0) {
-    return err.trim();
+    return formatKnownGatewayError(err);
   }
 
   if (typeof err === 'object' && err !== null) {
@@ -146,19 +154,19 @@ export function extractPaymentErrorMessage(err: unknown, fallbackMessage: string
     if (obj.error && typeof obj.error === 'object' && obj.error !== null) {
       const nested = obj.error as Record<string, unknown>;
       if (typeof nested.description === 'string' && nested.description.trim().length > 0) {
-        return nested.description.trim();
+        return formatKnownGatewayError(nested.description);
       }
       if (typeof nested.message === 'string' && nested.message.trim().length > 0) {
-        return nested.message.trim();
+        return formatKnownGatewayError(nested.message);
       }
     }
 
     if (typeof obj.description === 'string' && obj.description.trim().length > 0) {
-      return obj.description.trim();
+      return formatKnownGatewayError(obj.description);
     }
 
     if (typeof obj.message === 'string' && obj.message.trim().length > 0) {
-      return obj.message.trim();
+      return formatKnownGatewayError(obj.message);
     }
   }
 

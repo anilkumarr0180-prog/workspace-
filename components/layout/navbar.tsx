@@ -19,7 +19,6 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
-  Bell,
   HelpCircle,
   MessageSquare,
   LogOut,
@@ -34,6 +33,7 @@ import {
   CreditCard
 } from 'lucide-react';
 import { switchActiveRole } from '@/lib/actions/profile';
+import NotificationPopover from '@/components/layout/notification-popover';
 
 interface UserProfile {
   id?: string;
@@ -927,16 +927,8 @@ export default function Navbar() {
                   <HelpCircle className="w-4.5 h-4.5" />
                 </NextLink>
 
-                {/* Notifications Bell */}
-                <button
-                  type="button"
-                  onClick={() => router.push(isClientMode ? '/client' : '/freelancer')}
-                  className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-                  title="Notifications"
-                >
-                  <Bell className="w-4.5 h-4.5" />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#14a800] rounded-full ring-2 ring-white" />
-                </button>
+                {/* Real-time Notifications Popover */}
+                <NotificationPopover userId={user?.id} />
 
                 {/* Direct Messages / Chat Link */}
                 <NextLink
