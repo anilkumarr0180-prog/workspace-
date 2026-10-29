@@ -30,7 +30,8 @@ import {
   FileText,
   Repeat,
   Loader2,
-  Clock
+  Clock,
+  CreditCard
 } from 'lucide-react';
 import { switchActiveRole } from '@/lib/actions/profile';
 
@@ -855,6 +856,16 @@ export default function Navbar() {
                   Discover Talent
                 </NextLink>
                 <NextLink
+                  href="/client/billing"
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    pathname === '/client/billing' || pathname.startsWith('/client/billing')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
+                >
+                  Billing & Payments
+                </NextLink>
+                <NextLink
                   href="/client/reports"
                   className={`px-3 py-2 rounded-lg transition-colors ${
                     pathname === '/client/reports' || pathname.startsWith('/client/reports')
@@ -1046,6 +1057,15 @@ export default function Navbar() {
                           <FileText className="w-4 h-4 text-slate-400" />
                           <span>{isClientMode ? 'Manage jobs' : 'Proposals & stats'}</span>
                         </NextLink>
+
+                        <NextLink
+                          href={isClientMode ? '/client/billing' : '/contracts'}
+                          onClick={() => setProfileMenuOpen(false)}
+                          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors"
+                        >
+                          <CreditCard className="w-4 h-4 text-slate-400" />
+                          <span>{isClientMode ? 'Billing & Payments' : 'Contracts & Escrow'}</span>
+                        </NextLink>
                       </div>
 
                       {/* 3. Role Switcher (Client / Freelancer) */}
@@ -1223,6 +1243,15 @@ export default function Navbar() {
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
               <span>Client Dashboard</span>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
+              href="/client/billing"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <span>Billing & Payments</span>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </NextLink>
 

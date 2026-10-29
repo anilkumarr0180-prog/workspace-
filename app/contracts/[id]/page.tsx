@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { getContractById } from '@/lib/actions/contracts';
 import {
   getContractMilestones,
@@ -68,6 +68,7 @@ const loadRazorpayScript = (): Promise<boolean> => {
 
 function ContractDetailsContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const contractId = (params?.id as string) || '';
 
   const [contract, setContract] = useState<Contract | null>(null);
@@ -183,8 +184,27 @@ function ContractDetailsContent() {
         setLedgerEntries(ledgerRes.entries || []);
 
         if (milestonesRes.milestones && milestonesRes.milestones.length > 0) {
-          const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
-          setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
+          const fundParam = searchParams.get('fundMilestone');
+          const tabParam = searchParams.get('tab');
+          if (tabParam === 'ledger') {
+            setActiveTab('ledger');
+          }
+          if (fundParam) {
+            const targetM = milestonesRes.milestones.find((m) => m.id === fundParam);
+            if (targetM) {
+              setExpandedMilestoneId(targetM.id);
+              if (targetM.status === 'planned') {
+                setSelectedMilestoneForFund(targetM);
+                setIsFundModalOpen(true);
+              }
+            } else {
+              const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
+              setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
+            }
+          } else {
+            const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
+            setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
+          }
         }
       } catch (err: unknown) {
         if (!isMounted) return;
@@ -198,7 +218,7 @@ function ContractDetailsContent() {
     return () => {
       isMounted = false;
     };
-  }, [contractId]);
+  }, [contractId, searchParams]);
 
   const isClient = useMemo(() => {
     if (!contract || !currentUserId) return false;
@@ -876,6 +896,7 @@ function ContractDetailsContent() {
                 return (
                   <div
                     key={milestone.id}
+                    id={`milestone-${milestone.id}`}
                     className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden ${
                       milestone.status === 'in_progress' || milestone.status === 'submitted'
                         ? 'border-emerald-300 shadow-sm ring-1 ring-emerald-100'
