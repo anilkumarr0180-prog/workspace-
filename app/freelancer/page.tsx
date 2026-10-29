@@ -692,11 +692,20 @@ export default function FreelancerDashboardPage() {
                         <div className="flex items-center gap-3">
                           {prop.status === 'accepted' && (
                             <Link
-                              href="/contracts"
+                              href={prop.rateType === 'hourly' ? '/freelancer/time-tracking' : '/contracts'}
                               className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors flex items-center gap-1"
                             >
-                              <Layers className="w-3.5 h-3.5" />
-                              <span>Manage Contract & Milestones</span>
+                              {prop.rateType === 'hourly' ? (
+                                <>
+                                  <Clock className="w-3.5 h-3.5" />
+                                  <span>Track Hourly Time</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Layers className="w-3.5 h-3.5" />
+                                  <span>Manage Contract & Milestones</span>
+                                </>
+                              )}
                             </Link>
                           )}
                           <button
