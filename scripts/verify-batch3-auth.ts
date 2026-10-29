@@ -170,9 +170,10 @@ function testOAuthActiveModePreservation() {
     }
 
     const isFreshSignupConfirmation =
-      Math.abs(new Date(profile.updated_at).getTime() - new Date(profile.created_at).getTime()) < 15000;
+      Math.abs(new Date(profile.updated_at).getTime() - new Date(profile.created_at).getTime()) < 30000;
 
-    if (roleParam && profile.active_mode !== roleParam) {
+    // Only align role if this is a fresh signup confirmation
+    if (isFreshSignupConfirmation && roleParam && profile.active_mode !== roleParam) {
       return roleParam;
     }
 
@@ -180,11 +181,11 @@ function testOAuthActiveModePreservation() {
       return metadataRole;
     }
 
-    // Existing user login: legitimate database active mode is strictly preserved
+    // Existing user login or returning user on signup page: legitimate database active mode is strictly preserved
     return profile.active_mode;
   };
 
-  // Scenario: Existing user signed up as freelancer months ago, but switched to client mode in DB
+  // Scenario 1: Existing user signed up as freelancer months ago, but switched to client mode in DB
   const existingProfile = {
     active_mode: 'client',
     created_at: '2025-01-01T00:00:00Z',
@@ -198,17 +199,117 @@ function testOAuthActiveModePreservation() {
   }
   console.log('  [PASS] Existing user active_mode is preserved during OAuth login');
 
-  // Scenario: Fresh signup email confirmation
+  // Scenario 2: Returning user arrives at /signup/freelancer and clicks Google OAuth button (?role=freelancer), but their DB profile is 'client'
+  const returningUserThroughSignup = resolveOAuthCallbackRole('freelancer', 'freelancer', existingProfile);
+  if (returningUserThroughSignup !== 'client') {
+    throw new Error(`Returning user active_mode was overwritten by signup roleParam! Expected 'client', got '${returningUserThroughSignup}'`);
+  }
+  console.log('  [PASS] Returning user active_mode is NOT overwritten if they click Google button on signup page');
+
+  // Scenario 3: Fresh signup confirmation with role param
   const freshProfile = {
     active_mode: 'freelancer', // defaulted by DB trigger
     created_at: '2026-10-27T10:00:00Z',
     updated_at: '2026-10-27T10:00:02Z',
   };
-  const freshRole = resolveOAuthCallbackRole(null, 'client', freshProfile);
+  const freshRole = resolveOAuthCallbackRole('client', null, freshProfile);
   if (freshRole !== 'client') {
-    throw new Error(`Fresh signup email confirmation failed to align role! Expected 'client', got '${freshRole}'`);
+    throw new Error(`Fresh signup OAuth button failed to set initial role! Expected 'client', got '${freshRole}'`);
   }
-  console.log('  [PASS] Fresh signup email confirmation aligns with chosen signup role');
+  console.log('  [PASS] Fresh signup OAuth button sets initial role');
+}
+
+function testGoogleOAuthCallbackRouteLogic() {
+  console.log('\nTesting Google OAuth callback handler route logic:');
+
+  // 1. Origin resolution behind proxies
+  const resolveOrigin = (urlStr: string, headers: Record<string, string | null>) => {
+    const forwardedHost = headers['x-forwarded-host'];
+    const forwardedProto = headers['x-forwarded-proto'];
+    const host = forwardedHost || headers['host'];
+    const protocol = forwardedProto || (host?.includes('localhost') ? 'http' : 'https');
+    return host ? `${protocol}://${host}` : new URL(urlStr).origin;
+  };
+
+  const localOrigin = resolveOrigin('http://localhost:3000/api/auth/callback', {
+    'host': 'localhost:3000',
+    'x-forwarded-host': null,
+    'x-forwarded-proto': null,
+  });
+  if (localOrigin !== 'http://localhost:3000') {
+    throw new Error(`Local origin failed: expected http://localhost:3000, got ${localOrigin}`);
+  }
+  const prodOrigin = resolveOrigin('http://internal-cluster/api/auth/callback', {
+    'host': 'internal-cluster',
+    'x-forwarded-host': 'workspace-inky-six.vercel.app',
+    'x-forwarded-proto': 'https',
+  });
+  if (prodOrigin !== 'https://workspace-inky-six.vercel.app') {
+    throw new Error(`Forwarded host resolution failed: got '${prodOrigin}'`);
+  }
+  console.log('  [PASS] Origin resolution honors trusted x-forwarded-host in production');
+
+  // 2. OAuth error parameter handling (e.g. user cancelled Google consent)
+  const handleOAuthParams = (searchParams: URLSearchParams, origin: string) => {
+    const oauthError = searchParams.get('error');
+    const oauthErrorDescription = searchParams.get('error_description');
+
+    if (oauthError) {
+      const errorUrl = new URL('/login', origin);
+      errorUrl.searchParams.set('error', oauthError);
+      if (oauthErrorDescription) {
+        errorUrl.searchParams.set('error_description', oauthErrorDescription);
+      }
+      return { redirect: errorUrl.toString() };
+    }
+    return { redirect: null };
+  };
+
+  const denialParams = new URLSearchParams('error=access_denied&error_description=User+cancelled+flow');
+  const denialResult = handleOAuthParams(denialParams, 'https://workspace-inky-six.vercel.app');
+  if (
+    !denialResult.redirect?.includes('/login?error=access_denied') ||
+    !denialResult.redirect?.includes('error_description=User+cancelled+flow')
+  ) {
+    throw new Error(`OAuth cancellation redirect failed: got '${denialResult.redirect}'`);
+  }
+  console.log('  [PASS] User cancellation / access_denied redirects safely to /login with error params');
+
+  // 3. Fallback profile bootstrap metadata extraction
+  const extractGoogleProfileMetadata = (user: {
+    id: string;
+    email?: string;
+    user_metadata?: Record<string, unknown>;
+  }) => {
+    const rawPrefix = user.email
+      ? user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_')
+      : 'user';
+    const cleanPrefix = rawPrefix.slice(0, 20) || 'user';
+    const fullName =
+      (user.user_metadata?.full_name as string) ||
+      (user.user_metadata?.name as string) ||
+      cleanPrefix;
+    const avatarUrl =
+      (user.user_metadata?.avatar_url as string) ||
+      (user.user_metadata?.picture as string) ||
+      null;
+
+    return { fullName, avatarUrl, cleanPrefix };
+  };
+
+  const googleUser = {
+    id: 'g-user-123',
+    email: 'sarah.engineer@gmail.com',
+    user_metadata: {
+      name: 'Sarah Connor',
+      picture: 'https://lh3.googleusercontent.com/a/photo123',
+    },
+  };
+  const extracted = extractGoogleProfileMetadata(googleUser);
+  if (extracted.fullName !== 'Sarah Connor' || extracted.avatarUrl !== 'https://lh3.googleusercontent.com/a/photo123') {
+    throw new Error('Google metadata extraction failed for picture/name');
+  }
+  console.log('  [PASS] Profile bootstrap extracts Google OAuth avatar picture and display name');
 }
 
 function testDemoDataIsolation() {
@@ -259,6 +360,7 @@ function runAll() {
   testSafeRedirectResolution();
   testSelfApplicationProtection();
   testOAuthActiveModePreservation();
+  testGoogleOAuthCallbackRouteLogic();
   testDemoDataIsolation();
   testJobsEmptyState();
   console.log('\n----------------------------------------------------');

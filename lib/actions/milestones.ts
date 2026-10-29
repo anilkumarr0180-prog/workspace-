@@ -9,6 +9,7 @@ import {
   MilestoneStatus,
   PaymentLedgerEntry,
 } from '@/lib/types';
+import { createNotification } from '@/lib/actions/notifications';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -545,6 +546,18 @@ export async function fundMilestone(milestoneId: string): Promise<MilestoneResul
     }
 
     const raw = data as RawMilestoneRow;
+
+    if (raw.freelancer_id) {
+      createNotification({
+        userId: raw.freelancer_id,
+        type: 'milestone_funded',
+        title: 'Milestone Funded',
+        message: `Milestone "${raw.title}" ($${raw.amount}) has been funded into escrow. You can begin work.`,
+        link: `/contracts/${raw.contract_id}`,
+        metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       milestone: {
@@ -672,6 +685,25 @@ export async function submitMilestoneDelivery(
     }
 
     const raw = data as RawDeliveryRow;
+
+    // Fetch milestone details for client notification
+    const { data: milestoneInfo } = await supabase
+      .from('milestones')
+      .select('id, contract_id, client_id, title')
+      .eq('id', milestoneId.trim())
+      .maybeSingle();
+
+    if (milestoneInfo?.client_id) {
+      createNotification({
+        userId: milestoneInfo.client_id,
+        type: 'milestone_work_submitted',
+        title: 'Deliverables Submitted',
+        message: `Work has been submitted for milestone "${milestoneInfo.title || 'Milestone'}". Please review deliverables.`,
+        link: `/contracts/${milestoneInfo.contract_id}`,
+        metadata: { milestoneId: milestoneInfo.id, contractId: milestoneInfo.contract_id, deliveryId: raw.id },
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       delivery: {
@@ -736,6 +768,18 @@ export async function requestMilestoneRevision(
     }
 
     const raw = data as RawMilestoneRow;
+
+    if (raw.freelancer_id) {
+      createNotification({
+        userId: raw.freelancer_id,
+        type: 'milestone_revision_requested',
+        title: 'Revision Requested',
+        message: `Client requested revisions for milestone "${raw.title}".`,
+        link: `/contracts/${raw.contract_id}`,
+        metadata: { milestoneId: raw.id, contractId: raw.contract_id },
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       milestone: {
@@ -796,6 +840,18 @@ export async function approveAndReleaseMilestone(
     }
 
     const raw = data as RawMilestoneRow;
+
+    if (raw.freelancer_id) {
+      createNotification({
+        userId: raw.freelancer_id,
+        type: 'milestone_approved',
+        title: 'Milestone Approved & Released',
+        message: `Milestone "${raw.title}" ($${raw.amount}) has been approved and funds released.`,
+        link: `/contracts/${raw.contract_id}`,
+        metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       milestone: {

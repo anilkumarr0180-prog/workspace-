@@ -8,31 +8,58 @@ interface SocialAuthButtonsProps {
   labelPrefix?: 'Continue with' | 'Sign up with';
   role?: 'client' | 'freelancer';
   className?: string;
+  redirectTo?: string;
 }
 
 export default function SocialAuthButtons({
   labelPrefix = 'Continue with',
   role,
   className = '',
+  redirectTo,
 }: SocialAuthButtonsProps) {
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'apple' | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
 
   const handleOAuth = async (provider: 'google' | 'apple') => {
+    if (loadingProvider !== null) return;
     setLoadingProvider(provider);
     setProviderError(null);
 
     try {
       const supabase = createClient();
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const redirectUrl = role
-        ? `${origin}/api/auth/callback?role=${encodeURIComponent(role)}`
-        : `${origin}/api/auth/callback`;
+      
+      // Determine safe redirect destination if provided
+      let safeNext: string | null = null;
+      if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//') && !redirectTo.startsWith('/login')) {
+        safeNext = redirectTo;
+      } else if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const candidate = params.get('redirect') || params.get('next');
+        if (candidate && candidate.startsWith('/') && !candidate.startsWith('//') && !candidate.startsWith('/login')) {
+          safeNext = candidate;
+        }
+      }
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const callbackUrl = new URL('/api/auth/callback', origin);
+      if (role) {
+        callbackUrl.searchParams.set('role', role);
+      }
+      if (safeNext) {
+        callbackUrl.searchParams.set('next', safeNext);
+      }
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: redirectUrl,
+          redirectTo: callbackUrl.toString(),
+          queryParams:
+            provider === 'google'
+              ? {
+                  access_type: 'offline',
+                  prompt: 'select_account',
+                }
+              : undefined,
         },
       });
 
@@ -52,13 +79,15 @@ export default function SocialAuthButtons({
         } else {
           setProviderError(error.message);
         }
+        setLoadingProvider(null);
+      } else if (data?.url) {
+        // Browser navigation to OAuth provider will take over
       }
     } catch {
       const providerName = provider === 'google' ? 'Google' : 'Apple';
       setProviderError(
         `${providerName} Sign-In is currently unavailable. Please sign in with email and password.`
       );
-    } finally {
       setLoadingProvider(null);
     }
   };

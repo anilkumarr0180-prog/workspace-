@@ -1705,6 +1705,23 @@ function ContractDetailsContent() {
                 </p>
               </div>
 
+              {actionErrorMessage && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-0.5">
+                    <span className="font-bold text-rose-950 block">Gateway Error</span>
+                    <p className="leading-relaxed">{actionErrorMessage}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActionErrorMessage(null)}
+                    className="text-rose-500 hover:text-rose-800 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => handleRazorpayCheckout(selectedMilestoneForFund)}
