@@ -137,7 +137,8 @@ function LoginForm() {
           redirectParam &&
           redirectParam.startsWith('/') &&
           !redirectParam.startsWith('//') &&
-          !redirectParam.startsWith('/login');
+          !redirectParam.startsWith('/login') &&
+          redirectParam !== '/';
 
         const destination = isSafeRedirect
           ? redirectParam
