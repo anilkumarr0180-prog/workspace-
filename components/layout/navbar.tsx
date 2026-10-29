@@ -269,8 +269,8 @@ export default function Navbar() {
               <WorkspaceLogo />
             </NextLink>
 
-            {/* ---------- NAVIGATION (UPWORK MARKETING NAV ON HOMEPAGE OR WHEN LOGGED OUT) ---------- */}
-            {pathname === '/' || !user ? (
+            {/* ---------- NAVIGATION (UPWORK MARKETING NAV WHEN LOGGED OUT) ---------- */}
+            {!user ? (
               /* Upwork Marketing Navigation matching Screenshot 1 */
               <nav
                 ref={navDropdownRef}
@@ -508,7 +508,7 @@ export default function Navbar() {
                     aria-expanded={activeDropdown === 'why_upwork'}
                     className="px-3.5 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
                   >
-                    <span>Why Upwork</span>
+                    <span>Why Workspace</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
                   </button>
 
@@ -871,7 +871,7 @@ export default function Navbar() {
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             {/* Quick Search & Saved Jobs only on authenticated dashboard routes */}
-            {pathname !== '/' && user && (
+            {user && (
               <>
                 <form
                   onSubmit={handleSearchSubmit}
@@ -907,45 +907,34 @@ export default function Navbar() {
               <div className="h-9 w-20 sm:w-28" />
             ) : user ? (
               <>
-                {pathname !== '/' ? (
-                  <>
-                    {/* Help Icon */}
-                    <NextLink
-                      href="/jobs"
-                      className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
-                      title="Help & Support"
-                    >
-                      <HelpCircle className="w-4.5 h-4.5" />
-                    </NextLink>
+                {/* Help Icon */}
+                <NextLink
+                  href="/jobs"
+                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  title="Help & Support"
+                >
+                  <HelpCircle className="w-4.5 h-4.5" />
+                </NextLink>
 
-                    {/* Notifications Bell */}
-                    <button
-                      type="button"
-                      onClick={() => router.push(isClientMode ? '/client' : '/freelancer')}
-                      className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-                      title="Notifications"
-                    >
-                      <Bell className="w-4.5 h-4.5" />
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#14a800] rounded-full ring-2 ring-white" />
-                    </button>
+                {/* Notifications Bell */}
+                <button
+                  type="button"
+                  onClick={() => router.push(isClientMode ? '/client' : '/freelancer')}
+                  className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                  title="Notifications"
+                >
+                  <Bell className="w-4.5 h-4.5" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#14a800] rounded-full ring-2 ring-white" />
+                </button>
 
-                    {/* Direct Messages / Chat Link */}
-                    <NextLink
-                      href={isClientMode ? '/client' : '/freelancer'}
-                      className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
-                      title="Messages"
-                    >
-                      <MessageSquare className="w-4.5 h-4.5" />
-                    </NextLink>
-                  </>
-                ) : (
-                  <NextLink
-                    href={isClientMode ? '/client' : '/freelancer'}
-                    className="text-[14px] font-semibold text-[#001e00] hover:text-[#14a800] transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100 hidden sm:inline-block"
-                  >
-                    Dashboard
-                  </NextLink>
-                )}
+                {/* Direct Messages / Chat Link */}
+                <NextLink
+                  href={isClientMode ? '/client' : '/freelancer'}
+                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  title="Messages"
+                >
+                  <MessageSquare className="w-4.5 h-4.5" />
+                </NextLink>
 
                 {/* Profile Avatar & Dark Upwork-Style Dropdown */}
                 <div className="relative" ref={profileDropdownRef}>

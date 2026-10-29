@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { ArrowRight } from 'lucide-react';
 import PromoBanner from '@/components/home/promo-banner';
 import UpworkHero from '@/components/home/upwork-hero';
@@ -11,7 +13,36 @@ import FeaturedJobs from '@/components/home/featured-jobs';
 import FeaturedFreelancers from '@/components/home/featured-freelancers';
 
 export default function HomePage() {
+  const router = useRouter();
   const [howItWorksTab, setHowItWorksTab] = useState<'clients' | 'freelancers'>('clients');
+
+  useEffect(() => {
+    let isMounted = true;
+    async function checkUserSession() {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        if (data?.user && isMounted) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('active_mode')
+            .eq('id', data.user.id)
+            .maybeSingle();
+
+          if (!isMounted) return;
+          const role = profile?.active_mode || (data.user.user_metadata?.role as string) || 'freelancer';
+          router.replace(role === 'client' ? '/client' : '/freelancer');
+        }
+      } catch {
+        // Guest user or network failure - continue rendering public homepage
+      }
+    }
+    checkUserSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   return (
     <div className="space-y-16 pb-20">
