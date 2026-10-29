@@ -471,11 +471,30 @@ export default function FreelancerTimeTrackingPage() {
                 {data && data.eligibleContracts.length === 0 ? (
                   <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-start gap-2.5">
                     <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold">No active hourly contracts found</p>
-                      <p className="text-amber-700 mt-0.5">
-                        Time tracking is only available on accepted hourly projects. Fixed-price contracts do not use hourly timers.
-                      </p>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="font-semibold">No active hourly contracts found</p>
+                        <p className="text-amber-700 mt-0.5">
+                          Time tracking is only available on accepted hourly projects. Fixed-price contracts do not use hourly timers.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 pt-0.5">
+                        <Link
+                          href="/contracts"
+                          className="font-semibold text-amber-900 hover:underline flex items-center gap-0.5"
+                        >
+                          <span>View Contracts & Milestones</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </Link>
+                        <span className="text-amber-400">•</span>
+                        <Link
+                          href="/jobs?projectType=hourly"
+                          className="font-semibold text-amber-900 hover:underline flex items-center gap-0.5"
+                        >
+                          <span>Browse Hourly Jobs</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ) : (

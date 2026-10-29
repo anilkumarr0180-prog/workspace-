@@ -210,7 +210,7 @@ export default function ContractsIndexPage() {
                       href={`/contracts/${c.id}`}
                       className="font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
                     >
-                      <span>Manage Milestones</span>
+                      <span>{c.contractType === 'hourly' ? 'View Contract' : 'Manage Milestones'}</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
