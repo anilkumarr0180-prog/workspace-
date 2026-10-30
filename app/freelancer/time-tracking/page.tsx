@@ -26,8 +26,18 @@ import {
   ShieldCheck,
   ChevronRight,
   TrendingUp,
-  Info
+  Info,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Send,
+  FileText,
 } from 'lucide-react';
+import {
+  getFreelancerTimesheets,
+  submitTimesheet,
+  TimesheetWithDetails,
+} from '@/lib/actions/timesheet-billing';
 
 export default function FreelancerTimeTrackingPage() {
   const [data, setData] = useState<FreelancerTimeDashboardData | null>(null);
@@ -43,6 +53,12 @@ export default function FreelancerTimeTrackingPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
+
+  // Timesheets state
+  const [timesheets, setTimesheets] = useState<TimesheetWithDetails[]>([]);
+  const [activeMainTab, setActiveMainTab] = useState<'timer' | 'timesheets'>('timer');
+  const [submittingTimesheetId, setSubmittingTimesheetId] = useState<string | null>(null);
+  const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -65,7 +81,11 @@ export default function FreelancerTimeTrackingPage() {
     if (isRefresh) setRefreshing(true);
 
     try {
-      const res = await getFreelancerTimeTrackingData();
+      const [res, timesheetRes] = await Promise.all([
+        getFreelancerTimeTrackingData(),
+        getFreelancerTimesheets(),
+      ]);
+
       if (res.success) {
         setData(res);
         // Pre-select active session's contract or first available contract
@@ -80,6 +100,10 @@ export default function FreelancerTimeTrackingPage() {
       } else {
         showError(res.error || 'Failed to load time tracking data.');
       }
+
+      if (timesheetRes.success) {
+        setTimesheets(timesheetRes.timesheets);
+      }
     } catch {
       showError('Unable to connect to database. Please check your network.');
     } finally {
@@ -88,11 +112,34 @@ export default function FreelancerTimeTrackingPage() {
     }
   }, [showError]);
 
+  const handleSubmitTimesheet = async (timesheetId: string) => {
+    setSubmittingTimesheetId(timesheetId);
+    try {
+      const res = await submitTimesheet(timesheetId);
+      if (res.success) {
+        showToast('Timesheet submitted successfully for client review!');
+        await loadDashboardData(true);
+      } else {
+        showError(res.error || 'Failed to submit timesheet.');
+      }
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : 'Error submitting timesheet.');
+    } finally {
+      setSubmittingTimesheetId(null);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
-    getFreelancerTimeTrackingData()
-      .then((res) => {
+    (async () => {
+      try {
+        const [res, timesheetRes] = await Promise.all([
+          getFreelancerTimeTrackingData(),
+          getFreelancerTimesheets(),
+        ]);
+
         if (!isMounted) return;
+
         if (res.success) {
           setData(res);
           if (res.activeSession?.contractId) {
@@ -101,24 +148,26 @@ export default function FreelancerTimeTrackingPage() {
               setWorkMemo(res.activeSession.memo);
             }
           } else if (res.eligibleContracts.length > 0) {
-            setSelectedContractId(res.eligibleContracts[0].id);
+            setSelectedContractId((prev) => prev || res.eligibleContracts[0].id);
           }
         } else {
-          setErrorMessage(res.error || 'Failed to load time tracking data.');
+          showError(res.error || 'Failed to load time tracking data.');
         }
-        setLoading(false);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setErrorMessage('Unable to connect to database.');
-          setLoading(false);
+
+        if (timesheetRes.success) {
+          setTimesheets(timesheetRes.timesheets);
         }
-      });
+      } catch {
+        if (isMounted) showError('Unable to connect to database. Please check your network.');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    })();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [showError]);
 
   // 2. Authoritative Live Elapsed-Time Clock
   // Calculates strictly from server-persisted startTime and current client time
@@ -305,6 +354,14 @@ export default function FreelancerTimeTrackingPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/freelancer/settings/payouts"
+            className="px-3.5 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-2xs"
+            title="Manage simulated linked account for automatic payouts"
+          >
+            <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Payout Settings</span>
+          </Link>
           <button
             type="button"
             onClick={() => loadDashboardData(true)}
@@ -421,8 +478,42 @@ export default function FreelancerTimeTrackingPage() {
         </div>
       </div>
 
-      {/* Main Grid: Live Timer Console (Left/Center) + Active Contract Details (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-200 gap-6">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('timer')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'timer'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Live Stopwatch & Diary</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('timesheets')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'timesheets'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Weekly Timesheets & Billing</span>
+          {timesheets.length > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-2xs font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {timesheets.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeMainTab === 'timer' && (
+        /* Main Grid: Live Timer Console (Left/Center) + Active Contract Details (Right) */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {/* Left: Stopwatch & Timer Console (2 Cols) */}
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm overflow-hidden relative">
@@ -769,9 +860,181 @@ export default function FreelancerTimeTrackingPage() {
                 </span>
               </li>
             </ul>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Timesheets Review & Billing Tab */}
+      {activeMainTab === 'timesheets' && (
+        <div className="space-y-6">
+          {timesheets.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-4">
+              <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
+                <FileText className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">No Weekly Timesheets Yet</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  When you track billable hours using the timer, weekly timesheet rollups are automatically created every Monday. Once logged, you can submit them here for client review.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('timer')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs cursor-pointer"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Go to Stopwatch</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {timesheets.map((ts, idx) => {
+                const isExpanded = expandedTimesheetId === ts.id || (idx === 0 && expandedTimesheetId === null);
+                const hours = (ts.totalMinutes / 60).toFixed(1);
+                const isCurrentWeek = idx === 0;
+
+                return (
+                  <div
+                    key={ts.id}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all"
+                  >
+                    <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Week of {ts.weekStartDate}
+                          </span>
+                          {isCurrentWeek && (
+                            <span className="px-2 py-0.5 rounded-full text-3xs font-extrabold bg-blue-50 text-blue-700 border border-blue-200 uppercase">
+                              Current Cycle
+                            </span>
+                          )}
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-2xs font-extrabold capitalize ${
+                              ts.status === 'paid'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : ts.status === 'approved'
+                                ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                                : ts.status === 'submitted' || ts.status === 'under_review'
+                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                                : ts.status === 'disputed'
+                                ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            Status: {ts.status === 'submitted' ? 'Submitted for Client Review' : ts.status}
+                          </span>
+                        </div>
+                        <h3 className="text-base font-bold text-slate-900">{ts.contractTitle}</h3>
+                        <p className="text-xs text-slate-500">Client: {ts.clientName}</p>
+                      </div>
+
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <div className="text-xs text-slate-400 font-medium">{hours} hrs @ ${ts.hourlyRate}/hr</div>
+                          <div className="text-lg font-extrabold text-slate-900">${ts.totalAmount.toFixed(2)}</div>
+                        </div>
+
+                        {/* Submission Action Button */}
+                        {(ts.status === 'open' || ts.status === 'disputed') && (
+                          <button
+                            type="button"
+                            onClick={() => handleSubmitTimesheet(ts.id)}
+                            disabled={submittingTimesheetId === ts.id || ts.totalMinutes <= 0}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 cursor-pointer"
+                          >
+                            {submittingTimesheetId === ts.id ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Submitting...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Submit Timesheet</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
+                        {ts.status === 'paid' && (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Paid & Disbursed</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Breakdown Toggle */}
+                    <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTimesheetId(isExpanded ? '' : ts.id)}
+                        className="text-slate-600 hover:text-slate-900 font-semibold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        <span>Time Entry Breakdown ({ts.timeEntries?.length || 0} intervals)</span>
+                      </button>
+
+                      <div className="text-2xs text-slate-500">
+                        {ts.status === 'paid'
+                          ? 'Net Disbursed: $' + (ts.totalAmount * 0.9).toFixed(2) + ' (after 10% platform fee)'
+                          : 'Net Payout: $' + (ts.totalAmount * 0.9).toFixed(2) + ' upon client settlement'}
+                      </div>
+                    </div>
+
+                    {/* Time Entries Table */}
+                    {isExpanded && (
+                      <div className="p-5">
+                        {!ts.timeEntries || ts.timeEntries.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic py-2">No individual time entries logged for this week.</p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs">
+                              <thead>
+                                <tr className="border-b border-slate-200 text-2xs uppercase tracking-wider text-slate-400 font-semibold">
+                                  <th className="pb-2.5">Date & Time Interval</th>
+                                  <th className="pb-2.5">Duration</th>
+                                  <th className="pb-2.5">Work Memo</th>
+                                  <th className="pb-2.5">Type</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {ts.timeEntries.map((e) => (
+                                  <tr key={e.id} className="hover:bg-slate-50/50">
+                                    <td className="py-2.5 font-medium text-slate-800">
+                                      {new Date(e.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
+                                      <span className="text-slate-400 font-normal">
+                                        ({new Date(e.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(e.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 font-bold text-slate-900">
+                                      {formatDurationMinutes(e.durationMinutes)}
+                                    </td>
+                                    <td className="py-2.5 text-slate-600 max-w-xs truncate">{e.memo || 'No memo'}</td>
+                                    <td className="py-2.5">
+                                      <span className="px-2 py-0.5 rounded text-3xs font-semibold uppercase bg-slate-100 text-slate-600">
+                                        {e.source}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -24,7 +24,8 @@ import {
   FileCheck2,
   Building2,
   Sparkles,
-  Eye
+  Eye,
+  CreditCard,
 } from 'lucide-react';
 import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 
@@ -320,6 +321,14 @@ export default function FreelancerDashboardPage() {
           >
             <Clock className="w-4 h-4 text-emerald-600" />
             <span>Time Tracker</span>
+          </Link>
+          <Link
+            href="/freelancer/settings/payouts"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 font-semibold text-xs transition-colors shadow-2xs"
+            title="Manage Simulated Payout Profile & Linked Account"
+          >
+            <CreditCard className="w-4 h-4 text-indigo-600" />
+            <span>Payout Settings</span>
           </Link>
           <Link
             href="/jobs"

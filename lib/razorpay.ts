@@ -15,21 +15,100 @@ export interface RazorpayOrderResult {
   notes?: Record<string, string>;
 }
 
-export function getRazorpayClient(): Razorpay {
-  const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+export type RazorpayEnvironment = 'test' | 'live';
 
-  if (!keyId || !keyId.trim()) {
+export interface RazorpayGatewayConfig {
+  environment: RazorpayEnvironment;
+  keyId: string;
+  keySecret: string;
+  webhookSecret?: string;
+  currency: string;
+  isLive: boolean;
+  isTest: boolean;
+}
+
+/**
+ * Validates and returns the centralized Razorpay gateway configuration.
+ * Strictly prevents accidental live-mode execution, enforces environment-key prefix alignment,
+ * and ensures secrets are never exposed to browser-facing contexts.
+ */
+export function getRazorpayConfig(customEnv?: Record<string, string | undefined>): RazorpayGatewayConfig {
+  const envSource = customEnv || process.env;
+
+  // 1. Resolve and validate environment
+  const rawEnv = (envSource.RAZORPAY_ENVIRONMENT || 'test').trim().toLowerCase();
+  if (rawEnv !== 'test' && rawEnv !== 'live') {
+    throw new Error(
+      `Invalid RAZORPAY_ENVIRONMENT "${rawEnv}". Supported environments are "test" and "live".`
+    );
+  }
+  const environment: RazorpayEnvironment = rawEnv as RazorpayEnvironment;
+  const isLive = environment === 'live';
+  const isTest = environment === 'test';
+
+  // 2. Validate API Key ID & Secret presence
+  const keyId = envSource.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
+  const keySecret = envSource.RAZORPAY_KEY_SECRET?.trim();
+
+  if (!keyId) {
     throw new Error('Missing NEXT_PUBLIC_RAZORPAY_KEY_ID environment variable.');
   }
 
-  if (!keySecret || !keySecret.trim()) {
+  if (!keySecret) {
     throw new Error('Missing RAZORPAY_KEY_SECRET environment variable.');
   }
 
+  // 3. Environment & Key Prefix Alignment
+  // Razorpay test keys strictly start with "rzp_test_"; live keys start with "rzp_live_"
+  if (isTest) {
+    if (keyId.startsWith('rzp_live_')) {
+      throw new Error(
+        'Razorpay environment mismatch: RAZORPAY_ENVIRONMENT is set to "test", but NEXT_PUBLIC_RAZORPAY_KEY_ID contains a live key ("rzp_live_...").'
+      );
+    }
+  } else if (isLive) {
+    if (keyId.startsWith('rzp_test_')) {
+      throw new Error(
+        'Razorpay environment mismatch: RAZORPAY_ENVIRONMENT is set to "live", but NEXT_PUBLIC_RAZORPAY_KEY_ID contains a test key ("rzp_test_...").'
+      );
+    }
+
+    // Guard against placeholder secrets in live mode
+    if (keySecret.toLowerCase().includes('your_') || keySecret.toLowerCase().includes('placeholder') || keySecret.length < 16) {
+      throw new Error(
+        'Razorpay live configuration incomplete: RAZORPAY_KEY_SECRET must be configured with genuine live credentials.'
+      );
+    }
+
+    // Live mode requires dedicated webhook secret for reliable asynchronous reconciliation
+    const webhookSecret = envSource.RAZORPAY_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret || webhookSecret.length < 8) {
+      throw new Error(
+        'Razorpay live configuration incomplete: RAZORPAY_WEBHOOK_SECRET is required in live mode for asynchronous payment reconciliation.'
+      );
+    }
+  }
+
+  const webhookSecret = envSource.RAZORPAY_WEBHOOK_SECRET?.trim() || undefined;
+  const currency = (envSource.RAZORPAY_CURRENCY?.trim() || 'INR').toUpperCase();
+
+  return {
+    environment,
+    keyId,
+    keySecret,
+    webhookSecret,
+    currency,
+    isLive,
+    isTest,
+  };
+}
+
+export function getRazorpayClient(customConfig?: RazorpayGatewayConfig): Razorpay {
+  const config = customConfig || getRazorpayConfig();
+
   return new Razorpay({
-    key_id: keyId.trim(),
-    key_secret: keySecret.trim(),
+    key_id: config.keyId,
+    key_secret: config.keySecret,
   });
 }
 
