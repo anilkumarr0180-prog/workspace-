@@ -227,6 +227,7 @@ async function runTests() {
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN CREATE PUBLICATION supabase_realtime; END IF;
       END $$;
     `);
 
@@ -323,7 +324,7 @@ async function runTests() {
     }
     assert(serviceRoleCallSucceeded, 'Test 14: Authorized service_role server call successfully captures payment and funds milestone');
 
-    // Test 15: Bidirectional Idempotency: duplicate service_role call on already-funded milestone
+  // Test 15: Bidirectional Idempotency: duplicate service_role call on already-funded milestone
     let idempotentCallSucceeded = false;
     try {
       await db.exec(`
@@ -339,6 +340,150 @@ async function runTests() {
       idempotentCallSucceeded = false;
     }
     assert(idempotentCallSucceeded, 'Test 15: Idempotent duplicate server funding call succeeds gracefully without ledger mutation');
+
+    // Test 15b: Authenticated user attempting to call fund_timesheet_with_payment directly
+    const hourlyJobId = '55555555-5555-5555-5555-555555555556';
+    const hourlyContractId = '44444444-4444-4444-4444-444444444444';
+    const hourlyProposalId = '66666666-6666-6666-6666-666666666667';
+    const fakeTimesheetId = '77777777-7777-7777-7777-777777777777';
+    await db.exec(`
+      INSERT INTO public.jobs (id, client_id, category_id, title, description, project_type, budget_min, experience_level, duration, status)
+      VALUES ('${hourlyJobId}', '${clientId}', (SELECT id FROM public.categories LIMIT 1), 'Test Hourly Job', 'This is a comprehensive test hourly job description that easily exceeds the minimum length requirement.', 'hourly', 50, 'expert', 'less_than_1_month', 'published')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO public.proposals (id, job_id, freelancer_id, bid_amount, rate_type, cover_letter, status)
+      VALUES ('${hourlyProposalId}', '${hourlyJobId}', '${freelancerId}', 50, 'hourly', 'Another minimum fifty character cover letter for the hourly test contract.', 'accepted')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO public.contracts (id, proposal_id, job_id, client_id, freelancer_id, contract_type, title, hourly_rate, weekly_hour_limit, status)
+      VALUES ('${hourlyContractId}', '${hourlyProposalId}', '${hourlyJobId}', '${clientId}', '${freelancerId}', 'hourly', 'Hourly Contract', 50, 40, 'active')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO public.timesheets (id, contract_id, client_id, freelancer_id, week_start_date, total_minutes, total_amount, status)
+      VALUES ('${fakeTimesheetId}', '${hourlyContractId}', '${clientId}', '${freelancerId}', '2026-11-02', 600, 500, 'approved')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    let authenticatedTimesheetFundBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.fund_timesheet_with_payment(
+          '${fakeTimesheetId}'::uuid,
+          'pay_FAKE_123',
+          'order_FAKE_123',
+          'sig_FAKE_123',
+          50000::bigint,
+          'INR'
+        );
+      `);
+    } catch {
+      authenticatedTimesheetFundBlocked = true;
+    }
+    assert(authenticatedTimesheetFundBlocked, 'Test 15b: Authenticated user cannot directly invoke fund_timesheet_with_payment (restricted to service_role)');
+
+    // Test 15c: Authenticated user cannot directly invoke confirm_payout_transfer_completion
+    let authenticatedConfirmTransferBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.confirm_payout_transfer_completion('99999999-9999-9999-9999-999999999999'::uuid);
+      `);
+    } catch {
+      authenticatedConfirmTransferBlocked = true;
+    }
+    assert(authenticatedConfirmTransferBlocked, 'Test 15c: Authenticated user cannot directly invoke confirm_payout_transfer_completion (restricted to service_role)');
+
+    // Test 15d: Authenticated user cannot directly invoke create_payout_transfer_record
+    let authenticatedCreateTransferBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.create_payout_transfer_record(
+          '${contractId}'::uuid,
+          '${freelancerId}'::uuid,
+          500.0,
+          50.0,
+          450.0,
+          'INR',
+          'idemp_fake_123',
+          'trf_fake_123',
+          'acc_fake_123'
+        );
+      `);
+    } catch {
+      authenticatedCreateTransferBlocked = true;
+    }
+    assert(authenticatedCreateTransferBlocked, 'Test 15d: Authenticated user cannot directly invoke create_payout_transfer_record (restricted to service_role)');
+
+    // Test 15e: Authenticated user cannot directly invoke reverse_payout_transfer
+    let authenticatedReverseTransferBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${clientId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        SELECT public.reverse_payout_transfer(
+          '99999999-9999-9999-9999-999999999999'::uuid,
+          'rvr_fake_123'
+        );
+      `);
+    } catch {
+      authenticatedReverseTransferBlocked = true;
+    }
+    assert(authenticatedReverseTransferBlocked, 'Test 15e: Authenticated user cannot directly invoke reverse_payout_transfer (restricted to service_role)');
+
+    // Test 15f: Authenticated user cannot directly INSERT into freelancer_payout_profiles (must use setup_freelancer_payout_profile)
+    let directProfileInsertBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${freelancerId}';
+        SET LOCAL "request.jwt.claim.role" = 'authenticated';
+        INSERT INTO public.freelancer_payout_profiles (
+          user_id, provider, provider_account_id, account_status, legal_name, payout_eligible
+        ) VALUES (
+          '${freelancerId}', 'mock_route', 'acc_hacked', 'activated', 'Hacker', true
+        );
+      `);
+    } catch {
+      directProfileInsertBlocked = true;
+    }
+    assert(directProfileInsertBlocked, 'Test 15f: Authenticated user cannot directly insert into freelancer_payout_profiles (table mutations revoked)');
+
+    // Test 15g: Unauthenticated execution of submit_timesheet fails closed
+    let unauthSubmitBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE anon;
+        SET LOCAL "request.jwt.claim.sub" = '';
+        SET LOCAL "request.jwt.claim.role" = 'anon';
+        SELECT public.submit_timesheet('${fakeTimesheetId}'::uuid);
+      `);
+    } catch {
+      unauthSubmitBlocked = true;
+    }
+    assert(unauthSubmitBlocked, 'Test 15g: Unauthenticated caller cannot execute submit_timesheet');
+
+    // Test 15h: Unauthenticated execution of approve_timesheet fails closed
+    let unauthApproveBlocked = false;
+    try {
+      await db.exec(`
+        SET LOCAL ROLE anon;
+        SET LOCAL "request.jwt.claim.sub" = '';
+        SET LOCAL "request.jwt.claim.role" = 'anon';
+        SELECT public.approve_timesheet('${fakeTimesheetId}'::uuid);
+      `);
+    } catch {
+      unauthApproveBlocked = true;
+    }
+    assert(unauthApproveBlocked, 'Test 15h: Unauthenticated caller cannot execute approve_timesheet');
 
   } catch (dbErr) {
     console.error('Database security test failure:', dbErr);

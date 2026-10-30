@@ -20,6 +20,14 @@ import {
   verifyAndFundMilestoneRazorpay,
 } from '@/lib/actions/payments';
 import {
+  getContractTimesheets,
+  approveTimesheet,
+  disputeTimesheet,
+  createTimesheetRazorpayOrder,
+  verifyAndPayTimesheet,
+  TimesheetWithDetails,
+} from '@/lib/actions/timesheet-billing';
+import {
   Contract,
   ContractMilestone,
   PaymentLedgerEntry,
@@ -112,6 +120,16 @@ function ContractDetailsContent() {
 
   const [busyMilestoneId, setBusyMilestoneId] = useState<string | null>(null);
 
+  // Hourly Timesheet state
+  const [contractTimesheets, setContractTimesheets] = useState<TimesheetWithDetails[]>([]);
+  const [isApprovingTimesheetId, setIsApprovingTimesheetId] = useState<string | null>(null);
+  const [isPayingTimesheetId, setIsPayingTimesheetId] = useState<string | null>(null);
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
+  const [selectedTimesheetForDispute, setSelectedTimesheetForDispute] = useState<TimesheetWithDetails | null>(null);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
+  const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null);
+
   // Load contract, milestones, and ledger (for refresh triggers)
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -128,10 +146,11 @@ function ContractDetailsContent() {
         setCurrentUserId(user.id);
       }
 
-      const [contractRes, milestonesRes, ledgerRes] = await Promise.all([
+      const [contractRes, milestonesRes, ledgerRes, timesheetsRes] = await Promise.all([
         getContractById(contractId),
         getContractMilestones(contractId),
         getContractPaymentLedger(contractId),
+        getContractTimesheets(contractId),
       ]);
 
       if (!contractRes.success || !contractRes.contract) {
@@ -141,6 +160,9 @@ function ContractDetailsContent() {
       setContract(contractRes.contract);
       setMilestones(milestonesRes.milestones || []);
       setLedgerEntries(ledgerRes.entries || []);
+      if (timesheetsRes.success && timesheetsRes.timesheets) {
+        setContractTimesheets(timesheetsRes.timesheets);
+      }
 
       // Auto-expand first non-released milestone or first milestone
       if (milestonesRes.milestones && milestonesRes.milestones.length > 0) {
@@ -167,10 +189,11 @@ function ContractDetailsContent() {
           setCurrentUserId(user.id);
         }
 
-        const [contractRes, milestonesRes, ledgerRes] = await Promise.all([
+        const [contractRes, milestonesRes, ledgerRes, timesheetsRes] = await Promise.all([
           getContractById(contractId),
           getContractMilestones(contractId),
           getContractPaymentLedger(contractId),
+          getContractTimesheets(contractId),
         ]);
 
         if (!isMounted) return;
@@ -182,6 +205,9 @@ function ContractDetailsContent() {
         setContract(contractRes.contract);
         setMilestones(milestonesRes.milestones || []);
         setLedgerEntries(ledgerRes.entries || []);
+        if (timesheetsRes.success && timesheetsRes.timesheets) {
+          setContractTimesheets(timesheetsRes.timesheets);
+        }
 
         if (milestonesRes.milestones && milestonesRes.milestones.length > 0) {
           const fundParam = searchParams.get('fundMilestone');
@@ -419,6 +445,138 @@ function ContractDetailsContent() {
       loadData(true);
     } else {
       setActionErrorMessage(res.error || 'Failed to cancel milestone.');
+    }
+  };
+
+  // Timesheet Billing Handlers (Client Review, Dispute, Razorpay Test Checkout)
+  const handleApproveTimesheet = async (timesheetId: string) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsApprovingTimesheetId(timesheetId);
+
+    const res = await approveTimesheet(timesheetId);
+    setIsApprovingTimesheetId(null);
+
+    if (res.success) {
+      setActionSuccessMessage('Timesheet approved! You can now proceed to pay the invoice.');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to approve timesheet.');
+    }
+  };
+
+  const openDisputeModal = (ts: TimesheetWithDetails) => {
+    setSelectedTimesheetForDispute(ts);
+    setDisputeReason('');
+    setActionErrorMessage(null);
+    setIsDisputeModalOpen(true);
+  };
+
+  const handleConfirmDispute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTimesheetForDispute) return;
+    if (disputeReason.trim().length < 5) {
+      setActionErrorMessage('Please provide a dispute reason of at least 5 characters.');
+      return;
+    }
+
+    setIsSubmittingDispute(true);
+    setActionErrorMessage(null);
+
+    const res = await disputeTimesheet(selectedTimesheetForDispute.id, disputeReason.trim());
+    setIsSubmittingDispute(false);
+
+    if (res.success) {
+      setIsDisputeModalOpen(false);
+      setActionSuccessMessage('Timesheet disputed. The freelancer has been notified.');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to dispute timesheet.');
+    }
+  };
+
+  const handlePayTimesheetRazorpay = async (timesheet: TimesheetWithDetails) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsPayingTimesheetId(timesheet.id);
+
+    try {
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error('Could not load Razorpay Checkout SDK. Please check your internet connection.');
+      }
+
+      const orderRes = await createTimesheetRazorpayOrder(timesheet.id);
+      if (!orderRes.success || !orderRes.orderId || !orderRes.keyId) {
+        throw new Error(orderRes.error || 'Failed to initialize Razorpay payment order for timesheet.');
+      }
+
+      const isTestMode = typeof orderRes.keyId === 'string' && orderRes.keyId.startsWith('rzp_test_');
+      const testContact = isTestMode ? process.env.NEXT_PUBLIC_RAZORPAY_TEST_CONTACT?.trim() : undefined;
+
+      const options = {
+        key: orderRes.keyId,
+        amount: orderRes.amountSubunits,
+        currency: orderRes.currency || 'INR',
+        name: 'Workspace Hourly Billing',
+        description: `Weekly Timesheet Payment (${(timesheet.totalMinutes / 60).toFixed(1)} hrs - Week of ${timesheet.weekStartDate})`,
+        order_id: orderRes.orderId,
+        prefill: {
+          name: orderRes.clientName || 'Client',
+          email: orderRes.clientEmail || '',
+          ...(testContact ? { contact: testContact } : {}),
+        },
+        theme: {
+          color: '#0284c7', // Sky 600
+        },
+        notes: {
+          timesheet_id: timesheet.id,
+          contract_id: contractId,
+          environment: 'test',
+        },
+        handler: async function (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) {
+          setIsPayingTimesheetId(timesheet.id);
+          try {
+            const verifyRes = await verifyAndPayTimesheet({
+              timesheetId: timesheet.id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+
+            if (verifyRes.success) {
+              setActionSuccessMessage(
+                `Timesheet paid successfully via Razorpay Test Mode! Payment ID: ${response.razorpay_payment_id}. Payout transfer automatically initiated.`
+              );
+              loadData(true);
+            } else {
+              setActionErrorMessage(verifyRes.error || 'Payment verification failed.');
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to finalize timesheet payment.';
+            setActionErrorMessage(msg);
+          } finally {
+            setIsPayingTimesheetId(null);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setIsPayingTimesheetId(null);
+          },
+        },
+      };
+
+      const RazorpayConstructor = (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay;
+      const rzpInstance = new RazorpayConstructor(options);
+      rzpInstance.open();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error launching Razorpay Checkout.';
+      setActionErrorMessage(msg);
+      setIsPayingTimesheetId(null);
     }
   };
 
@@ -782,8 +940,17 @@ function ContractDetailsContent() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Layers className="w-4 h-4" />
-            <span>Milestones & Deliveries ({milestones.length})</span>
+            {contract.contractType === 'hourly' ? (
+              <>
+                <Clock className="w-4 h-4" />
+                <span>Weekly Timesheets & Billing ({contractTimesheets.length})</span>
+              </>
+            ) : (
+              <>
+                <Layers className="w-4 h-4" />
+                <span>Milestones & Deliveries ({milestones.length})</span>
+              </>
+            )}
           </button>
 
           <button
@@ -815,24 +982,304 @@ function ContractDetailsContent() {
         {activeTab === 'milestones' && (
           <div className="space-y-4">
             {contract.contractType === 'hourly' ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-                  <Clock className="w-6 h-6" />
+              <div className="space-y-6">
+                {/* Hourly Contract Summary Card */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Clock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">Verified Hourly Billing</h3>
+                        <p className="text-xs text-slate-500">
+                          ${contract.hourlyRate?.toFixed(2)}/hr • Weekly limit: {contract.weeklyHourLimit || 40} hrs
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                          Total Settled
+                        </span>
+                        <span className="text-sm font-bold text-emerald-600 font-mono">
+                          $
+                          {contractTimesheets
+                            .filter((t) => t.status === 'paid')
+                            .reduce((sum, t) => sum + Number(t.totalAmount), 0)
+                            .toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                          Pending Review
+                        </span>
+                        <span className="text-sm font-bold text-amber-600 font-mono">
+                          $
+                          {contractTimesheets
+                            .filter((t) => t.status === 'submitted' || t.status === 'approved')
+                            .reduce((sum, t) => sum + Number(t.totalAmount), 0)
+                            .toFixed(2)}
+                        </span>
+                      </div>
+                      {isFreelancer && (
+                        <Link
+                          href="/freelancer/time-tracking"
+                          className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Console</span>
+                        </Link>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <h3 className="text-base font-bold text-slate-900">Hourly Contract In Effect</h3>
-                <p className="text-xs text-slate-600 max-w-md mx-auto">
-                  This project operates on verified hourly billing at ${contract.hourlyRate?.toFixed(2)}/hr with a weekly limit of {contract.weeklyHourLimit || 40} hours.
-                  Timer tracking and weekly timesheets govern this engagement instead of sequential milestones.
-                </p>
-                <div className="pt-2">
-                  <Link
-                    href="/freelancer/time-tracking"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm"
-                  >
-                    <Clock className="w-4 h-4" />
-                    <span>Open Time Tracker Console</span>
-                  </Link>
-                </div>
+
+                {/* Timesheets List */}
+                {contractTimesheets.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 text-center space-y-4 shadow-xs">
+                    <div className="w-12 h-12 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center mx-auto">
+                      <Clock className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-slate-800">No Weekly Timesheets Yet</h4>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto">
+                        Time tracked via the stopwatch and work diary rolls into weekly timesheets automatically every Monday.
+                      </p>
+                    </div>
+                    {isFreelancer && (
+                      <div className="pt-2">
+                        <Link
+                          href="/freelancer/time-tracking"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                        >
+                          <Clock className="w-4 h-4" />
+                          <span>Launch Live Stopwatch</span>
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {contractTimesheets.map((ts) => {
+                      const totalHrs = Math.floor(ts.totalMinutes / 60);
+                      const totalMins = ts.totalMinutes % 60;
+                      const isExpanded = expandedTimesheetId === ts.id;
+
+                      const getTimesheetBadge = (status: string) => {
+                        switch (status) {
+                          case 'draft':
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                Draft
+                              </span>
+                            );
+                          case 'submitted':
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                <AlertCircle className="w-3 h-3 text-amber-600" />
+                                Awaiting Client Review
+                              </span>
+                            );
+                          case 'approved':
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                                <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                                Approved — Ready to Pay
+                              </span>
+                            );
+                          case 'paid':
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                                Paid &amp; Settled
+                              </span>
+                            );
+                          case 'disputed':
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-200">
+                                <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                Disputed
+                              </span>
+                            );
+                          default:
+                            return null;
+                        }
+                      };
+
+                      return (
+                        <div
+                          key={ts.id}
+                          className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all hover:border-slate-300"
+                        >
+                          <div className="p-5 sm:p-6 space-y-4">
+                            {/* Header row */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2.5">
+                                  <h4 className="text-base font-bold text-slate-900">
+                                    Week of {ts.weekStartDate}
+                                  </h4>
+                                  {getTimesheetBadge(ts.status)}
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  Logged by {ts.freelancerName || 'Freelancer'} • {ts.timeEntries?.length || 0} work session{ts.timeEntries?.length === 1 ? '' : 's'}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-4 text-right">
+                                <div>
+                                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                                    Total Hours
+                                  </span>
+                                  <span className="text-sm font-bold text-slate-800 font-mono">
+                                    {totalHrs}h {totalMins}m
+                                  </span>
+                                </div>
+                                <div className="h-8 w-px bg-slate-200" />
+                                <div>
+                                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                                    Billable Amount
+                                  </span>
+                                  <span className="text-base font-bold text-emerald-700 font-mono">
+                                    ${Number(ts.totalAmount).toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Client & Freelancer Actions Row */}
+                            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedTimesheetId((prev) => (prev === ts.id ? null : ts.id))
+                                }
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                              >
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                <span>{isExpanded ? 'Hide' : 'View'} Time Breakdown ({ts.timeEntries?.length || 0})</span>
+                              </button>
+
+                              <div className="flex items-center gap-2">
+                                {/* Client Review Controls */}
+                                {isClient && ts.status === 'submitted' && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => openDisputeModal(ts)}
+                                      disabled={isApprovingTimesheetId === ts.id}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-amber-300 bg-amber-50/50 hover:bg-amber-100/60 text-amber-800 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                                    >
+                                      <AlertTriangle className="w-3.5 h-3.5" />
+                                      <span>Dispute</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveTimesheet(ts.id)}
+                                      disabled={isApprovingTimesheetId === ts.id}
+                                      className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
+                                    >
+                                      {isApprovingTimesheetId === ts.id ? (
+                                        <>
+                                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          <span>Approving...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="w-3.5 h-3.5" />
+                                          <span>Approve Timesheet</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </>
+                                )}
+
+                                {/* Client Payment via Razorpay Test Mode */}
+                                {isClient && ts.status === 'approved' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePayTimesheetRazorpay(ts)}
+                                    disabled={isPayingTimesheetId === ts.id}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isPayingTimesheetId === ts.id ? (
+                                      <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Launching Razorpay...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CreditCard className="w-4 h-4" />
+                                        <span>Pay ${Number(ts.totalAmount).toFixed(2)} with Razorpay (Test)</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+
+                                {/* Paid Settlement Confirmation */}
+                                {ts.status === 'paid' && (
+                                  <div className="flex items-center gap-2 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                                    <span>Payment Captured • Simulated Freelancer Payout Complete</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Collapsible Time Entries Table */}
+                            {isExpanded && (
+                              <div className="pt-3 border-t border-slate-100 animate-in fade-in space-y-3">
+                                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                  Individual Work Sessions
+                                </h5>
+                                {(!ts.timeEntries || ts.timeEntries.length === 0) ? (
+                                  <p className="text-xs text-slate-400 italic">No detailed interval entries recorded for this timesheet.</p>
+                                ) : (
+                                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                                        <tr>
+                                          <th className="py-2 px-3">Date &amp; Time</th>
+                                          <th className="py-2 px-3">Duration</th>
+                                          <th className="py-2 px-3">Type</th>
+                                          <th className="py-2 px-3">Work Summary / Memo</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                                        {ts.timeEntries.map((entry) => (
+                                          <tr key={entry.id} className="hover:bg-slate-50/50">
+                                            <td className="py-2 px-3 font-mono text-slate-600">
+                                              {entry.startTime ? new Date(entry.startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                            </td>
+                                            <td className="py-2 px-3 font-semibold font-mono text-slate-800">
+                                              {Math.floor(entry.durationMinutes / 60)}h {entry.durationMinutes % 60}m
+                                            </td>
+                                            <td className="py-2 px-3">
+                                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${entry.source === 'timer' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                {entry.source}
+                                              </span>
+                                            </td>
+                                            <td className="py-2 px-3 text-slate-600">
+                                              {entry.memo || <span className="text-slate-400 italic">No memo</span>}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ) : milestones.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 text-center space-y-6 shadow-xs max-w-2xl mx-auto">
@@ -1771,6 +2218,81 @@ function ContractDetailsContent() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: DISPUTE TIMESHEET */}
+      {isDisputeModalOpen && selectedTimesheetForDispute && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Dispute Weekly Timesheet</h3>
+                  <p className="text-xs text-slate-500">
+                    Week of {selectedTimesheetForDispute.weekStartDate} ({((selectedTimesheetForDispute.totalMinutes || 0) / 60).toFixed(1)} hrs)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDisputeModalOpen(false)}
+                disabled={isSubmittingDispute}
+                className="text-slate-400 hover:text-slate-600 p-1 disabled:opacity-40 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDispute} className="space-y-4">
+              <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                <span className="font-bold block">Dispute Guidance</span>
+                <p>
+                  Disputing will return this timesheet to draft status and notify the freelancer. Please explain what hours or work entries you are contesting.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Reason for Dispute *</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  placeholder="Describe specific discrepancies, unapproved hours, or deliverables (minimum 5 characters)..."
+                  className="w-full text-xs p-3 rounded-lg border border-slate-200 focus:border-amber-600 outline-hidden"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsDisputeModalOpen(false)}
+                  disabled={isSubmittingDispute}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDispute || disputeReason.trim().length < 5}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm cursor-pointer"
+                >
+                  {isSubmittingDispute ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Submitting Dispute...</span>
+                    </>
+                  ) : (
+                    <span>Submit Dispute</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
   getRazorpayClient,
+  getRazorpayConfig,
   verifyRazorpayPaymentSignature,
   extractPaymentErrorMessage,
 } from '@/lib/razorpay';
@@ -164,9 +165,10 @@ export async function createMilestoneRazorpayOrder(
       return { success: false, error: 'Invalid currency sub-unit calculation.', code: 'INVALID_AMOUNT' };
     }
 
-    // 6. Initialize Razorpay SDK client
-    const razorpay = getRazorpayClient();
-    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
+    // 6. Initialize Razorpay SDK client & validate environment
+    const config = getRazorpayConfig();
+    const razorpay = getRazorpayClient(config);
+    const keyId = config.keyId;
 
     // Receipt length maximum is 40 characters in Razorpay
     const receipt = `ms_${milestone.id.replace(/-/g, '').slice(0, 32)}`;
@@ -180,7 +182,7 @@ export async function createMilestoneRazorpayOrder(
         milestone_id: milestone.id,
         contract_id: rawContract.id,
         client_id: user.id,
-        environment: 'test',
+        environment: config.environment,
         platform: 'Workspace',
       },
     });
@@ -194,8 +196,9 @@ export async function createMilestoneRazorpayOrder(
       p_currency: milestoneCurrency,
       p_metadata: {
         receipt,
-        environment: 'test',
+        environment: config.environment,
       },
+      p_environment: config.environment,
     });
 
     if (attemptError) {
@@ -362,7 +365,8 @@ export async function verifyAndFundMilestoneRazorpay(
   };
 
   try {
-    const razorpay = getRazorpayClient();
+    const config = getRazorpayConfig();
+    const razorpay = getRazorpayClient(config);
     payment = (await razorpay.payments.fetch(razorpayPaymentId.trim())) as typeof payment;
   } catch (apiErr) {
     const message = extractPaymentErrorMessage(apiErr, 'Communication error with Razorpay API');
@@ -412,9 +416,10 @@ export async function verifyAndFundMilestoneRazorpay(
   }
 
   // 4. Execute atomic database stored procedure to fund milestone and record ledger event
+  const config = getRazorpayConfig();
   const paymentMetadata = {
     provider: 'razorpay',
-    environment: 'test',
+    environment: config.environment,
     razorpay_order_id: attempt.razorpay_order_id,
     razorpay_payment_id: razorpayPaymentId.trim(),
     razorpay_signature: razorpaySignature.trim(),

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
+import { payoutEngine } from '@/lib/services/payout-engine';
 import {
   ContractMilestone,
   DeliveryAttachment,
@@ -18,6 +19,8 @@ export interface MilestoneResult {
   milestone?: ContractMilestone;
   error?: string;
   code?: string;
+  payoutStatus?: 'completed' | 'pending' | 'failed' | 'ineligible';
+  payoutError?: string;
 }
 
 export interface MilestonesListResult {
@@ -841,6 +844,25 @@ export async function approveAndReleaseMilestone(
 
     const raw = data as RawMilestoneRow;
 
+    // Trigger automatic payout engine
+    let payoutStatus: 'completed' | 'pending' | 'failed' | 'ineligible' = 'pending';
+    let payoutError: string | undefined;
+
+    try {
+      const payoutRes = await payoutEngine.initiateMilestonePayout(raw.id);
+      if (payoutRes.success) {
+        payoutStatus = payoutRes.status === 'completed' ? 'completed' : 'pending';
+      } else {
+        payoutStatus = payoutRes.code === 'PAYOUT_INELIGIBLE' ? 'ineligible' : 'failed';
+        payoutError = payoutRes.error;
+        console.warn(`Milestone ${raw.id} approved but payout initiation returned:`, payoutRes.error);
+      }
+    } catch (engineErr) {
+      payoutStatus = 'failed';
+      payoutError = engineErr instanceof Error ? engineErr.message : 'Payout engine failed';
+      console.error(`Automatic payout engine error for milestone ${raw.id}:`, engineErr);
+    }
+
     if (raw.freelancer_id) {
       createNotification({
         userId: raw.freelancer_id,
@@ -851,6 +873,9 @@ export async function approveAndReleaseMilestone(
         metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
       }).catch(() => {});
     }
+
+    const finalStatus: MilestoneStatus =
+      payoutStatus === 'completed' ? 'released' : (raw.status as MilestoneStatus);
 
     return {
       success: true,
@@ -865,10 +890,12 @@ export async function approveAndReleaseMilestone(
         currency: raw.currency,
         sequenceOrder: raw.sequence_order,
         dueDate: raw.due_date || null,
-        status: raw.status as MilestoneStatus,
+        status: finalStatus,
         createdAt: raw.created_at,
         updatedAt: raw.updated_at,
       },
+      payoutStatus,
+      payoutError,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to approve and release milestone.';
