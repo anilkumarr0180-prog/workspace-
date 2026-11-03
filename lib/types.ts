@@ -314,7 +314,8 @@ export type NotificationType =
   | 'milestone_approved'
   | 'contract_created'
   | 'payment_processed'
-  | 'system_announcement';
+  | 'system_announcement'
+  | 'new_message';
 
 export interface NotificationItem {
   id: string;
@@ -329,5 +330,72 @@ export interface NotificationItem {
   createdAt: string;
   updatedAt: string;
 }
+
+export type MessageType = 'text' | 'image' | 'file' | 'system';
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName?: string;
+  senderAvatar?: string | null;
+  content: string;
+  messageType: MessageType;
+  attachmentPath?: string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
+  attachmentType?: string | null;
+  attachmentUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+}
+
+export interface ConversationParticipant {
+  id: string;
+  conversationId: string;
+  userId: string;
+  fullName: string;
+  avatarUrl?: string | null;
+  username: string;
+  title?: string | null;
+  activeMode?: 'client' | 'freelancer';
+  lastReadAt: string;
+  joinedAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  createdBy: string;
+  jobId?: string | null;
+  jobTitle?: string | null;
+  proposalId?: string | null;
+  contractId?: string | null;
+  contractTitle?: string | null;
+  contractStatus?: ContractStatus | null;
+  title?: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+  participants: ConversationParticipant[];
+  otherParticipant?: ConversationParticipant;
+  lastMessage?: Message | null;
+  unreadCount: number;
+  myLastReadAt: string;
+}
+
+export interface TypingPayload {
+  userId: string;
+  userName: string;
+  isTyping: boolean;
+}
+
+export interface UserPresence {
+  userId: string;
+  userName: string;
+  onlineAt: string;
+}
+
 
 

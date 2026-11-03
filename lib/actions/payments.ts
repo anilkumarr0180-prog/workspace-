@@ -10,6 +10,7 @@ import {
 } from '@/lib/razorpay';
 import { MilestoneResult } from '@/lib/actions/milestones';
 import { MilestoneStatus } from '@/lib/types';
+import { createNotification } from '@/lib/actions/notifications';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -463,6 +464,18 @@ export async function verifyAndFundMilestoneRazorpay(
       created_at: string;
       updated_at: string;
     };
+
+    if (raw.freelancer_id) {
+      createNotification({
+        userId: raw.freelancer_id,
+        type: 'milestone_funded',
+        title: 'Milestone Funded',
+        message: `Milestone "${raw.title}" ($${raw.amount}) has been funded into escrow via Razorpay. You can begin work.`,
+        link: `/contracts/${raw.contract_id}`,
+        metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
+        idempotencyKey: `notif:milestone_funded:${raw.id}`,
+      }).catch(() => {});
+    }
 
     return {
       success: true,

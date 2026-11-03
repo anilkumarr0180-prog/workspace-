@@ -76,6 +76,125 @@ export default function Navbar() {
     setMobileMenuOpen(false);
   }
 
+  // Real-time Unread Messages Count & In-App Toast
+  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(0);
+  const [messageToast, setMessageToast] = useState<{
+    id: string;
+    title: string;
+    message: string;
+    link: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
+    const supabase = createClient();
+
+    const fetchUnread = async () => {
+      try {
+        const res = await fetch('/api/messages?unreadCount=true');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && typeof data.count === 'number') {
+            setUnreadMessageCount(data.count);
+          }
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+
+    // Global Presence: Broadcast that current user is online across the entire application
+    const presenceChannel = supabase.channel('global-presence', {
+      config: { presence: { key: user.id } },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const ids = Object.keys(state);
+        window.dispatchEvent(new CustomEvent('workspace:presence-sync', { detail: ids }));
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }: { newPresences: unknown[] }) => {
+        const ids = (newPresences as Array<{ userId?: string }>).map((p) => p.userId).filter(Boolean);
+        window.dispatchEvent(new CustomEvent('workspace:presence-join', { detail: ids }));
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }: { leftPresences: unknown[] }) => {
+        const ids = (leftPresences as Array<{ userId?: string }>).map((p) => p.userId).filter(Boolean);
+        window.dispatchEvent(new CustomEvent('workspace:presence-leave', { detail: ids }));
+      });
+
+    presenceChannel.subscribe(async (status: string) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({
+          userId: user.id,
+          userName: profile?.full_name || user.email || 'User',
+          onlineAt: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Realtime notification channel for instant message alerts & unread badge
+    const notifChannel = supabase
+      .channel(`realtime-navbar-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new as unknown as {
+            id: string;
+            type: string;
+            title?: string;
+            message?: string;
+            link?: string;
+            metadata?: { conversationId?: string };
+          };
+          if (row.type === 'new_message') {
+            setUnreadMessageCount((prev) => prev + 1);
+            // If not currently inside this conversation, trigger in-app toast alert
+            const convId = row.metadata?.conversationId;
+            if (!pathname.includes(convId || 'nomatch_conv_id')) {
+              setMessageToast({
+                id: row.id,
+                title: row.title || 'New Message',
+                message: row.message || '',
+                link: row.link || '/messages',
+              });
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversation_participants',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchUnread();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      presenceChannel.unsubscribe();
+      notifChannel.unsubscribe();
+    };
+  }, [user, profile?.full_name, pathname]);
+
   // Subscribe to Supabase Auth State
   useEffect(() => {
     let isMounted = true;
@@ -815,11 +934,20 @@ export default function Navbar() {
 
                 {/* Messages Link */}
                 <NextLink
-                  href="/freelancer"
+                  href="/messages"
                   onClick={() => setActiveDropdown(null)}
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   <span>Messages</span>
+                  {unreadMessageCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                      {unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
               </nav>
             ) : (
@@ -874,6 +1002,21 @@ export default function Navbar() {
                   }`}
                 >
                   Reports
+                </NextLink>
+                <NextLink
+                  href="/messages"
+                  className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
+                >
+                  <span>Messages</span>
+                  {unreadMessageCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                      {unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
               </nav>
             )}
@@ -932,11 +1075,23 @@ export default function Navbar() {
 
                 {/* Direct Messages / Chat Link */}
                 <NextLink
-                  href={isClientMode ? '/client' : '/freelancer'}
-                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  href="/messages"
+                  className={`relative p-2 rounded-full transition-colors hidden sm:block ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                   title="Messages"
                 >
                   <MessageSquare className="w-4.5 h-4.5" />
+                  {unreadMessageCount > 0 && (
+                    <span
+                      id="navbar-unread-messages-badge"
+                      className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+                    >
+                      {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
 
                 {/* Profile Avatar & Dark Upwork-Style Dropdown */}
@@ -1214,6 +1369,22 @@ export default function Navbar() {
             </NextLink>
 
             <NextLink
+              href="/messages"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <div className="flex items-center gap-2">
+                <span>Messages</span>
+                {unreadMessageCount > 0 && (
+                  <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                    {unreadMessageCount}
+                  </span>
+                )}
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
               href="/freelancer#proposals"
               onClick={() => {
                 setMobileMenuOpen(false);
@@ -1304,6 +1475,45 @@ export default function Navbar() {
                 </NextLink>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Floating In-App Message Toast Notification */}
+      {messageToast && (
+        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700/80 flex items-start gap-3 max-w-sm">
+            <div className="w-9 h-9 rounded-xl bg-[#14a800] text-white flex items-center justify-center shrink-0 shadow-xs">
+              <MessageSquare className="w-4.5 h-4.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-bold text-white truncate">{messageToast.title}</h4>
+              <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">{messageToast.message}</p>
+              <div className="flex items-center gap-3 mt-2.5">
+                <NextLink
+                  href={messageToast.link}
+                  onClick={() => setMessageToast(null)}
+                  className="text-xs font-semibold text-[#14a800] hover:text-emerald-400 hover:underline"
+                >
+                  Open Chat →
+                </NextLink>
+                <button
+                  type="button"
+                  onClick={() => setMessageToast(null)}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMessageToast(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

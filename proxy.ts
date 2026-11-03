@@ -41,6 +41,7 @@ export async function proxy(request: NextRequest) {
 
   const isClientRoute = pathname === '/client' || pathname.startsWith('/client/');
   const isFreelancerRoute = pathname === '/freelancer' || pathname.startsWith('/freelancer/');
+  const isMessagesRoute = pathname === '/messages' || pathname.startsWith('/messages/');
 
   const copyCookies = (from: NextResponse, to: NextResponse) => {
     from.cookies.getAll().forEach((cookie) => {
@@ -49,7 +50,7 @@ export async function proxy(request: NextRequest) {
   };
 
   // 1. Unauthenticated users cannot access protected routes
-  if (!user && (isClientRoute || isFreelancerRoute)) {
+  if (!user && (isClientRoute || isFreelancerRoute || isMessagesRoute)) {
     const redirectUrl = new URL('/login', request.url);
     redirectUrl.searchParams.set('redirect', pathname);
     const redirectResponse = NextResponse.redirect(redirectUrl);
