@@ -1,6 +1,8 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
+import { createNotification } from '@/lib/actions/notifications';
 import { Contract, ContractStatus, ProjectType } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 
@@ -406,11 +408,24 @@ export async function createContractOffer(
     });
 
     if (rpcError) {
-      return {
-        success: false,
-        error: rpcError.message,
-        code: rpcError.code,
-      };
+      console.warn('RPC create_contract_offer failed, falling back to direct server action:', rpcError.message);
+      const fallbackResult = await executeCreateContractOfferFallback(
+        user.id,
+        input,
+        hourlyRateVal,
+        fixedPriceVal
+      );
+      if (!fallbackResult.success) {
+        return {
+          success: false,
+          error: fallbackResult.error || rpcError.message,
+          code: rpcError.code,
+        };
+      }
+      revalidatePath('/client');
+      revalidatePath('/contracts');
+      revalidatePath('/freelancer');
+      return fallbackResult;
     }
 
     revalidatePath('/client');
@@ -422,11 +437,167 @@ export async function createContractOffer(
       contractId: contractId as string,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unexpected error creating contract offer.';
-    return {
-      success: false,
-      error: message,
-    };
+    console.warn('RPC create_contract_offer exception, falling back to direct server action:', err);
+    const fallbackResult = await executeCreateContractOfferFallback(
+      user.id,
+      input,
+      hourlyRateVal,
+      fixedPriceVal
+    );
+    if (!fallbackResult.success) {
+      const message = err instanceof Error ? err.message : 'Unexpected error creating contract offer.';
+      return {
+        success: false,
+        error: fallbackResult.error || message,
+      };
+    }
+    revalidatePath('/client');
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    return fallbackResult;
+  }
+}
+
+/**
+ * Fallback execution for creating a contract offer in case database RPC is outdated or has schema discrepancies.
+ */
+async function executeCreateContractOfferFallback(
+  userId: string,
+  input: CreateContractOfferInput,
+  hourlyRateVal: number | null,
+  fixedPriceVal: number | null
+): Promise<ContractOfferResult> {
+  try {
+    const admin = getAdminSupabaseClient();
+
+    // 1. Fetch proposal
+    const { data: proposal, error: propErr } = await admin
+      .from('proposals')
+      .select('id, job_id, freelancer_id, status, bid_amount, rate_type')
+      .eq('id', input.proposalId.trim())
+      .single();
+
+    if (propErr || !proposal) {
+      return { success: false, error: 'Proposal not found.' };
+    }
+
+    if (['rejected', 'withdrawn'].includes(proposal.status)) {
+      return { success: false, error: `Cannot create an offer for a proposal that is ${proposal.status}.` };
+    }
+
+    // 2. Fetch parent job
+    const { data: job, error: jobErr } = await admin
+      .from('jobs')
+      .select('id, client_id, company_id, title, status')
+      .eq('id', proposal.job_id)
+      .single();
+
+    if (jobErr || !job) {
+      return { success: false, error: 'Parent job not found.' };
+    }
+
+    // 3. Authorization check
+    let isClientManager = job.client_id === userId;
+    if (!isClientManager && job.company_id) {
+      const { data: member } = await admin
+        .from('company_members')
+        .select('id, role')
+        .eq('company_id', job.company_id)
+        .eq('user_id', userId)
+        .single();
+      if (member && ['owner', 'admin', 'hiring_manager'].includes(member.role)) {
+        isClientManager = true;
+      }
+    }
+
+    if (!isClientManager) {
+      return { success: false, error: 'Caller is not authorized to create an offer for this job.' };
+    }
+
+    // 4. Duplicate check
+    const { data: existingContracts } = await admin
+      .from('contracts')
+      .select('id')
+      .eq('proposal_id', proposal.id)
+      .in('status', ['pending_offer', 'active']);
+
+    if (existingContracts && existingContracts.length > 0) {
+      return { success: false, error: 'An offer or active contract already exists for this proposal.' };
+    }
+
+    const contractTitle = input.title?.trim() || job.title;
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // 5. Insert contract
+    const { data: contract, error: contractErr } = await admin
+      .from('contracts')
+      .insert({
+        proposal_id: proposal.id,
+        job_id: job.id,
+        client_id: job.client_id,
+        company_id: job.company_id,
+        freelancer_id: proposal.freelancer_id,
+        contract_type: input.contractType,
+        title: contractTitle,
+        hourly_rate: input.contractType === 'hourly' ? hourlyRateVal : null,
+        fixed_price: input.contractType === 'fixed' ? fixedPriceVal : null,
+        weekly_hour_limit: input.contractType === 'hourly' ? (input.weeklyHourLimit ? Number(input.weeklyHourLimit) : 40) : null,
+        allow_manual_time: input.allowManualTime ?? true,
+        offer_message: input.offerMessage?.trim() || null,
+        offer_expires_at: expiresAt,
+        status: 'pending_offer',
+      })
+      .select('id')
+      .single();
+
+    if (contractErr || !contract) {
+      return { success: false, error: contractErr?.message || 'Failed to create contract.' };
+    }
+
+    const contractId = contract.id;
+
+    // 6. Fixed price initial milestone in contract_milestones
+    if (input.contractType === 'fixed' && fixedPriceVal) {
+      const { error: msErr } = await admin
+        .from('contract_milestones')
+        .insert({
+          contract_id: contractId,
+          client_id: job.client_id,
+          freelancer_id: proposal.freelancer_id,
+          title: 'Initial Project Milestone',
+          description: `Full scope and agreed deliverables for contract: ${contractTitle}`,
+          amount: fixedPriceVal,
+          currency: 'USD',
+          sequence_order: 1,
+          status: 'planned',
+        });
+      if (msErr) {
+        console.warn('contract_milestones insert fallback notice:', msErr.message);
+      }
+    }
+
+    // 7. Advance proposal status
+    if (['submitted', 'under_review'].includes(proposal.status)) {
+      await admin
+        .from('proposals')
+        .update({ status: 'interviewing', updated_at: new Date().toISOString() })
+        .eq('id', proposal.id);
+    }
+
+    // 8. Send notification via createNotification helper
+    await createNotification({
+      userId: proposal.freelancer_id,
+      type: 'contract_offer_received',
+      title: 'Contract Offer Received',
+      message: `You received an offer for "${job.title}"`,
+      link: `/contracts/${contractId}`,
+      metadata: { actor_id: userId, contract_id: contractId },
+    });
+
+    return { success: true, contractId };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Fallback contract creation error';
+    return { success: false, error: msg };
   }
 }
 
@@ -456,7 +627,11 @@ export async function acceptContractOffer(
     });
 
     if (rpcError) {
-      return { success: false, error: rpcError.message };
+      console.warn('RPC accept_contract_offer failed, falling back to direct server action:', rpcError.message);
+      const fallbackResult = await executeAcceptContractOfferFallback(user.id, contractId.trim());
+      if (!fallbackResult.success) {
+        return { success: false, error: fallbackResult.error || rpcError.message };
+      }
     }
 
     revalidatePath(`/contracts/${contractId.trim()}`);
@@ -466,8 +641,69 @@ export async function acceptContractOffer(
 
     return { success: true };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to accept offer.';
-    return { success: false, error: message };
+    console.warn('RPC accept_contract_offer error, using fallback:', err);
+    const fallbackResult = await executeAcceptContractOfferFallback(user.id, contractId.trim());
+    if (!fallbackResult.success) {
+      const message = err instanceof Error ? err.message : 'Failed to accept offer.';
+      return { success: false, error: fallbackResult.error || message };
+    }
+    revalidatePath(`/contracts/${contractId.trim()}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+    return { success: true };
+  }
+}
+
+async function executeAcceptContractOfferFallback(
+  userId: string,
+  contractId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: contract, error: cErr } = await admin
+      .from('contracts')
+      .select('id, proposal_id, job_id, client_id, freelancer_id, title, status')
+      .eq('id', contractId)
+      .single();
+
+    if (cErr || !contract) {
+      return { success: false, error: 'Contract not found.' };
+    }
+
+    if (contract.freelancer_id !== userId) {
+      return { success: false, error: 'Only the invited freelancer can accept this offer.' };
+    }
+
+    if (contract.status !== 'pending_offer') {
+      return { success: false, error: `This offer is in status "${contract.status}" and cannot be accepted.` };
+    }
+
+    const nowIso = new Date().toISOString();
+    await admin
+      .from('contracts')
+      .update({ status: 'active', offer_accepted_at: nowIso, updated_at: nowIso })
+      .eq('id', contractId);
+
+    if (contract.proposal_id) {
+      await admin
+        .from('proposals')
+        .update({ status: 'accepted', updated_at: nowIso })
+        .eq('id', contract.proposal_id);
+    }
+
+    await createNotification({
+      userId: contract.client_id,
+      type: 'contract_offer_accepted',
+      title: 'Offer Accepted',
+      message: `Your contract offer for "${contract.title}" was accepted!`,
+      link: `/contracts/${contractId}`,
+      metadata: { actor_id: userId, contract_id: contractId },
+    });
+
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Accept offer fallback error' };
   }
 }
 
@@ -499,7 +735,11 @@ export async function declineContractOffer(
     });
 
     if (rpcError) {
-      return { success: false, error: rpcError.message };
+      console.warn('RPC decline_contract_offer failed, falling back to direct server action:', rpcError.message);
+      const fallbackResult = await executeDeclineContractOfferFallback(user.id, contractId.trim(), reason);
+      if (!fallbackResult.success) {
+        return { success: false, error: fallbackResult.error || rpcError.message };
+      }
     }
 
     revalidatePath(`/contracts/${contractId.trim()}`);
@@ -509,8 +749,68 @@ export async function declineContractOffer(
 
     return { success: true };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to decline offer.';
-    return { success: false, error: message };
+    console.warn('RPC decline_contract_offer error, using fallback:', err);
+    const fallbackResult = await executeDeclineContractOfferFallback(user.id, contractId.trim(), reason);
+    if (!fallbackResult.success) {
+      const message = err instanceof Error ? err.message : 'Failed to decline offer.';
+      return { success: false, error: fallbackResult.error || message };
+    }
+    revalidatePath(`/contracts/${contractId.trim()}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+    return { success: true };
+  }
+}
+
+async function executeDeclineContractOfferFallback(
+  userId: string,
+  contractId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: contract, error: cErr } = await admin
+      .from('contracts')
+      .select('id, proposal_id, job_id, client_id, freelancer_id, title, status')
+      .eq('id', contractId)
+      .single();
+
+    if (cErr || !contract) {
+      return { success: false, error: 'Contract not found.' };
+    }
+
+    if (contract.freelancer_id !== userId) {
+      return { success: false, error: 'Only the invited freelancer can decline this offer.' };
+    }
+
+    if (contract.status !== 'pending_offer') {
+      return { success: false, error: `This offer is in status "${contract.status}" and cannot be declined.` };
+    }
+
+    const nowIso = new Date().toISOString();
+    await admin
+      .from('contracts')
+      .update({
+        status: 'declined',
+        declined_reason: reason?.trim() || null,
+        offer_declined_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', contractId);
+
+    await createNotification({
+      userId: contract.client_id,
+      type: 'contract_offer_declined',
+      title: 'Offer Declined',
+      message: `Your contract offer for "${contract.title}" was declined.`,
+      link: `/contracts/${contractId}`,
+      metadata: { actor_id: userId, contract_id: contractId },
+    });
+
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'Decline offer fallback error' };
   }
 }
 

@@ -475,26 +475,40 @@ export default function WorkDiary({
                             onClick={() => setPreviewSlot(slot)}
                             className="relative aspect-video rounded-lg bg-slate-900 border border-slate-800 overflow-hidden cursor-pointer group-hover:ring-2 group-hover:ring-emerald-500 transition-all flex items-center justify-center"
                           >
-                            {/* Simulated desktop window preview */}
-                            <div className="w-full h-full p-1.5 flex flex-col justify-between text-slate-300">
-                              <div className="flex items-center justify-between text-[8px] border-b border-slate-800 pb-0.5">
-                                <div className="flex items-center gap-0.5">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            {slot.screenshotUrl ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={slot.screenshotUrl}
+                                  alt={`Snapshot at ${timeStr}`}
+                                  className="w-full h-full object-cover object-top"
+                                />
+                                <div className="absolute bottom-1 right-1 bg-black/75 backdrop-blur-xs text-[7px] font-mono text-emerald-300 px-1 py-0.5 rounded shadow-xs">
+                                  {slot.activityScore}/10
                                 </div>
-                                <span className="truncate max-w-[80px] text-slate-400 font-mono text-[7px]">
-                                  {slot.isManual ? 'Manual Time' : 'Workspace IDE'}
-                                </span>
+                              </>
+                            ) : (
+                              /* Simulated desktop window preview */
+                              <div className="w-full h-full p-1.5 flex flex-col justify-between text-slate-300">
+                                <div className="flex items-center justify-between text-[8px] border-b border-slate-800 pb-0.5">
+                                  <div className="flex items-center gap-0.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  </div>
+                                  <span className="truncate max-w-[80px] text-slate-400 font-mono text-[7px]">
+                                    {slot.isManual ? 'Manual Time' : 'Workspace IDE'}
+                                  </span>
+                                </div>
+                                <div className="text-[7px] font-mono text-emerald-400 line-clamp-2 leading-tight py-0.5">
+                                  {slot.memo || 'Working on deliverables...'}
+                                </div>
+                                <div className="flex items-center justify-between text-[7px] text-slate-400 pt-0.5 border-t border-slate-800">
+                                  <span>{slot.durationMinutes}m</span>
+                                  <span>{slot.isManual ? 'Manual' : `${slot.activityScore}/10`}</span>
+                                </div>
                               </div>
-                              <div className="text-[7px] font-mono text-emerald-400 line-clamp-2 leading-tight py-0.5">
-                                {slot.memo || 'Working on deliverables...'}
-                              </div>
-                              <div className="flex items-center justify-between text-[7px] text-slate-400 pt-0.5 border-t border-slate-800">
-                                <span>{slot.durationMinutes}m</span>
-                                <span>{slot.isManual ? 'Manual' : `${slot.activityScore}/10`}</span>
-                              </div>
-                            </div>
+                            )}
 
                             {/* Hover expand overlay */}
                             <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -685,30 +699,54 @@ export default function WorkDiary({
               </button>
             </div>
 
-            {/* Simulated Desktop Preview Window */}
-            <div className="aspect-video bg-slate-950 rounded-xl p-4 text-slate-300 font-mono text-xs flex flex-col justify-between border border-slate-800 shadow-inner">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-slate-500 text-[10px] ml-2">workspace/src/app/page.tsx</span>
+            {/* High-Resolution Screenshot or Simulated Desktop Window */}
+            {previewSlot.screenshotUrl ? (
+              <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-inner group flex items-center justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewSlot.screenshotUrl}
+                  alt={`Snapshot at ${previewSlot.slotTime}`}
+                  className="w-full h-full object-contain"
+                />
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 bg-black/75 backdrop-blur-xs px-2.5 py-1 rounded-md text-[10px] text-white shadow-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Verified Screen Snapshot</span>
                 </div>
-                <span className="text-[10px] text-emerald-400">
-                  {previewSlot.isManual ? 'Manual Entry' : 'Active Work Session'}
-                </span>
+                <a
+                  href={previewSlot.screenshotUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute top-2.5 right-2.5 p-1.5 bg-black/75 hover:bg-black/90 backdrop-blur-xs rounded-md text-white text-[10px] flex items-center gap-1 transition-colors shadow-xs"
+                  title="Open full resolution snapshot in new tab"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
               </div>
-              <div className="space-y-1 text-slate-400 text-[11px] py-4">
-                <p className="text-emerald-300">{"// Verified Workspace Activity Segment"}</p>
-                <p className="text-slate-200">Task Memo: &quot;{previewSlot.memo}&quot;</p>
-                <p className="text-slate-500">Recorded At: {previewSlot.slotTime}</p>
+            ) : (
+              <div className="aspect-video bg-slate-950 rounded-xl p-4 text-slate-300 font-mono text-xs flex flex-col justify-between border border-slate-800 shadow-inner">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <span className="text-slate-500 text-[10px] ml-2">workspace/src/app/page.tsx</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-400">
+                    {previewSlot.isManual ? 'Manual Entry' : 'Active Work Session'}
+                  </span>
+                </div>
+                <div className="space-y-1 text-slate-400 text-[11px] py-4">
+                  <p className="text-emerald-300">{"// Verified Workspace Activity Segment"}</p>
+                  <p className="text-slate-200">Task Memo: &quot;{previewSlot.memo}&quot;</p>
+                  <p className="text-slate-500">Recorded At: {previewSlot.slotTime}</p>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-800 pt-2">
+                  <span>Keystrokes: {previewSlot.keystrokesCount}</span>
+                  <span>Mouse Clicks: {previewSlot.mouseClicksCount}</span>
+                  <span>Activity: {previewSlot.activityScore}/10</span>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-800 pt-2">
-                <span>Keystrokes: {previewSlot.keystrokesCount}</span>
-                <span>Mouse Clicks: {previewSlot.mouseClicksCount}</span>
-                <span>Activity: {previewSlot.activityScore}/10</span>
-              </div>
-            </div>
+            )}
 
             <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl text-xs">
               <div>
@@ -725,11 +763,27 @@ export default function WorkDiary({
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex items-center justify-between pt-2">
+              {isFreelancer ? (
+                <button
+                  type="button"
+                  disabled={deletingSlotId === previewSlot.id}
+                  onClick={async () => {
+                    const idToDelete = previewSlot.id;
+                    setPreviewSlot(null);
+                    await handleDeleteSlot(idToDelete);
+                  }}
+                  className="px-3.5 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-rose-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Snapshot & Deduct Time</span>
+                </button>
+              ) : <div />}
+
               <button
                 type="button"
                 onClick={() => setPreviewSlot(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800"
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 cursor-pointer"
               >
                 Close Preview
               </button>
