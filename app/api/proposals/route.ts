@@ -7,11 +7,17 @@ export async function GET(request: NextRequest) {
     const jobId = searchParams.get('jobId') || undefined;
     const asRole = (searchParams.get('as') as 'freelancer' | 'client') || undefined;
     const statusParam = searchParams.get('status') || undefined;
+    const pipelineTab = (searchParams.get('pipelineTab') as 'all' | 'shortlisted' | 'interviewing' | 'archived') || undefined;
+    const isShortlisted = searchParams.has('isShortlisted')
+      ? searchParams.get('isShortlisted') === 'true'
+      : undefined;
 
     const result = await getProposals({
       jobId,
       as: asRole,
       status: statusParam,
+      isShortlisted,
+      pipelineTab,
     });
 
     if (result.code === 'UNAUTHENTICATED') {

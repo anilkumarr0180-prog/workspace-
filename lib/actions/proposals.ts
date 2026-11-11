@@ -20,11 +20,16 @@ export interface ProposalRecord {
   freelancerName?: string;
   freelancerUsername?: string;
   freelancerAvatar?: string;
+  freelancerTitle?: string;
   bidAmount: number;
   rateType: ProjectType;
   deliveryDays: number | null;
   coverLetter: string;
   status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
+  isShortlisted?: boolean;
+  shortlistedAt?: string | null;
+  declinedReason?: string | null;
+  clientNotes?: string | null;
   jobStatus?: string;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +39,8 @@ export interface GetProposalsFilters {
   jobId?: string;
   as?: 'freelancer' | 'client';
   status?: string;
+  isShortlisted?: boolean;
+  pipelineTab?: 'all' | 'shortlisted' | 'interviewing' | 'archived';
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -329,10 +336,14 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         delivery_days,
         cover_letter,
         status,
+        is_shortlisted,
+        shortlisted_at,
+        declined_reason,
+        client_notes,
         created_at,
         updated_at,
         jobs (id, title, client_id, company_id, status),
-        profiles!freelancer_id (id, full_name, avatar_url, username)
+        profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
       `,
         { count: 'exact' }
       );
@@ -426,6 +437,18 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       query = query.eq('status', filters.status);
     }
 
+    if (filters.isShortlisted !== undefined) {
+      query = query.eq('is_shortlisted', filters.isShortlisted);
+    }
+
+    if (filters.pipelineTab === 'shortlisted') {
+      query = query.eq('is_shortlisted', true).neq('status', 'withdrawn');
+    } else if (filters.pipelineTab === 'interviewing') {
+      query = query.eq('status', 'interviewing');
+    } else if (filters.pipelineTab === 'archived') {
+      query = query.in('status', ['rejected', 'withdrawn']);
+    }
+
     query = query.order('created_at', { ascending: false });
 
     const { data, count, error } = await query;
@@ -443,10 +466,14 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       delivery_days: number | null;
       cover_letter: string;
       status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
+      is_shortlisted?: boolean | null;
+      shortlisted_at?: string | null;
+      declined_reason?: string | null;
+      client_notes?: string | null;
       created_at: string;
       updated_at: string;
       jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
-      profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null }> | null;
+      profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }> | null;
     }
 
     const mapped: ProposalRecord[] = ((data as unknown as ProposalRow[]) || []).map((row) => {
@@ -462,11 +489,16 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         freelancerName: profileObj?.full_name || 'Freelancer Specialist',
         freelancerUsername: profileObj?.username || undefined,
         freelancerAvatar: profileObj?.avatar_url || undefined,
+        freelancerTitle: profileObj?.title || undefined,
         bidAmount: Number(row.bid_amount),
         rateType: row.rate_type as ProjectType,
         deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
         coverLetter: row.cover_letter,
         status: row.status,
+        isShortlisted: Boolean(row.is_shortlisted),
+        shortlistedAt: row.shortlisted_at || null,
+        declinedReason: row.declined_reason || null,
+        clientNotes: row.client_notes || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -651,6 +683,10 @@ export async function updateProposalStatus(
         deliveryDays: updatedProposal.delivery_days ? Number(updatedProposal.delivery_days) : null,
         coverLetter: updatedProposal.cover_letter,
         status: updatedProposal.status,
+        isShortlisted: Boolean(updatedProposal.is_shortlisted),
+        shortlistedAt: updatedProposal.shortlisted_at || null,
+        declinedReason: updatedProposal.declined_reason || null,
+        clientNotes: updatedProposal.client_notes || null,
         createdAt: updatedProposal.created_at,
         updatedAt: updatedProposal.updated_at,
       },
@@ -661,5 +697,125 @@ export async function updateProposalStatus(
       success: false,
       error: message,
     };
+  }
+}
+
+/**
+ * Toggle shortlist status (thumbs up / favorite) for a candidate proposal.
+ */
+export async function toggleProposalShortlist(
+  proposalId: string,
+  isShortlisted: boolean
+): Promise<{ success: boolean; isShortlisted?: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    if (!UUID_REGEX.test(proposalId.trim())) {
+      return { success: false, error: 'Invalid proposal identifier' };
+    }
+
+    const { data, error } = await supabase.rpc('toggle_proposal_shortlist', {
+      p_proposal_id: proposalId.trim(),
+      p_shortlist: isShortlisted,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return {
+      success: true,
+      isShortlisted: (data as { is_shortlisted?: boolean })?.is_shortlisted ?? isShortlisted,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to update shortlist status';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Decline / Disqualify a candidate proposal with an optional professional reason.
+ */
+export async function declineProposal(
+  proposalId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    if (!UUID_REGEX.test(proposalId.trim())) {
+      return { success: false, error: 'Invalid proposal identifier' };
+    }
+
+    const { error } = await supabase.rpc('decline_proposal', {
+      p_proposal_id: proposalId.trim(),
+      p_reason: reason?.trim() || null,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to decline proposal';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Save internal client evaluation notes for a candidate proposal.
+ */
+export async function saveProposalNotes(
+  proposalId: string,
+  notes: string
+): Promise<{ success: boolean; notes?: string; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    if (!UUID_REGEX.test(proposalId.trim())) {
+      return { success: false, error: 'Invalid proposal identifier' };
+    }
+
+    const { data, error } = await supabase.rpc('set_proposal_notes', {
+      p_proposal_id: proposalId.trim(),
+      p_notes: notes,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return {
+      success: true,
+      notes: (data as { client_notes?: string })?.client_notes ?? notes,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to save notes';
+    return { success: false, error: message };
   }
 }

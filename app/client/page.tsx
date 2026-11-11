@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { ClientDashboardResult, ClientJobSummary, ClientDashboardActivity } from '@/lib/actions/client';
 import {
@@ -20,12 +21,18 @@ import {
   RefreshCw,
   X,
   ExternalLink,
-  Layers
+  Layers,
+  ThumbsUp,
+  MessageSquare,
+  XCircle,
+  FileEdit
 } from 'lucide-react';
 import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 import ContactModal from '@/components/freelancers/contact-modal';
+import HireOfferModal from '@/components/jobs/hire-offer-modal';
 
 export default function ClientDashboardPage() {
+  const router = useRouter();
   const [dashboardData, setDashboardData] = useState<ClientDashboardResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -35,6 +42,21 @@ export default function ClientDashboardPage() {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [updatingProposalId, setUpdatingProposalId] = useState<string | null>(null);
   const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
+
+  // Upwork Candidate Pipeline state
+  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'shortlisted' | 'interviewing' | 'archived'>('all');
+  const [isShortlistingId, setIsShortlistingId] = useState<string | null>(null);
+
+  // Hire offer modal state
+  const [proposalForHire, setProposalForHire] = useState<ProposalRecord | null>(null);
+  const [isHireModalOpen, setIsHireModalOpen] = useState(false);
+
+  // Decline dialog state
+  const [proposalToDecline, setProposalToDecline] = useState<ProposalRecord | null>(null);
+  const [isDeclineDialogOpen, setIsDeclineDialogOpen] = useState(false);
+  const [declineReasonOption, setDeclineReasonOption] = useState<string>('Candidate skills do not align with project requirements');
+  const [customDeclineReason, setCustomDeclineReason] = useState<string>('');
+  const [isDecliningCandidate, setIsDecliningCandidate] = useState(false);
 
   // Job-specific proposal review state with server ownership verification
   const [selectedJobFilter, setSelectedJobFilter] = useState<{ id: string; title: string } | null>(null);
@@ -236,6 +258,130 @@ export default function ClientDashboardPage() {
     }
   };
 
+  // Candidate pipeline shortlist toggle handler
+  const handleToggleShortlist = async (proposalId: string, currentShortlisted?: boolean) => {
+    setIsShortlistingId(proposalId);
+    const targetState = !currentShortlisted;
+    try {
+      const res = await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle_shortlist', isShortlisted: targetState }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDashboardData((prev) => {
+          if (!prev?.proposals) return prev;
+          return {
+            ...prev,
+            proposals: prev.proposals.map((p) =>
+              p.id === proposalId
+                ? { ...p, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
+                : p
+            ),
+          };
+        });
+        setJobSpecificProposals((prev) =>
+          prev
+            ? prev.map((p) =>
+                p.id === proposalId
+                  ? { ...p, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
+                  : p
+              )
+            : null
+        );
+        setSelectedProposalForReview((prev) =>
+          prev && prev.id === proposalId
+            ? { ...prev, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
+            : prev
+        );
+        showToast(targetState ? 'Candidate shortlisted (thumbs up).' : 'Removed from shortlist.');
+      } else {
+        showError(data.error || 'Failed to update candidate shortlist status.');
+      }
+    } catch {
+      showError('Network error while toggling shortlist.');
+    } finally {
+      setIsShortlistingId(null);
+    }
+  };
+
+  // Candidate pipeline decline with reason handler
+  const handleDeclineProposalWithReason = async (proposalId: string, reason?: string) => {
+    setIsDecliningCandidate(true);
+    try {
+      const res = await fetch(`/api/proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decline', reason }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDashboardData((prev) => {
+          if (!prev?.proposals) return prev;
+          return {
+            ...prev,
+            proposals: prev.proposals.map((p) =>
+              p.id === proposalId ? { ...p, status: 'rejected', declinedReason: reason } : p
+            ),
+          };
+        });
+        setJobSpecificProposals((prev) =>
+          prev ? prev.map((p) => (p.id === proposalId ? { ...p, status: 'rejected', declinedReason: reason } : p)) : null
+        );
+        setSelectedProposalForReview((prev) =>
+          prev && prev.id === proposalId ? { ...prev, status: 'rejected', declinedReason: reason } : prev
+        );
+        setIsDeclineDialogOpen(false);
+        setProposalToDecline(null);
+        showToast('Candidate proposal declined.');
+      } else {
+        showError(data.error || 'Failed to decline proposal.');
+      }
+    } catch {
+      showError('Network error while declining candidate.');
+    } finally {
+      setIsDecliningCandidate(false);
+    }
+  };
+
+  // Upwork interview start and messaging handler
+  const handleStartInterviewAndChat = async (proposal: ProposalRecord) => {
+    try {
+      if (proposal.status === 'submitted' || proposal.status === 'under_review') {
+        await handleUpdateProposalStatus(proposal.id, 'interviewing');
+      }
+
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposalId: proposal.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.conversationId) {
+        router.push(`/messages/${data.conversationId}`);
+        return;
+      }
+      if (proposal.freelancerUsername) {
+        setContactFreelancer({
+          username: proposal.freelancerUsername,
+          fullName: proposal.freelancerName,
+          avatarUrl: proposal.freelancerAvatar,
+          title: proposal.freelancerTitle,
+        });
+      }
+    } catch {
+      if (proposal.freelancerUsername) {
+        setContactFreelancer({
+          username: proposal.freelancerUsername,
+          fullName: proposal.freelancerName,
+          avatarUrl: proposal.freelancerAvatar,
+          title: proposal.freelancerTitle,
+        });
+      }
+    }
+  };
+
   const getProposalStatusBadge = (status: string) => {
     switch (status) {
       case 'under_review':
@@ -257,9 +403,27 @@ export default function ClientDashboardPage() {
   const draftJobs = dashboardData?.jobs?.drafts || [];
   const completedJobs = dashboardData?.jobs?.completed || [];
   const proposals = dashboardData?.proposals || [];
-  const displayedProposals = selectedJobFilter
+  const rawDisplayedProposals = selectedJobFilter
     ? (jobSpecificProposals ?? proposals.filter((p) => p.jobId === selectedJobFilter.id))
     : proposals;
+
+  const countAll = rawDisplayedProposals.filter((p) => p.status !== 'rejected' && p.status !== 'withdrawn').length;
+  const countShortlisted = rawDisplayedProposals.filter((p) => p.isShortlisted && p.status !== 'withdrawn').length;
+  const countInterviewing = rawDisplayedProposals.filter((p) => p.status === 'interviewing').length;
+  const countArchived = rawDisplayedProposals.filter((p) => p.status === 'rejected' || p.status === 'withdrawn').length;
+
+  const displayedProposals = rawDisplayedProposals.filter((p) => {
+    if (pipelineFilter === 'shortlisted') {
+      return p.isShortlisted && p.status !== 'withdrawn';
+    }
+    if (pipelineFilter === 'interviewing') {
+      return p.status === 'interviewing';
+    }
+    if (pipelineFilter === 'archived') {
+      return p.status === 'rejected' || p.status === 'withdrawn';
+    }
+    return p.status !== 'rejected' && p.status !== 'withdrawn';
+  });
   const stats = dashboardData?.stats || {
     activeJobs: 0,
     proposalsReceived: 0,
@@ -675,6 +839,88 @@ export default function ClientDashboardPage() {
                       </div>
                     )}
 
+                    {/* Upwork Candidate Pipeline Filter Tabs */}
+                    <div className="flex items-center gap-1.5 p-3 bg-slate-50/80 border-b border-slate-200 overflow-x-auto text-xs">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1.5 shrink-0">
+                        Pipeline:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPipelineFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          pipelineFilter === 'all'
+                            ? 'bg-slate-900 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        <span>All Active</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            pipelineFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {countAll}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPipelineFilter('shortlisted')}
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          pipelineFilter === 'shortlisted'
+                            ? 'bg-amber-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        <ThumbsUp className="w-3 h-3" />
+                        <span>Shortlisted</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            pipelineFilter === 'shortlisted' ? 'bg-amber-700 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {countShortlisted}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPipelineFilter('interviewing')}
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          pipelineFilter === 'interviewing'
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        <span>Interviewing</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            pipelineFilter === 'interviewing' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {countInterviewing}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPipelineFilter('archived')}
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          pipelineFilter === 'archived'
+                            ? 'bg-rose-800 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        <Archive className="w-3 h-3" />
+                        <span>Archived / Declined</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            pipelineFilter === 'archived' ? 'bg-rose-900 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {countArchived}
+                        </span>
+                      </button>
+                    </div>
+
                     {/* Job Specific Loading State */}
                     {loadingJobProposals ? (
                       <div className="p-12 text-center space-y-3">
@@ -722,26 +968,33 @@ export default function ClientDashboardPage() {
                           <Users className="w-6 h-6" />
                         </div>
                         <h3 className="text-sm font-bold text-slate-900">
-                          {selectedJobFilter
-                            ? `No Proposals Received for "${selectedJobFilter.title}" Yet`
-                            : 'No Proposals Received Yet'}
+                          {pipelineFilter === 'shortlisted'
+                            ? 'No Shortlisted Candidates'
+                            : pipelineFilter === 'interviewing'
+                            ? 'No Candidates Under Interview'
+                            : pipelineFilter === 'archived'
+                            ? 'No Archived or Declined Proposals'
+                            : selectedJobFilter
+                            ? `No Active Proposals for "${selectedJobFilter.title}"`
+                            : 'No Proposals Found in This View'}
                         </h3>
                         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                          {selectedJobFilter
-                            ? 'When talent applies to this active project, their bids and qualifications will appear here for review.'
+                          {pipelineFilter === 'shortlisted'
+                            ? 'Click the thumbs-up icon on any proposal card to shortlist top candidates for quick access.'
+                            : pipelineFilter === 'interviewing'
+                            ? 'Candidates you invite for interviews or message will automatically be organized here.'
+                            : pipelineFilter === 'archived'
+                            ? 'Proposals that you decline or candidates who withdraw will appear in this archive.'
                             : 'When talent applies to your active project listings, their bids and qualifications will appear here for review.'}
                         </p>
-                        {selectedJobFilter && (
+                        {pipelineFilter !== 'all' && (
                           <div className="pt-2">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedJobFilter(null);
-                                setJobSpecificProposals(null);
-                              }}
+                              onClick={() => setPipelineFilter('all')}
                               className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
                             >
-                              View All Proposals ({proposals.length})
+                              View All Active Proposals ({countAll})
                             </button>
                           </div>
                         )}
@@ -752,33 +1005,94 @@ export default function ClientDashboardPage() {
                           const isUpdating = updatingProposalId === prop.id;
                           return (
                             <div key={prop.id} className="p-5 hover:bg-slate-50/70 transition-colors space-y-3">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                <div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {prop.freelancerUsername ? (
+                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                <div className="flex items-start gap-3">
+                                  {prop.freelancerAvatar ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={prop.freelancerAvatar}
+                                      alt={prop.freelancerName || 'Candidate'}
+                                      className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 mt-0.5"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs shrink-0 mt-0.5">
+                                      {(prop.freelancerName || 'Candidate')
+                                        .split(' ')
+                                        .map((n) => n[0])
+                                        .slice(0, 2)
+                                        .join('')
+                                        .toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      {prop.freelancerUsername ? (
+                                        <Link
+                                          href={`/freelancers/${prop.freelancerUsername}`}
+                                          className="font-bold text-sm text-slate-900 hover:text-emerald-700 hover:underline transition-colors flex items-center gap-1"
+                                          title={`View public profile for ${prop.freelancerName}`}
+                                        >
+                                          <span>{prop.freelancerName || 'Candidate Specialist'}</span>
+                                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                                        </Link>
+                                      ) : (
+                                        <span className="font-bold text-sm text-slate-900">
+                                          {prop.freelancerName || 'Candidate Specialist'}
+                                        </span>
+                                      )}
+                                      {prop.freelancerTitle && (
+                                        <span className="text-xs text-slate-500 font-normal">
+                                          • {prop.freelancerTitle}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                                      <span>applied for</span>
                                       <Link
-                                        href={`/freelancers/${prop.freelancerUsername}`}
-                                        className="font-bold text-sm text-slate-900 hover:text-emerald-700 hover:underline transition-colors flex items-center gap-1"
-                                        title={`View public profile for ${prop.freelancerName}`}
+                                        href={`/jobs/${prop.jobId}`}
+                                        className="font-semibold text-emerald-700 hover:underline"
                                       >
-                                        <span>{prop.freelancerName || 'Candidate Specialist'}</span>
-                                        <ExternalLink className="w-3 h-3 text-slate-400" />
+                                        {prop.jobTitle || 'Project Listing'}
                                       </Link>
-                                    ) : (
-                                      <span className="font-bold text-sm text-slate-900">
-                                        {prop.freelancerName || 'Candidate Specialist'}
-                                      </span>
-                                    )}
-                                    <span className="text-xs text-slate-400">• applied for</span>
-                                    <Link
-                                      href={`/jobs/${prop.jobId}`}
-                                      className="text-xs font-semibold text-emerald-700 hover:underline"
-                                    >
-                                      {prop.jobTitle || 'Project Listing'}
-                                    </Link>
+                                      {prop.clientNotes && (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold ml-1">
+                                          <FileEdit className="w-2.5 h-2.5" />
+                                          Notes
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                                <div className="shrink-0">{getProposalStatusBadge(prop.status)}</div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {/* Upwork Shortlist Thumbs Up toggle */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleShortlist(prop.id, prop.isShortlisted)}
+                                    disabled={isShortlistingId === prop.id}
+                                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      prop.isShortlisted
+                                        ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 shadow-2xs'
+                                        : 'border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                                    }`}
+                                    title={
+                                      prop.isShortlisted
+                                        ? 'Candidate is shortlisted. Click to remove.'
+                                        : 'Shortlist candidate (Thumbs Up)'
+                                    }
+                                  >
+                                    <ThumbsUp
+                                      className={`w-3.5 h-3.5 ${
+                                        prop.isShortlisted ? 'fill-amber-500 text-amber-600' : 'text-slate-400'
+                                      }`}
+                                    />
+                                    <span className="hidden sm:inline">
+                                      {prop.isShortlisted ? 'Shortlisted' : 'Shortlist'}
+                                    </span>
+                                  </button>
+
+                                  <div>{getProposalStatusBadge(prop.status)}</div>
+                                </div>
                               </div>
 
                               <div
@@ -794,6 +1108,14 @@ export default function ClientDashboardPage() {
                                 </p>
                               </div>
 
+                              {/* Decline reason notice if candidate was rejected with reason */}
+                              {prop.status === 'rejected' && prop.declinedReason && (
+                                <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 text-xs text-rose-800 flex items-start gap-1.5">
+                                  <span className="font-semibold text-rose-900 shrink-0">Decline reason:</span>
+                                  <span className="text-rose-700 italic">&ldquo;{prop.declinedReason}&rdquo;</span>
+                                </div>
+                              )}
+
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
                                 <div className="flex items-center gap-4 text-slate-500">
                                   <span>
@@ -808,7 +1130,7 @@ export default function ClientDashboardPage() {
                                   </span>
                                 </div>
 
-                                {/* Review Proposal and Status transition controls */}
+                                {/* Upwork Candidate Pipeline Actions */}
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <button
                                     type="button"
@@ -820,82 +1142,55 @@ export default function ClientDashboardPage() {
                                     title="View full proposal, cover letter, and candidate details"
                                   >
                                     <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>Review Proposal</span>
+                                    <span>Review</span>
                                   </button>
 
-                                  {prop.status === 'submitted' && (
-                                    <>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'under_review')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        {isUpdating ? 'Updating...' : 'Mark Under Review'}
-                                      </button>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'interviewing')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        Interview
-                                      </button>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'rejected')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        Decline
-                                      </button>
-                                    </>
-                                  )}
+                                  {/* Message / Interview Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartInterviewAndChat(prop)}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Send a direct message or invite to interview"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Message</span>
+                                  </button>
 
-                                  {prop.status === 'under_review' && (
+                                  {/* Non-terminal actions */}
+                                  {!['accepted', 'rejected', 'withdrawn'].includes(prop.status) && (
                                     <>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'interviewing')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        {isUpdating ? 'Updating...' : 'Interview'}
-                                      </button>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'accepted')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        Accept Offer
-                                      </button>
-                                      <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'rejected')}
-                                        disabled={isUpdating}
-                                        type="button"
-                                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                      >
-                                        Decline
-                                      </button>
-                                    </>
-                                  )}
+                                      {prop.status === 'submitted' && (
+                                        <button
+                                          onClick={() => handleUpdateProposalStatus(prop.id, 'under_review')}
+                                          disabled={isUpdating}
+                                          type="button"
+                                          className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                                        >
+                                          {isUpdating ? 'Updating...' : 'Under Review'}
+                                        </button>
+                                      )}
 
-                                  {prop.status === 'interviewing' && (
-                                    <>
+                                      {/* Upwork Hire / Make Formal Offer Button */}
                                       <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'accepted')}
-                                        disabled={isUpdating}
                                         type="button"
-                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                                        onClick={() => {
+                                          setProposalForHire(prop);
+                                          setIsHireModalOpen(true);
+                                        }}
+                                        className="px-3 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors shadow-2xs flex items-center gap-1 cursor-pointer"
                                       >
-                                        {isUpdating ? 'Updating...' : 'Accept Offer'}
+                                        <Briefcase className="w-3 h-3" />
+                                        <span>Hire / Offer</span>
                                       </button>
+
+                                      {/* Upwork Decline with Reason Modal Trigger */}
                                       <button
-                                        onClick={() => handleUpdateProposalStatus(prop.id, 'rejected')}
-                                        disabled={isUpdating}
                                         type="button"
-                                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                                        onClick={() => {
+                                          setProposalToDecline(prop);
+                                          setIsDeclineDialogOpen(true);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors cursor-pointer"
                                       >
                                         Decline
                                       </button>
@@ -908,10 +1203,10 @@ export default function ClientDashboardPage() {
                                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold transition-colors"
                                     >
                                       <Layers className="w-3.5 h-3.5" />
-                                      <span>View Contract & Milestones</span>
+                                      <span>View Contract</span>
                                     </Link>
                                   ) : ['rejected', 'withdrawn'].includes(prop.status) ? (
-                                    <span className="text-[11px] text-slate-400 italic">Terminal Status</span>
+                                    <span className="text-[11px] text-slate-400 italic">Archived</span>
                                   ) : null}
                                 </div>
                               </div>
@@ -1106,6 +1401,7 @@ export default function ClientDashboardPage() {
       {/* Proposal Details & Review Modal */}
       {selectedProposalForReview && (
         <ProposalDetailsModal
+          key={selectedProposalForReview.id}
           proposal={selectedProposalForReview}
           isOpen={isReviewModalOpen}
           onClose={() => {
@@ -1114,8 +1410,120 @@ export default function ClientDashboardPage() {
           }}
           mode="client"
           onUpdateStatus={handleUpdateProposalStatus}
+          onToggleShortlist={async (propId, nextState) => {
+            await handleToggleShortlist(propId, !nextState);
+          }}
+          onDecline={async (propId, reason) => {
+            await handleDeclineProposalWithReason(propId, reason);
+          }}
           onOpenContact={(freelancer) => setContactFreelancer(freelancer)}
         />
+      )}
+
+      {/* Upwork Hire Offer Modal */}
+      {proposalForHire && (
+        <HireOfferModal
+          proposal={proposalForHire}
+          isOpen={isHireModalOpen}
+          onClose={() => {
+            setIsHireModalOpen(false);
+            setProposalForHire(null);
+          }}
+          onOfferSent={() => {
+            setIsHireModalOpen(false);
+            setProposalForHire(null);
+            showToast('Formal contract offer sent to candidate!');
+            handleRefresh();
+          }}
+        />
+      )}
+
+      {/* Upwork Decline Candidate Dialog Modal */}
+      {isDeclineDialogOpen && proposalToDecline && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-100">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <XCircle className="w-5 h-5 text-rose-600" />
+                <span>Decline Candidate Proposal</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeclineDialogOpen(false);
+                  setProposalToDecline(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Decline proposal from <strong className="text-slate-800">{proposalToDecline.freelancerName}</strong> for &ldquo;{proposalToDecline.jobTitle}&rdquo;. Providing feedback helps freelancers understand your decision.
+            </p>
+            <div className="space-y-2">
+              {[
+                'Candidate skills do not align with project requirements',
+                'Bid amount / rate is outside project budget',
+                'Selected another applicant / position already filled',
+                'Proposal lacked required portfolio samples or details',
+                'Other',
+              ].map((reason) => (
+                <label
+                  key={reason}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${
+                    declineReasonOption === reason
+                      ? 'border-emerald-500 bg-emerald-50/50 text-emerald-900'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="clientDeclineReason"
+                    value={reason}
+                    checked={declineReasonOption === reason}
+                    onChange={() => setDeclineReasonOption(reason)}
+                    className="text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>{reason}</span>
+                </label>
+              ))}
+            </div>
+            {declineReasonOption === 'Other' && (
+              <input
+                type="text"
+                value={customDeclineReason}
+                onChange={(e) => setCustomDeclineReason(e.target.value)}
+                placeholder="Specify decline reason..."
+                className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            )}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeclineDialogOpen(false);
+                  setProposalToDecline(null);
+                }}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDecliningCandidate}
+                onClick={() => {
+                  const finalReason =
+                    declineReasonOption === 'Other' ? customDeclineReason.trim() : declineReasonOption;
+                  handleDeclineProposalWithReason(proposalToDecline.id, finalReason);
+                }}
+                className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-semibold hover:bg-rose-700 disabled:opacity-50 transition-colors shadow-2xs cursor-pointer"
+              >
+                {isDecliningCandidate ? 'Declining...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Direct Freelancer Contact Modal */}

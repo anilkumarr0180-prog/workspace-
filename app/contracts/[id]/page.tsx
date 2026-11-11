@@ -3,7 +3,11 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { getContractById } from '@/lib/actions/contracts';
+import {
+  getContractById,
+  acceptContractOffer,
+  declineContractOffer,
+} from '@/lib/actions/contracts';
 import {
   getContractMilestones,
   getContractPaymentLedger,
@@ -14,6 +18,7 @@ import {
   approveAndReleaseMilestone,
   cancelMilestone,
   createMilestone,
+  uploadMilestoneAttachment,
 } from '@/lib/actions/milestones';
 import {
   createMilestoneRazorpayOrder,
@@ -59,7 +64,14 @@ import {
   Sparkles,
   CreditCard,
   Zap,
+  Monitor,
+  Star,
+  Paperclip,
+  Download,
 } from 'lucide-react';
+import WorkDiary from '@/components/contracts/work-diary';
+import EndContractModal from '@/components/contracts/end-contract-modal';
+import ContractReviewsCard from '@/components/contracts/contract-reviews-card';
 
 const loadRazorpayScript = (): Promise<boolean> => {
   return new Promise((resolve) => {
@@ -114,8 +126,9 @@ function ContractDetailsContent() {
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'milestones' | 'ledger' | 'overview'>('milestones');
+  const [activeTab, setActiveTab] = useState<'milestones' | 'work_diary' | 'ledger' | 'overview' | 'reviews'>('milestones');
   const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(null);
+  const [isEndContractModalOpen, setIsEndContractModalOpen] = useState(false);
 
   // Modals state
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -123,6 +136,8 @@ function ContractDetailsContent() {
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [deliveryAttachments, setDeliveryAttachments] = useState<DeliveryAttachment[]>([]);
   const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null);
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [selectedMilestoneForReview, setSelectedMilestoneForReview] = useState<ContractMilestone | null>(null);
@@ -153,6 +168,12 @@ function ContractDetailsContent() {
   const [disputeReason, setDisputeReason] = useState('');
   const [isSubmittingDispute, setIsSubmittingDispute] = useState(false);
   const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null);
+
+  // Contract Offer State
+  const [isAcceptingOffer, setIsAcceptingOffer] = useState(false);
+  const [isDecliningOffer, setIsDecliningOffer] = useState(false);
+  const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
+  const [declineReasonText, setDeclineReasonText] = useState('');
 
   // Load contract, milestones, and ledger (for refresh triggers)
   const loadData = useCallback(async (isRefresh = false) => {
@@ -472,6 +493,37 @@ function ContractDetailsContent() {
     }
   };
 
+  // Contract Offer Handlers (Freelancer Accept / Decline)
+  const handleAcceptOffer = async () => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsAcceptingOffer(true);
+    const res = await acceptContractOffer(contractId);
+    setIsAcceptingOffer(false);
+    if (res.success) {
+      setActionSuccessMessage('Offer accepted! The contract is now active.');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to accept offer.');
+    }
+  };
+
+  const handleDeclineOffer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsDecliningOffer(true);
+    const res = await declineContractOffer(contractId, declineReasonText.trim() || undefined);
+    setIsDecliningOffer(false);
+    if (res.success) {
+      setIsDeclineModalOpen(false);
+      setActionSuccessMessage('Contract offer declined.');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to decline offer.');
+    }
+  };
+
   // Timesheet Billing Handlers (Client Review, Dispute, Razorpay Test Checkout)
   const handleApproveTimesheet = async (timesheetId: string) => {
     setActionErrorMessage(null);
@@ -608,8 +660,34 @@ function ContractDetailsContent() {
     setSelectedMilestoneForSubmit(m);
     setDeliveryNotes('');
     setDeliveryAttachments([{ title: 'Live Deliverable / Repository', url: '', type: 'link' }]);
+    setAttachmentUploadError(null);
     setActionErrorMessage(null);
     setIsSubmitModalOpen(true);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedMilestoneForSubmit) return;
+
+    setIsUploadingAttachment(true);
+    setAttachmentUploadError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await uploadMilestoneAttachment(selectedMilestoneForSubmit.id, formData);
+      if (res.success && res.attachment) {
+        setDeliveryAttachments((prev) => [...prev, res.attachment!]);
+      } else {
+        setAttachmentUploadError(res.error || 'Failed to upload attachment');
+      }
+    } catch {
+      setAttachmentUploadError('Network error while uploading deliverable file');
+    } finally {
+      setIsUploadingAttachment(false);
+      e.target.value = '';
+    }
   };
 
   const handleSubmitDelivery = async (e: React.FormEvent) => {
@@ -836,9 +914,15 @@ function ContractDetailsContent() {
                 </span>
                 <span className="text-slate-300">•</span>
                 <span className={`inline-block px-2 py-0.2 rounded-md text-[10px] font-bold uppercase ${
-                  contract.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                  contract.status === 'active'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : contract.status === 'pending_offer'
+                    ? 'bg-amber-100 text-amber-800'
+                    : contract.status === 'declined'
+                    ? 'bg-rose-100 text-rose-800'
+                    : 'bg-slate-100 text-slate-700'
                 }`}>
-                  {contract.status}
+                  {contract.status === 'pending_offer' ? 'Pending Offer' : contract.status}
                 </span>
               </div>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate max-w-xl">
@@ -865,6 +949,17 @@ function ContractDetailsContent() {
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
+            {contract.status === 'active' && (
+              <button
+                type="button"
+                onClick={() => setIsEndContractModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                title="End contract and submit review"
+              >
+                <Lock className="w-3.5 h-3.5 text-rose-600" />
+                <span>End Contract</span>
+              </button>
+            )}
             {isClient && contract.contractType === 'fixed' && (
               <button
                 onClick={openCreateMilestoneModal}
@@ -902,6 +997,112 @@ function ContractDetailsContent() {
             <button onClick={() => setActionErrorMessage(null)} className="text-rose-700 hover:text-rose-900">
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* ================= PENDING OFFER BANNER (UPWORK STYLE) ================= */}
+        {contract.status === 'pending_offer' && (
+          <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-emerald-50/90 border-2 border-emerald-300 rounded-2xl p-6 sm:p-8 shadow-xs space-y-6 animate-in fade-in">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-5">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
+                    Contract Offer
+                  </span>
+                  <span className="text-xs text-amber-800 font-semibold bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
+                    Awaiting Freelancer Acceptance
+                  </span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                  {isFreelancer
+                    ? `You received an official contract offer from ${contract.clientName || 'the client'}!`
+                    : `Offer extended to ${contract.freelancerName || 'the freelancer'}`}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-700 max-w-2xl leading-relaxed">
+                  {isFreelancer
+                    ? 'Review the contract terms below. Once you accept this offer, the contract will become active and work will officially begin.'
+                    : 'The specialist has received this offer. Once accepted, you can fund fixed-price escrow milestones or approve hourly timesheets.'}
+                </p>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-emerald-200/90 shadow-2xs text-left md:text-right shrink-0">
+                <span className="text-xs text-slate-500 font-semibold block uppercase tracking-wider">
+                  {contract.contractType === 'hourly' ? 'Agreed Hourly Rate' : 'Total Fixed Price'}
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-slate-900 mt-0.5 block">
+                  ${contract.contractType === 'hourly' ? `${contract.hourlyRate}/hr` : contract.fixedPrice}
+                </span>
+                {contract.contractType === 'hourly' && (
+                  <span className="text-xs text-slate-500 block font-medium">
+                    {contract.weeklyHourLimit ? `Limit: ${contract.weeklyHourLimit} hrs / week` : 'No weekly limit'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {contract.offerMessage && (
+              <div className="p-4 bg-white/95 rounded-xl border border-emerald-200 text-xs sm:text-sm text-slate-800 space-y-1 shadow-2xs">
+                <span className="font-bold text-emerald-950 block text-xs uppercase tracking-wider">
+                  Memo from Client:
+                </span>
+                <p className="leading-relaxed whitespace-pre-line text-slate-700">{contract.offerMessage}</p>
+              </div>
+            )}
+
+            {/* Freelancer Offer Actions */}
+            {isFreelancer && (
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isAcceptingOffer || isDecliningOffer}
+                  onClick={handleAcceptOffer}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isAcceptingOffer ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>{isAcceptingOffer ? 'Accepting...' : 'Accept Offer & Start Working'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isAcceptingOffer || isDecliningOffer}
+                  onClick={() => setIsDeclineModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <span>Decline Offer</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenMessages}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4 text-emerald-600" />
+                  <span>Discuss with Client</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= DECLINED OFFER BANNER ================= */}
+        {contract.status === 'declined' && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 shadow-xs space-y-2 animate-in fade-in">
+            <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
+              <AlertCircle className="w-5 h-5 text-rose-600" />
+              <span>Contract Offer Declined</span>
+            </div>
+            <p className="text-xs sm:text-sm text-rose-700">
+              This contract offer was declined by the freelancer and will not proceed.
+            </p>
+            {contract.declinedReason && (
+              <div className="text-xs text-rose-800 font-medium bg-white/70 p-2.5 rounded-lg border border-rose-200 mt-2">
+                <strong>Reason:</strong> {contract.declinedReason}
+              </div>
+            )}
           </div>
         )}
 
@@ -963,6 +1164,19 @@ function ContractDetailsContent() {
           </div>
         )}
 
+        {/* ================= COMPLETED / CANCELLED CONTRACT FEEDBACK CARD ================= */}
+        {(contract.status === 'completed' || contract.status === 'cancelled') && (
+          <ContractReviewsCard
+            contractId={contract.id}
+            contractTitle={contract.title}
+            contractStatus={contract.status}
+            isClient={isClient}
+            otherPartyName={isClient ? (contract.freelancerName || 'Freelancer') : (contract.clientName || 'Client')}
+            otherPartyAvatar={isClient ? contract.freelancerAvatar : contract.clientAvatar}
+            currentUserName={isClient ? (contract.clientName || 'Client') : (contract.freelancerName || 'Freelancer')}
+          />
+        )}
+
         {/* Tab Navigation */}
         <div className="border-b border-slate-200 flex items-center gap-8">
           <button
@@ -986,6 +1200,20 @@ function ContractDetailsContent() {
             )}
           </button>
 
+          {contract.contractType === 'hourly' && (
+            <button
+              onClick={() => setActiveTab('work_diary')}
+              className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+                activeTab === 'work_diary'
+                  ? 'border-emerald-600 text-emerald-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Monitor className="w-4 h-4" />
+              <span>Work Diary &amp; Activity</span>
+            </button>
+          )}
+
           <button
             onClick={() => setActiveTab('ledger')}
             className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
@@ -1008,6 +1236,18 @@ function ContractDetailsContent() {
           >
             <FileText className="w-4 h-4" />
             <span>Contract Terms</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('reviews')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'reviews'
+                ? 'border-emerald-600 text-emerald-700'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Star className="w-4 h-4 text-amber-500" />
+            <span>Feedback &amp; Ratings</span>
           </button>
         </div>
 
@@ -1499,6 +1739,27 @@ function ContractDetailsContent() {
                       </div>
                     </div>
 
+                    {/* Upwork 14-Day Auto-Release Countdown Banner */}
+                    {milestone.status === 'submitted' && latestDelivery?.submittedAt && (() => {
+                      const submittedDate = new Date(latestDelivery.submittedAt);
+                      const autoReleaseDate = new Date(submittedDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+                      const daysLeft = Math.max(0, Math.ceil((autoReleaseDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
+                      return (
+                        <div className="bg-emerald-50/70 border-t border-emerald-200/80 px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-950">
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>
+                              Under client review • <strong>{daysLeft} {daysLeft === 1 ? 'day' : 'days'}</strong> remaining until automatic escrow approval.
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/70 px-2.5 py-0.5 rounded-full border border-emerald-300/60 self-start sm:self-auto">
+                            Auto-releases {autoReleaseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
                     {/* Latest Client Feedback Banner if revision requested */}
                     {milestone.status === 'revision_requested' && latestDelivery?.clientFeedback && (
                       <div className="bg-amber-50/70 border-t border-amber-200 px-6 py-4 space-y-1.5">
@@ -1562,18 +1823,26 @@ function ContractDetailsContent() {
                                     Deliverable Links & Attachments
                                   </span>
                                   <div className="flex flex-wrap gap-2">
-                                    {delivery.attachments.map((att, i) => (
-                                      <a
-                                        key={i}
-                                        href={att.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-emerald-700 hover:text-emerald-800 rounded-md text-xs font-semibold transition-colors"
-                                      >
-                                        <ExternalLink className="w-3 h-3 text-emerald-600" />
-                                        <span>{att.title || 'Deliverable Link'}</span>
-                                      </a>
-                                    ))}
+                                    {delivery.attachments.map((att, i) => {
+                                      const isFile = att.type !== 'link';
+                                      return (
+                                        <a
+                                          key={i}
+                                          href={att.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          download={isFile ? att.title : undefined}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-emerald-700 hover:text-emerald-800 rounded-md text-xs font-semibold transition-colors shadow-2xs"
+                                        >
+                                          {isFile ? (
+                                            <Download className="w-3 h-3 text-emerald-600" />
+                                          ) : (
+                                            <ExternalLink className="w-3 h-3 text-emerald-600" />
+                                          )}
+                                          <span>{att.title || 'Deliverable'}</span>
+                                        </a>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -1594,6 +1863,17 @@ function ContractDetailsContent() {
               })
             )}
           </div>
+        )}
+
+        {/* TAB: WORK DIARY & ACTIVITY (HOURLY) */}
+        {activeTab === 'work_diary' && (
+          <WorkDiary
+            contractId={contract.id}
+            isFreelancer={isFreelancer}
+            hourlyRate={contract.hourlyRate}
+            weeklyHourLimit={contract.weeklyHourLimit}
+            allowManualTime={contract.allowManualTime}
+          />
         )}
 
         {/* TAB 2: PAYMENT LEDGER & ESCROW AUDIT */}
@@ -1753,6 +2033,21 @@ function ContractDetailsContent() {
             </div>
           </div>
         )}
+
+        {/* TAB 5: FEEDBACK & RATINGS */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <ContractReviewsCard
+              contractId={contract.id}
+              contractTitle={contract.title}
+              contractStatus={contract.status}
+              isClient={isClient}
+              otherPartyName={isClient ? (contract.freelancerName || 'Freelancer') : (contract.clientName || 'Client')}
+              otherPartyAvatar={isClient ? contract.freelancerAvatar : contract.clientAvatar}
+              currentUserName={isClient ? (contract.clientName || 'Client') : (contract.freelancerName || 'Freelancer')}
+            />
+          </div>
+        )}
       </div>
 
       {/* MODAL 1: SUBMIT WORK (FREELANCER) */}
@@ -1791,62 +2086,91 @@ function ContractDetailsContent() {
                 />
               </div>
 
-              {/* Dynamic Deliverable Links */}
-              <div className="space-y-2">
+              {/* Dynamic Deliverables & File Attachments */}
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-slate-700">
-                    Deliverable Links (GitHub, Figma, Live Preview, etc.)
+                    Deliverables (Files &amp; Repository / Preview Links)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDeliveryAttachments((prev) => [...prev, { title: 'Project Link', url: '', type: 'link' }])
-                    }
-                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Link</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                      <Paperclip className="w-3.5 h-3.5" />
+                      <span>{isUploadingAttachment ? 'Uploading...' : 'Attach File'}</span>
+                      <input
+                        type="file"
+                        onChange={handleFileUpload}
+                        disabled={isUploadingAttachment}
+                        className="hidden"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeliveryAttachments((prev) => [...prev, { title: 'Project Link', url: '', type: 'link' }])
+                      }
+                      className="text-xs font-semibold text-slate-700 hover:text-slate-900 flex items-center gap-1 cursor-pointer bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Link</span>
+                    </button>
+                  </div>
                 </div>
+
+                {attachmentUploadError && (
+                  <p className="text-[11px] text-rose-600 font-medium">{attachmentUploadError}</p>
+                )}
 
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {deliveryAttachments.map((att, index) => (
                     <div key={index} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={att.title}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDeliveryAttachments((prev) =>
-                            prev.map((item, idx) => (idx === index ? { ...item, title: val } : item))
-                          );
-                        }}
-                        placeholder="Link Label (e.g. GitHub PR)"
-                        className="w-1/3 text-xs p-2 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
-                      />
-                      <input
-                        type="url"
-                        value={att.url}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDeliveryAttachments((prev) =>
-                            prev.map((item, idx) => (idx === index ? { ...item, url: val } : item))
-                          );
-                        }}
-                        placeholder="https://..."
-                        className="flex-1 text-xs p-2 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
-                      />
-                      {deliveryAttachments.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDeliveryAttachments((prev) => prev.filter((_, idx) => idx !== index))
-                          }
-                          className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      {att.type === 'link' ? (
+                        <>
+                          <input
+                            type="text"
+                            value={att.title}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDeliveryAttachments((prev) =>
+                                prev.map((item, idx) => (idx === index ? { ...item, title: val } : item))
+                              );
+                            }}
+                            placeholder="Link Label (e.g. GitHub PR)"
+                            className="w-1/3 text-xs p-2 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
+                          />
+                          <input
+                            type="url"
+                            value={att.url}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDeliveryAttachments((prev) =>
+                                prev.map((item, idx) => (idx === index ? { ...item, url: val } : item))
+                              );
+                            }}
+                            placeholder="https://..."
+                            className="flex-1 text-xs p-2 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
+                          />
+                        </>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                          <span className="flex items-center gap-1.5 font-medium text-slate-800 truncate">
+                            <Paperclip className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span className="truncate">{att.title}</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-700 bg-emerald-100/60 font-semibold px-2 py-0.5 rounded">
+                            Attached File
+                          </span>
+                        </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDeliveryAttachments((prev) => prev.filter((_, idx) => idx !== index))
+                        }
+                        className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                        title="Remove"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -2329,6 +2653,80 @@ function ContractDetailsContent() {
           </div>
         </div>
       )}
+
+      {/* Decline Offer Modal */}
+      {isDeclineModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">Decline Contract Offer</h3>
+              <button
+                type="button"
+                onClick={() => setIsDeclineModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDeclineOffer} className="space-y-4">
+              <p className="text-xs text-slate-600">
+                Are you sure you want to decline this offer? The client will be notified.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Reason for declining (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={declineReasonText}
+                  onChange={(e) => setDeclineReasonText(e.target.value)}
+                  placeholder="e.g. Rate disagreement, schedule conflict, or project scope change..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeclineModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDecliningOffer}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {isDecliningOffer ? 'Declining...' : 'Confirm Decline'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: END CONTRACT & SUBMIT FEEDBACK */}
+      <EndContractModal
+        isOpen={isEndContractModalOpen}
+        onClose={() => setIsEndContractModalOpen(false)}
+        contractId={contract.id}
+        contractTitle={contract.title}
+        isClient={isClient}
+        otherPartyName={isClient ? (contract.freelancerName || 'Freelancer') : (contract.clientName || 'Client')}
+        onSuccess={() => {
+          setIsEndContractModalOpen(false);
+          setActionSuccessMessage('Contract ended and feedback submitted successfully.');
+          loadData(true);
+          setActiveTab('reviews');
+        }}
+      />
     </div>
   );
 }

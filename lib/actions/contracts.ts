@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { Contract, ContractStatus, ProjectType } from '@/lib/types';
+import { revalidatePath } from 'next/cache';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,9 +28,29 @@ export interface ContractsListResult {
   code?: string;
 }
 
+export interface CreateContractOfferInput {
+  proposalId: string;
+  contractType: ProjectType;
+  title?: string;
+  hourlyRate?: number | null;
+  fixedPrice?: number | null;
+  weeklyHourLimit?: number | null;
+  allowManualTime?: boolean;
+  offerMessage?: string;
+}
+
+export interface ContractOfferResult {
+  success: boolean;
+  contractId?: string;
+  error?: string;
+  code?: string;
+}
+
 interface ProfileJoin {
   id?: string;
   full_name?: string | null;
+  avatar_url?: string | null;
+  title?: string | null;
 }
 
 interface CompanyJoin {
@@ -51,16 +72,28 @@ interface SupabaseContractRow {
   weekly_hour_limit?: number | null;
   allow_manual_time: boolean;
   status: string;
+  offer_message?: string | null;
+  offer_expires_at?: string | null;
+  offer_accepted_at?: string | null;
+  offer_declined_at?: string | null;
+  declined_reason?: string | null;
   created_at: string;
   updated_at: string;
   jobs?: { id?: string; title?: string } | Array<{ id?: string; title?: string }> | null;
   profiles?: ProfileJoin | ProfileJoin[] | null;
+  client?: ProfileJoin | ProfileJoin[] | null;
+  freelancer?: ProfileJoin | ProfileJoin[] | null;
   companies?: CompanyJoin | CompanyJoin[] | null;
 }
 
 function mapContractRow(row: SupabaseContractRow): Contract {
   const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
-  const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  const clientObj = Array.isArray(row.client)
+    ? row.client[0]
+    : Array.isArray(row.profiles)
+    ? row.profiles[0]
+    : row.client || row.profiles;
+  const freelancerObj = Array.isArray(row.freelancer) ? row.freelancer[0] : row.freelancer;
   const companyObj = Array.isArray(row.companies) ? row.companies[0] : row.companies;
 
   return {
@@ -69,10 +102,14 @@ function mapContractRow(row: SupabaseContractRow): Contract {
     jobId: row.job_id,
     jobTitle: jobObj?.title || row.title,
     clientId: row.client_id,
-    clientName: profileObj?.full_name || undefined,
+    clientName: clientObj?.full_name || undefined,
+    clientAvatar: clientObj?.avatar_url || null,
     companyId: row.company_id || null,
     companyName: companyObj?.name || null,
     freelancerId: row.freelancer_id,
+    freelancerName: freelancerObj?.full_name || undefined,
+    freelancerAvatar: freelancerObj?.avatar_url || null,
+    freelancerTitle: freelancerObj?.title || null,
     contractType: row.contract_type as ProjectType,
     title: row.title,
     hourlyRate: row.hourly_rate ? Number(row.hourly_rate) : null,
@@ -80,6 +117,11 @@ function mapContractRow(row: SupabaseContractRow): Contract {
     weeklyHourLimit: row.weekly_hour_limit ? Number(row.weekly_hour_limit) : null,
     allowManualTime: Boolean(row.allow_manual_time),
     status: row.status as ContractStatus,
+    offerMessage: row.offer_message || null,
+    offerExpiresAt: row.offer_expires_at || null,
+    offerAcceptedAt: row.offer_accepted_at || null,
+    offerDeclinedAt: row.offer_declined_at || null,
+    declinedReason: row.declined_reason || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -109,7 +151,8 @@ export async function getContracts(filters: GetContractsFilters = {}): Promise<C
   try {
     let query = supabase
       .from('contracts')
-      .select(`
+      .select(
+        `
         id,
         proposal_id,
         job_id,
@@ -123,17 +166,24 @@ export async function getContracts(filters: GetContractsFilters = {}): Promise<C
         weekly_hour_limit,
         allow_manual_time,
         status,
+        offer_message,
+        offer_expires_at,
+        offer_accepted_at,
+        offer_declined_at,
+        declined_reason,
         created_at,
         updated_at,
         jobs (id, title),
-        profiles!client_id (id, full_name),
+        client:profiles!client_id (id, full_name, avatar_url),
+        freelancer:profiles!freelancer_id (id, full_name, avatar_url, title),
         companies (id, name)
-      `, { count: 'exact' });
+      `,
+        { count: 'exact' }
+      );
 
     if (filters.as === 'freelancer') {
       query = query.eq('freelancer_id', user.id);
     } else if (filters.as === 'client') {
-      // Find company IDs for client
       const { data: userCompanies } = await supabase
         .from('company_members')
         .select('company_id')
@@ -228,7 +278,8 @@ export async function getContractById(contractId: string): Promise<ContractDetai
   try {
     const { data, error } = await supabase
       .from('contracts')
-      .select(`
+      .select(
+        `
         id,
         proposal_id,
         job_id,
@@ -242,12 +293,19 @@ export async function getContractById(contractId: string): Promise<ContractDetai
         weekly_hour_limit,
         allow_manual_time,
         status,
+        offer_message,
+        offer_expires_at,
+        offer_accepted_at,
+        offer_declined_at,
+        declined_reason,
         created_at,
         updated_at,
         jobs (id, title),
-        profiles!client_id (id, full_name),
+        client:profiles!client_id (id, full_name, avatar_url),
+        freelancer:profiles!freelancer_id (id, full_name, avatar_url, title),
         companies (id, name)
-      `)
+      `
+      )
       .eq('id', contractId.trim())
       .maybeSingle();
 
@@ -277,5 +335,240 @@ export async function getContractById(contractId: string): Promise<ContractDetai
       success: false,
       error: message,
     };
+  }
+}
+
+/**
+ * Send a formal Upwork-style contract offer to a freelancer for a submitted proposal.
+ */
+export async function createContractOffer(
+  input: CreateContractOfferInput
+): Promise<ContractOfferResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return {
+      success: false,
+      error: 'Authentication required to create a job offer.',
+      code: 'UNAUTHENTICATED',
+    };
+  }
+
+  if (!UUID_REGEX.test(input.proposalId?.trim())) {
+    return {
+      success: false,
+      error: 'Valid proposal ID is required.',
+      code: 'INVALID_ID',
+    };
+  }
+
+  if (input.contractType !== 'hourly' && input.contractType !== 'fixed') {
+    return {
+      success: false,
+      error: 'Contract type must be hourly or fixed.',
+      code: 'INVALID_TYPE',
+    };
+  }
+
+  const hourlyRateVal = input.contractType === 'hourly' ? Number(input.hourlyRate || 0) : null;
+  const fixedPriceVal = input.contractType === 'fixed' ? Number(input.fixedPrice || 0) : null;
+
+  if (input.contractType === 'hourly' && (!hourlyRateVal || hourlyRateVal <= 0)) {
+    return {
+      success: false,
+      error: 'Please specify a valid hourly rate greater than $0.',
+      code: 'INVALID_RATE',
+    };
+  }
+
+  if (input.contractType === 'fixed' && (!fixedPriceVal || fixedPriceVal <= 0)) {
+    return {
+      success: false,
+      error: 'Please specify a valid fixed price greater than $0.',
+      code: 'INVALID_PRICE',
+    };
+  }
+
+  try {
+    const { data: contractId, error: rpcError } = await supabase.rpc('create_contract_offer', {
+      p_proposal_id: input.proposalId.trim(),
+      p_contract_type: input.contractType,
+      p_title: input.title?.trim() || null,
+      p_hourly_rate: hourlyRateVal,
+      p_fixed_price: fixedPriceVal,
+      p_weekly_hour_limit: input.contractType === 'hourly' ? (input.weeklyHourLimit ? Number(input.weeklyHourLimit) : 40) : null,
+      p_allow_manual_time: input.allowManualTime ?? true,
+      p_offer_message: input.offerMessage?.trim() || null,
+    });
+
+    if (rpcError) {
+      return {
+        success: false,
+        error: rpcError.message,
+        code: rpcError.code,
+      };
+    }
+
+    revalidatePath('/client');
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+
+    return {
+      success: true,
+      contractId: contractId as string,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unexpected error creating contract offer.';
+    return {
+      success: false,
+      error: message,
+    };
+  }
+}
+
+/**
+ * Freelancer action: Accept a pending contract offer.
+ */
+export async function acceptContractOffer(
+  contractId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required.' };
+  }
+
+  if (!UUID_REGEX.test(contractId?.trim())) {
+    return { success: false, error: 'Invalid contract ID format.' };
+  }
+
+  try {
+    const { error: rpcError } = await supabase.rpc('accept_contract_offer', {
+      p_contract_id: contractId.trim(),
+    });
+
+    if (rpcError) {
+      return { success: false, error: rpcError.message };
+    }
+
+    revalidatePath(`/contracts/${contractId.trim()}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to accept offer.';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Freelancer action: Decline a pending contract offer with an optional reason.
+ */
+export async function declineContractOffer(
+  contractId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required.' };
+  }
+
+  if (!UUID_REGEX.test(contractId?.trim())) {
+    return { success: false, error: 'Invalid contract ID format.' };
+  }
+
+  try {
+    const { error: rpcError } = await supabase.rpc('decline_contract_offer', {
+      p_contract_id: contractId.trim(),
+      p_reason: reason?.trim() || null,
+    });
+
+    if (rpcError) {
+      return { success: false, error: rpcError.message };
+    }
+
+    revalidatePath(`/contracts/${contractId.trim()}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to decline offer.';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Look up existing contract (including pending offers) for a specific proposal.
+ */
+export async function getContractOfferForProposal(
+  proposalId: string
+): Promise<ContractDetailsResult> {
+  if (!proposalId || !UUID_REGEX.test(proposalId.trim())) {
+    return { success: false, error: 'Invalid proposal ID.' };
+  }
+
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase
+      .from('contracts')
+      .select(
+        `
+        id,
+        proposal_id,
+        job_id,
+        client_id,
+        company_id,
+        freelancer_id,
+        contract_type,
+        title,
+        hourly_rate,
+        fixed_price,
+        weekly_hour_limit,
+        allow_manual_time,
+        status,
+        offer_message,
+        offer_expires_at,
+        offer_accepted_at,
+        offer_declined_at,
+        declined_reason,
+        created_at,
+        updated_at,
+        jobs (id, title),
+        client:profiles!client_id (id, full_name, avatar_url),
+        freelancer:profiles!freelancer_id (id, full_name, avatar_url, title),
+        companies (id, name)
+      `
+      )
+      .eq('proposal_id', proposalId.trim())
+      .maybeSingle();
+
+    if (error || !data) {
+      return { success: false, error: error?.message || 'No contract found.' };
+    }
+
+    return {
+      success: true,
+      contract: mapContractRow(data as unknown as SupabaseContractRow),
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Error fetching contract offer.';
+    return { success: false, error: message };
   }
 }

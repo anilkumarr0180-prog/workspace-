@@ -134,6 +134,8 @@ interface DbMessageRow {
 export async function createOrGetConversation(params: {
   proposalId?: string;
   contractId?: string;
+  recipientId?: string;
+  title?: string;
 }): Promise<{ success: boolean; conversationId?: string; error?: string }> {
   try {
     const supabase = await createClient();
@@ -180,9 +182,29 @@ export async function createOrGetConversation(params: {
       return { success: true, conversationId: convId as string };
     }
 
+    if (params.recipientId) {
+      if (!UUID_REGEX.test(params.recipientId)) {
+        return { success: false, error: 'Invalid recipient identifier format' };
+      }
+
+      const { data: convId, error: rpcError } = await supabase.rpc(
+        'create_or_get_direct_conversation',
+        {
+          p_recipient_id: params.recipientId,
+          p_title: params.title || 'Direct Inquiry',
+        }
+      );
+
+      if (rpcError) {
+        return { success: false, error: rpcError.message };
+      }
+
+      return { success: true, conversationId: convId as string };
+    }
+
     return {
       success: false,
-      error: 'Either proposalId or contractId must be specified to initialize a conversation',
+      error: 'Either proposalId, contractId, or recipientId must be specified to initialize a conversation',
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to create or retrieve conversation';

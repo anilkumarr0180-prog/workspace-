@@ -4,7 +4,7 @@ import React, { useState, useRef, ChangeEvent } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { updateProfileAvatar, removeProfileAvatar } from '@/lib/actions/profile';
-import { Camera, Trash2, Loader2, UploadCloud, AlertCircle } from 'lucide-react';
+import { Trash2, Loader2, UploadCloud, AlertCircle } from 'lucide-react';
 
 interface AvatarUploaderProps {
   userId: string;

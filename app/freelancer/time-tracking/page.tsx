@@ -32,7 +32,9 @@ import {
   CreditCard,
   Send,
   FileText,
+  Monitor,
 } from 'lucide-react';
+import WorkDiary from '@/components/contracts/work-diary';
 import {
   getFreelancerTimesheets,
   submitTimesheet,
@@ -56,7 +58,7 @@ export default function FreelancerTimeTrackingPage() {
 
   // Timesheets state
   const [timesheets, setTimesheets] = useState<TimesheetWithDetails[]>([]);
-  const [activeMainTab, setActiveMainTab] = useState<'timer' | 'timesheets'>('timer');
+  const [activeMainTab, setActiveMainTab] = useState<'timer' | 'diary' | 'timesheets'>('timer');
   const [submittingTimesheetId, setSubmittingTimesheetId] = useState<string | null>(null);
   const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null);
 
@@ -490,7 +492,19 @@ export default function FreelancerTimeTrackingPage() {
           }`}
         >
           <Clock className="w-4 h-4" />
-          <span>Live Stopwatch & Diary</span>
+          <span>Live Stopwatch</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('diary')}
+          className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'diary'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Monitor className="w-4 h-4" />
+          <span>Work Diary</span>
         </button>
         <button
           type="button"
@@ -862,6 +876,31 @@ export default function FreelancerTimeTrackingPage() {
             </ul>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Upwork Work Diary Tab */}
+      {activeMainTab === 'diary' && (
+        <div className="space-y-6">
+          {activeContract ? (
+            <WorkDiary
+              contractId={activeContract.id}
+              isFreelancer={true}
+              hourlyRate={activeContract.hourlyRate}
+              weeklyHourLimit={activeContract.weeklyHourLimit}
+              allowManualTime={activeContract.allowManualTime}
+            />
+          ) : (
+            <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center space-y-3">
+              <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
+                <Monitor className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-slate-900">Select an Hourly Contract</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Choose an active contract from your available projects to view its 10-minute work diary segments and activity levels.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
