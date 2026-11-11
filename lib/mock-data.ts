@@ -546,7 +546,7 @@ export const INITIAL_FREELANCERS: Freelancer[] = [
     portfolio: [
       {
         id: 'port-6',
-        title: 'LegalIQ Document Semantic RAG',
+        title: 'LegalIQ Document   Semantic RAG',
         description: 'Sub-second search across 500k legal contracts with automatic citation attribution and risk analysis.',
         category: 'AI Pipeline',
         imageUrl: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=800&q=80',

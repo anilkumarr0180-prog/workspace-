@@ -30,10 +30,12 @@ import {
   Repeat,
   Loader2,
   Clock,
-  CreditCard
+  CreditCard,
+  Edit3
 } from 'lucide-react';
 import { switchActiveRole } from '@/lib/actions/profile';
 import NotificationPopover from '@/components/layout/notification-popover';
+import ProfileEditModal from '@/components/profile/profile-edit-modal';
 
 interface UserProfile {
   id?: string;
@@ -63,6 +65,7 @@ export default function Navbar() {
   const [authLoaded, setAuthLoaded] = useState(false);
   const [switchingRole, setSwitchingRole] = useState(false);
   const [roleSwitchError, setRoleSwitchError] = useState<string | null>(null);
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
 
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const navDropdownRef = useRef<HTMLDivElement>(null);
@@ -254,6 +257,26 @@ export default function Navbar() {
         if (isMounted) setAuthLoaded(true);
       }, 0);
     }
+  }, []);
+
+  // Sync profile changes triggered anywhere across the app (avatar upload, name edit, etc.)
+  useEffect(() => {
+    const handleProfileUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ avatarUrl?: string | null; fullName?: string }>).detail;
+      setProfile((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(detail?.avatarUrl !== undefined && { avatar_url: detail.avatarUrl || undefined }),
+          ...(detail?.fullName && { full_name: detail.fullName }),
+        };
+      });
+    };
+
+    window.addEventListener('workspace:profile-updated', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('workspace:profile-updated', handleProfileUpdated);
+    };
   }, []);
 
   // Handle outside click & Escape key for dropdowns (uses click instead of mousedown to avoid swallowing links)
@@ -1180,6 +1203,21 @@ export default function Navbar() {
                           </span>
                         </NextLink>
 
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            setIsEditProfileModalOpen(true);
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Edit3 className="w-4 h-4 text-emerald-400" />
+                            <span>Edit profile</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400">Customise</span>
+                        </button>
+
                         <NextLink
                           href="/saved"
                           onClick={() => setProfileMenuOpen(false)}
@@ -1517,6 +1555,15 @@ export default function Navbar() {
           </div>
         </div>
       )}
+      {/* Profile Customization & Edit Modal */}
+      <ProfileEditModal
+        isOpen={isEditProfileModalOpen}
+        onClose={() => setIsEditProfileModalOpen(false)}
+        initialRole={isClientMode ? 'client' : 'freelancer'}
+        onProfileUpdated={() => {
+          router.refresh();
+        }}
+      />
     </header>
   );
 }

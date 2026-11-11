@@ -1,8 +1,14 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { Metadata } from 'next';
+import { createClient } from '@/lib/supabase/server';
 import { getFreelancerByUsername } from '@/lib/actions/freelancers';
-import { ShareProfileButton, ContactHireButton } from '@/components/freelancers/profile-actions';
+import {
+  ShareProfileButton,
+  ContactHireButton,
+  EditProfileButton,
+  OwnerAvatarInteractive,
+} from '@/components/freelancers/profile-actions';
 import {
   Star,
   Award,
@@ -97,6 +103,13 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
   const { username } = await params;
   const { freelancer, error, source } = await getFreelancerByUsername(username);
 
+  // Check authenticated viewer identity
+  const supabase = await createClient();
+  const {
+    data: { user: currentUser },
+  } = await supabase.auth.getUser();
+  const isOwner = Boolean(currentUser && freelancer && currentUser.id === freelancer.id);
+
   // Not Found State
   if (!freelancer || error) {
     return (
@@ -163,24 +176,12 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
       <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="flex flex-col sm:flex-row items-start gap-6">
-            <div className="relative shrink-0">
-              {freelancer.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={freelancer.avatarUrl}
-                  alt={freelancer.fullName}
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-2 border-white shadow-md"
-                />
-              ) : (
-                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold flex items-center justify-center text-2xl sm:text-3xl border-2 border-white shadow-md select-none">
-                  {initials}
-                </div>
-              )}
-              <span
-                className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full"
-                title="Available for projects"
-              />
-            </div>
+            <OwnerAvatarInteractive
+              avatarUrl={freelancer.avatarUrl}
+              fullName={freelancer.fullName}
+              initials={initials}
+              isOwner={isOwner}
+            />
 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-3">
@@ -237,7 +238,11 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
               )}
             </div>
 
-            <ContactHireButton freelancer={freelancer} />
+            {isOwner ? (
+              <EditProfileButton label="Edit Profile" initialRole="freelancer" />
+            ) : (
+              <ContactHireButton freelancer={freelancer} />
+            )}
           </div>
         </div>
 
