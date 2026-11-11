@@ -100,17 +100,17 @@ export default function ContractsIndexPage() {
         {/* Filter & Search Bar */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-            {(['all', 'active', 'completed', 'paused'] as const).map((status) => (
+            {(['all', 'pending_offer', 'active', 'completed', 'paused'] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   statusFilter === status
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {status}
+                {status === 'pending_offer' ? 'Pending Offers' : status.charAt(0).toUpperCase() + status.slice(1)}
               </button>
             ))}
           </div>
@@ -164,9 +164,15 @@ export default function ContractsIndexPage() {
                         {c.contractType === 'fixed' ? 'Fixed-Price' : 'Hourly'}
                       </span>
                       <span className={`inline-block px-2 py-0.2 rounded-md text-[10px] font-bold uppercase ${
-                        c.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                        c.status === 'active'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : c.status === 'pending_offer'
+                          ? 'bg-amber-100 text-amber-800'
+                          : c.status === 'declined'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-slate-100 text-slate-700'
                       }`}>
-                        {c.status}
+                        {c.status === 'pending_offer' ? 'Pending Offer' : c.status}
                       </span>
                       <span className="text-xs text-slate-400">
                         Established {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

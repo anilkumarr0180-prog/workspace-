@@ -79,3 +79,4 @@ CREATE POLICY "company_members_insert_owner"
 
 GRANT INSERT ON public.companies TO authenticated;
 GRANT INSERT ON public.company_members TO authenticated;
+

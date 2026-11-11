@@ -1032,3 +1032,70 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
     return { success: false, entries: [], error: message };
   }
 }
+
+/**
+ * Upload deliverable attachment (PDF, ZIP, images, docs) to secure private bucket.
+ */
+export async function uploadMilestoneAttachment(
+  milestoneId: string,
+  formData: FormData
+): Promise<{ success: boolean; attachment?: DeliveryAttachment; error?: string }> {
+  if (!milestoneId || !UUID_REGEX.test(milestoneId.trim())) {
+    return { success: false, error: 'Invalid milestone ID format.' };
+  }
+
+  const file = formData.get('file') as File | null;
+  if (!file) {
+    return { success: false, error: 'No file provided.' };
+  }
+
+  if (file.size > 50 * 1024 * 1024) {
+    return { success: false, error: 'File size exceeds maximum limit of 50MB.' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required.' };
+  }
+
+  try {
+    const admin = getAdminSupabaseClient();
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${milestoneId.trim()}/${Date.now()}_${cleanFileName}`;
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    const { error: uploadError } = await admin.storage
+      .from('milestone-deliveries')
+      .upload(storagePath, buffer, {
+        contentType: file.type || 'application/octet-stream',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return { success: false, error: uploadError.message };
+    }
+
+    // Generate signed download URL (valid for 7 days)
+    const { data: signed } = await admin.storage
+      .from('milestone-deliveries')
+      .createSignedUrl(storagePath, 7 * 24 * 3600);
+
+    return {
+      success: true,
+      attachment: {
+        title: file.name,
+        url: signed?.signedUrl || '',
+        type: file.type || 'file',
+      },
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error uploading attachment';
+    return { success: false, error: msg };
+  }
+}

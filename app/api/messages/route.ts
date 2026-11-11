@@ -37,10 +37,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // 1. Initialize or get conversation
-    if (body.proposalId || body.contractId) {
+    if (body.proposalId || body.contractId || body.recipientId) {
       const result = await createOrGetConversation({
         proposalId: body.proposalId,
         contractId: body.contractId,
+        recipientId: body.recipientId,
+        title: body.title,
       });
 
       if (!result.success) {
@@ -48,6 +50,14 @@ export async function POST(request: NextRequest) {
           { error: result.error || 'Failed to initialize conversation' },
           { status: result.error?.includes('Unauthorized') || result.error?.includes('Authentication') ? 403 : 400 }
         );
+      }
+
+      // If initialMessage was provided, dispatch first message
+      if (result.conversationId && body.initialMessage && typeof body.initialMessage === 'string') {
+        await sendMessage({
+          conversationId: result.conversationId,
+          content: body.initialMessage.trim(),
+        });
       }
 
       return NextResponse.json(result, { status: 201 });

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateProposalStatus } from '@/lib/actions/proposals';
+import {
+  updateProposalStatus,
+  toggleProposalShortlist,
+  declineProposal,
+  saveProposalNotes,
+} from '@/lib/actions/proposals';
 
 export async function PATCH(
   request: NextRequest,
@@ -13,8 +18,37 @@ export async function PATCH(
       return NextResponse.json({ error: 'Proposal ID is required' }, { status: 400 });
     }
 
+    // 1. Shortlist toggle
+    if (body.action === 'toggle_shortlist' || typeof body.isShortlisted === 'boolean') {
+      const isShortlisted = typeof body.isShortlisted === 'boolean' ? body.isShortlisted : true;
+      const res = await toggleProposalShortlist(id, isShortlisted);
+      if (!res.success) {
+        return NextResponse.json({ error: res.error || 'Failed to update shortlist' }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, isShortlisted: res.isShortlisted });
+    }
+
+    // 2. Decline with reason
+    if (body.action === 'decline') {
+      const res = await declineProposal(id, body.reason);
+      if (!res.success) {
+        return NextResponse.json({ error: res.error || 'Failed to decline proposal' }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, status: 'rejected' });
+    }
+
+    // 3. Save internal notes
+    if (body.action === 'set_notes' && typeof body.notes === 'string') {
+      const res = await saveProposalNotes(id, body.notes);
+      if (!res.success) {
+        return NextResponse.json({ error: res.error || 'Failed to save notes' }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, notes: res.notes });
+    }
+
+    // 4. Default: Proposal status update
     if (!body.status || typeof body.status !== 'string') {
-      return NextResponse.json({ error: 'Target status string is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Target status string or valid action is required' }, { status: 400 });
     }
 
     const result = await updateProposalStatus(id, body.status.trim());

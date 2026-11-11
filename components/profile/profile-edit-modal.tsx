@@ -14,14 +14,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Briefcase,
-  DollarSign,
   Building2,
   Globe,
   MapPin,
-  FileText,
   User,
   Plus,
-  Sparkles,
 } from 'lucide-react';
 
 interface ProfileEditModalProps {
@@ -64,9 +61,6 @@ export default function ProfileEditModal({
     if (!isOpen) return;
 
     let isMounted = true;
-    setLoading(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
 
     getEditableProfile().then((res) => {
       if (!isMounted) return;

@@ -109,10 +109,14 @@ interface ProposalRawRow {
   delivery_days: number | null;
   cover_letter: string;
   status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
+  is_shortlisted?: boolean | null;
+  shortlisted_at?: string | null;
+  declined_reason?: string | null;
+  client_notes?: string | null;
   created_at: string;
   updated_at: string;
   jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
-  profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null }> | null;
+  profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }> | null;
 }
 
 /**
@@ -233,10 +237,14 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
           delivery_days,
           cover_letter,
           status,
+          is_shortlisted,
+          shortlisted_at,
+          declined_reason,
+          client_notes,
           created_at,
           updated_at,
           jobs (id, title, client_id, company_id, status),
-          profiles!freelancer_id (id, full_name, avatar_url, username)
+          profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
         `)
         .in('job_id', jobIds)
         .order('created_at', { ascending: false });
@@ -254,11 +262,16 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
             freelancerName: profileObj?.full_name || 'Freelancer Specialist',
             freelancerUsername: profileObj?.username || undefined,
             freelancerAvatar: profileObj?.avatar_url || undefined,
+            freelancerTitle: profileObj?.title || undefined,
             bidAmount: Number(row.bid_amount),
             rateType: row.rate_type as ProjectType,
             deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
             coverLetter: row.cover_letter,
             status: row.status,
+            isShortlisted: Boolean(row.is_shortlisted),
+            shortlistedAt: row.shortlisted_at || null,
+            declinedReason: row.declined_reason || null,
+            clientNotes: row.client_notes || null,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
           };

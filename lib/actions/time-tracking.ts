@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { ActiveTimerSession, Contract, TimeEntry, Timesheet } from '@/lib/types';
+import { ActiveTimerSession, Contract, TimeEntry, Timesheet, WorkDiarySlot } from '@/lib/types';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -649,5 +649,261 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
       stats: { todayMinutes: 0, todayEarnings: 0, thisWeekMinutes: 0, thisWeekEarnings: 0, totalHoursAllTime: 0 },
       error: message,
     };
+  }
+}
+
+export interface WorkDiarySummary {
+  totalMinutes: number;
+  totalHours: number;
+  avgActivityScore: number;
+  totalKeystrokes: number;
+  totalClicks: number;
+  manualMinutes: number;
+  timerMinutes: number;
+}
+
+export interface WorkDiaryResult {
+  success: boolean;
+  slots: WorkDiarySlot[];
+  summary: WorkDiarySummary;
+  contract?: Contract;
+  error?: string;
+}
+
+/**
+ * Fetch authoritative Upwork Work Diary 10-minute activity segments for a contract.
+ * Supports date filtering (e.g. specific week or day).
+ */
+export async function getContractWorkDiary(
+  contractId: string,
+  options?: { date?: string; startDate?: string; endDate?: string }
+): Promise<WorkDiaryResult> {
+  const emptySummary: WorkDiarySummary = {
+    totalMinutes: 0,
+    totalHours: 0,
+    avgActivityScore: 0,
+    totalKeystrokes: 0,
+    totalClicks: 0,
+    manualMinutes: 0,
+    timerMinutes: 0,
+  };
+
+  if (!contractId || !UUID_REGEX.test(contractId.trim())) {
+    return { success: false, slots: [], summary: emptySummary, error: 'Invalid contract ID' };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, slots: [], summary: emptySummary, error: 'Authentication required' };
+    }
+
+    // Verify contract access
+    const { data: contract, error: contractErr } = await supabase
+      .from('contracts')
+      .select('id, title, contract_type, hourly_rate, weekly_hour_limit, allow_manual_time, status, client_id, freelancer_id')
+      .eq('id', contractId.trim())
+      .single();
+
+    if (contractErr || !contract) {
+      return { success: false, slots: [], summary: emptySummary, error: 'Contract not found' };
+    }
+
+    let query = supabase
+      .from('work_diary_slots')
+      .select('*')
+      .eq('contract_id', contractId.trim());
+
+    if (options?.date) {
+      const dayStart = `${options.date}T00:00:00.000Z`;
+      const dayEnd = `${options.date}T23:59:59.999Z`;
+      query = query.gte('slot_time', dayStart).lte('slot_time', dayEnd);
+    } else if (options?.startDate && options?.endDate) {
+      query = query.gte('slot_time', `${options.startDate}T00:00:00.000Z`).lte('slot_time', `${options.endDate}T23:59:59.999Z`);
+    }
+
+    query = query.order('slot_time', { ascending: true });
+
+    const { data: rawSlots, error: slotsErr } = await query;
+
+    if (slotsErr) {
+      return { success: false, slots: [], summary: emptySummary, error: slotsErr.message };
+    }
+
+    interface DbSlotRow {
+      id: string;
+      contract_id: string;
+      time_entry_id?: string | null;
+      freelancer_id: string;
+      slot_time: string;
+      duration_minutes: number;
+      activity_score: number;
+      keystrokes_count: number;
+      mouse_clicks_count: number;
+      memo: string;
+      screenshot_url?: string | null;
+      is_manual: boolean;
+      created_at: string;
+    }
+
+    let totalMinutes = 0;
+    let totalScoreSum = 0;
+    let scoreCount = 0;
+    let totalKeys = 0;
+    let totalClicks = 0;
+    let manualMinutes = 0;
+    let timerMinutes = 0;
+
+    const slots: WorkDiarySlot[] = ((rawSlots as unknown as DbSlotRow[]) || []).map((row) => {
+      const mins = Number(row.duration_minutes) || 10;
+      totalMinutes += mins;
+      totalKeys += Number(row.keystrokes_count) || 0;
+      totalClicks += Number(row.mouse_clicks_count) || 0;
+
+      if (row.is_manual) {
+        manualMinutes += mins;
+      } else {
+        timerMinutes += mins;
+        totalScoreSum += Number(row.activity_score) || 0;
+        scoreCount += 1;
+      }
+
+      return {
+        id: row.id,
+        contractId: row.contract_id,
+        timeEntryId: row.time_entry_id,
+        freelancerId: row.freelancer_id,
+        slotTime: row.slot_time,
+        durationMinutes: mins,
+        activityScore: Number(row.activity_score) || 0,
+        keystrokesCount: Number(row.keystrokes_count) || 0,
+        mouseClicksCount: Number(row.mouse_clicks_count) || 0,
+        memo: row.memo || '',
+        screenshotUrl: row.screenshot_url,
+        isManual: Boolean(row.is_manual),
+        createdAt: row.created_at,
+      };
+    });
+
+    const summary: WorkDiarySummary = {
+      totalMinutes,
+      totalHours: Math.round((totalMinutes / 60) * 10) / 10,
+      avgActivityScore: scoreCount > 0 ? Math.round((totalScoreSum / scoreCount) * 10) / 10 : 0,
+      totalKeystrokes: totalKeys,
+      totalClicks: totalClicks,
+      manualMinutes,
+      timerMinutes,
+    };
+
+    return {
+      success: true,
+      slots,
+      summary,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to load work diary';
+    return { success: false, slots: [], summary: emptySummary, error: msg };
+  }
+}
+
+/**
+ * Log manual hourly time on a contract via stored procedure.
+ */
+export async function logManualTime(params: {
+  contractId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  memo: string;
+}): Promise<{ success: boolean; entryId?: string; durationMinutes?: number; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    if (!params.contractId || !UUID_REGEX.test(params.contractId.trim())) {
+      return { success: false, error: 'Invalid contract ID' };
+    }
+
+    if (!params.date || !params.startTime || !params.endTime) {
+      return { success: false, error: 'Date, start time, and end time are required' };
+    }
+
+    if (!params.memo || params.memo.trim().length < 3) {
+      return { success: false, error: 'A work memo of at least 3 characters is required' };
+    }
+
+    const { data, error } = await supabase.rpc('log_manual_time', {
+      p_contract_id: params.contractId.trim(),
+      p_date: params.date,
+      p_start_time: params.startTime,
+      p_end_time: params.endTime,
+      p_memo: params.memo.trim(),
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    const resObj = data as { success?: boolean; entry_id?: string; duration_minutes?: number };
+    return {
+      success: true,
+      entryId: resObj?.entry_id,
+      durationMinutes: resObj?.duration_minutes,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to log manual time';
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Delete a single 10-minute work diary segment (and adjust time entry & timesheet totals).
+ */
+export async function deleteWorkDiarySlot(
+  slotId: string
+): Promise<{ success: boolean; deductedMinutes?: number; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    if (!slotId || !UUID_REGEX.test(slotId.trim())) {
+      return { success: false, error: 'Invalid slot ID' };
+    }
+
+    const { data, error } = await supabase.rpc('delete_work_diary_slot', {
+      p_slot_id: slotId.trim(),
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    const resObj = data as { success?: boolean; deducted_minutes?: number };
+    return {
+      success: true,
+      deductedMinutes: resObj?.deducted_minutes,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to delete work diary slot';
+    return { success: false, error: msg };
   }
 }

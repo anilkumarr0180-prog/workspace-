@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useMarketplace } from '@/lib/context/marketplace-context';
-import { X, CheckCircle2, MessageSquare, Send } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { X, CheckCircle2, MessageSquare, Send, ArrowRight } from 'lucide-react';
 
 interface ContactModalProps {
   freelancer: {
+    id?: string;
     username: string;
     name?: string;
     fullName?: string;
@@ -18,10 +19,12 @@ interface ContactModalProps {
 }
 
 export default function ContactModal({ freelancer, isOpen, onClose }: ContactModalProps) {
-  const { sendContactMessage } = useMarketplace();
+  const router = useRouter();
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sent, setSent] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -36,14 +39,49 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
     .map((n) => n[0].toUpperCase())
     .join('') || freelancer.username.slice(0, 2).toUpperCase();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subject.trim() || !message.trim()) {
       setError('Please provide both a subject and message.');
       return;
     }
-    sendContactMessage(freelancer.username, subject, message);
-    setSent(true);
+
+    if (!freelancer.id) {
+      setError('Freelancer ID is missing.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientId: freelancer.id,
+          title: subject.trim(),
+          initialMessage: message.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        if (res.status === 401 || res.status === 403) {
+          router.push(`/login?redirect=/freelancers/${freelancer.username}`);
+          return;
+        }
+        setError(data.error || 'Failed to send message.');
+        return;
+      }
+
+      setConversationId(data.conversationId);
+      setSent(true);
+    } catch {
+      setError('Network error while establishing conversation.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -88,16 +126,29 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
               </div>
               <h4 className="text-lg font-bold text-slate-900">Message Sent!</h4>
               <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                Your message has been simulated and sent to <span className="font-semibold text-slate-800">{freelancer.name}</span>. In a live system, you would receive an email or in-app notification upon reply.
+                Your direct message was delivered to <span className="font-semibold text-slate-800">{displayName}</span>. A real-time chat room has been established in your Messages center.
               </p>
-              <div className="pt-3">
+              <div className="pt-4 flex items-center justify-center gap-3">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-5 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-semibold text-xs hover:bg-slate-50 cursor-pointer"
                 >
-                  Close Window
+                  Close
                 </button>
+                {conversationId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      router.push(`/messages/${conversationId}`);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm cursor-pointer transition-colors"
+                  >
+                    <span>Open Chat Room</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -153,16 +204,27 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm cursor-pointer disabled:opacity-50"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Send Message</span>
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Send Message</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

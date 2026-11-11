@@ -164,7 +164,7 @@ export interface PublicFreelancer {
   createdAt: string;
 }
 
-export type ContractStatus = 'active' | 'paused' | 'completed' | 'cancelled';
+export type ContractStatus = 'pending_offer' | 'active' | 'paused' | 'completed' | 'cancelled' | 'declined';
 export type TimesheetStatus = 'open' | 'submitted' | 'under_review' | 'approved' | 'disputed' | 'paid';
 
 export interface Contract {
@@ -174,9 +174,13 @@ export interface Contract {
   jobTitle: string;
   clientId: string;
   clientName?: string;
+  clientAvatar?: string | null;
   companyId?: string | null;
   companyName?: string | null;
   freelancerId: string;
+  freelancerName?: string;
+  freelancerAvatar?: string | null;
+  freelancerTitle?: string | null;
   contractType: ProjectType;
   title: string;
   hourlyRate?: number | null;
@@ -184,6 +188,11 @@ export interface Contract {
   weeklyHourLimit?: number | null;
   allowManualTime: boolean;
   status: ContractStatus;
+  offerMessage?: string | null;
+  offerExpiresAt?: string | null;
+  offerAcceptedAt?: string | null;
+  offerDeclinedAt?: string | null;
+  declinedReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -208,6 +217,22 @@ export interface TimeEntry {
   durationMinutes: number;
   memo: string;
   source: 'timer' | 'manual';
+  createdAt: string;
+}
+
+export interface WorkDiarySlot {
+  id: string;
+  contractId: string;
+  timeEntryId?: string | null;
+  freelancerId: string;
+  slotTime: string;
+  durationMinutes: number;
+  activityScore: number;
+  keystrokesCount: number;
+  mouseClicksCount: number;
+  memo: string;
+  screenshotUrl?: string | null;
+  isManual: boolean;
   createdAt: string;
 }
 
@@ -396,6 +421,65 @@ export interface UserPresence {
   userName: string;
   onlineAt: string;
 }
+
+export interface ReviewDimensionScores {
+  skills?: number;
+  quality?: number;
+  communication?: number;
+  deadlines?: number;
+  cooperation?: number;
+  availability?: number;
+}
+
+export interface ContractReviewRecord {
+  id: string;
+  contractId: string;
+  reviewerId: string;
+  revieweeId: string;
+  reviewerRole: 'client' | 'freelancer';
+  rating: number;
+  scores: ReviewDimensionScores;
+  feedbackText: string;
+  privateNps?: number | null;
+  privateFeedback?: string | null;
+  endReason: string;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractReviewDisplay {
+  id?: string;
+  rating?: number;
+  scores?: ReviewDimensionScores;
+  feedbackText?: string;
+  endReason?: string;
+  isPublic: boolean;
+  isSubmitted?: boolean;
+  createdAt?: string;
+  reviewerName?: string;
+  reviewerAvatar?: string | null;
+}
+
+export interface ContractReviewsStatusResult {
+  success: boolean;
+  error?: string;
+  contractStatus?: string;
+  bothSubmitted?: boolean;
+  myReview?: ContractReviewDisplay | null;
+  otherReview?: ContractReviewDisplay | null;
+}
+
+export interface EndContractInput {
+  contractId: string;
+  endReason: string;
+  rating: number;
+  feedbackText: string;
+  scores?: ReviewDimensionScores;
+  privateNps?: number | null;
+  privateFeedback?: string | null;
+}
+
 
 
 

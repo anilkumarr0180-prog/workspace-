@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { getFreelancerByUsername } from '@/lib/actions/freelancers';
+import { getFreelancerPublicReviews } from '@/lib/actions/reviews';
 import {
   ShareProfileButton,
   ContactHireButton,
@@ -110,6 +111,10 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
   } = await supabase.auth.getUser();
   const isOwner = Boolean(currentUser && freelancer && currentUser.id === freelancer.id);
 
+  // Fetch verified public reviews
+  const reviewsRes = freelancer ? await getFreelancerPublicReviews(freelancer.id) : { success: false, reviews: [] };
+  const publicReviews = reviewsRes.reviews || [];
+
   // Not Found State
   if (!freelancer || error) {
     return (
@@ -139,7 +144,7 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
   }
 
   const hasHourlyRate = typeof freelancer.hourlyRate === 'number' && freelancer.hourlyRate > 0;
-  const hasReviews = typeof freelancer.reviewCount === 'number' && freelancer.reviewCount > 0;
+  const hasReviews = (typeof freelancer.reviewCount === 'number' && freelancer.reviewCount > 0) || publicReviews.length > 0;
   const isTopRated = hasReviews && freelancer.rating >= 4.8;
   const initials = getInitials(freelancer.fullName, freelancer.username);
 
@@ -337,21 +342,81 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
           </div>
 
           {/* Reviews Status */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-4 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-900">Client Reviews &amp; Feedback</h2>
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-5 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Client Reviews &amp; Feedback</h2>
+                <p className="text-xs text-slate-500">Verified Upwork feedback recorded upon contract completion</p>
+              </div>
               {hasReviews ? (
-                <div className="flex items-center gap-1 text-sm font-bold text-slate-900">
+                <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1 rounded-xl text-sm font-bold text-slate-900">
                   <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
                   <span>{freelancer.rating.toFixed(2)}</span>
-                  <span className="text-slate-400 font-normal">({freelancer.reviewCount})</span>
+                  <span className="text-slate-400 font-normal">({publicReviews.length || freelancer.reviewCount})</span>
                 </div>
               ) : (
                 <span className="text-xs text-slate-400 font-medium">0 reviews</span>
               )}
             </div>
 
-            {hasReviews ? (
+            {publicReviews.length > 0 ? (
+              <div className="divide-y divide-slate-100 space-y-4">
+                {publicReviews.map((rev) => (
+                  <div key={rev.id} className="pt-4 first:pt-0 space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          {rev.contractTitle}
+                        </h3>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                          {rev.earningsText && (
+                            <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              {rev.earningsText}
+                            </span>
+                          )}
+                          <span>
+                            {new Date(rev.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 self-start sm:self-auto bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                        <span className="text-xs font-extrabold text-slate-900">
+                          {rev.rating.toFixed(1)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-700 leading-relaxed italic bg-slate-50/60 p-3 rounded-xl border border-slate-100">
+                      &quot;{rev.feedbackText}&quot;
+                    </p>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 pt-1">
+                      <span className="font-medium text-slate-600">
+                        Client: {rev.clientName}
+                      </span>
+                      {rev.scores && Object.keys(rev.scores).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(rev.scores).map(([k, v]) => (
+                            <span
+                              key={k}
+                              className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] text-slate-600 font-medium capitalize"
+                            >
+                              {k}: {v}/5
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : hasReviews ? (
               <p className="text-xs text-slate-600">
                 Client feedback is recorded upon contract completion.
               </p>
