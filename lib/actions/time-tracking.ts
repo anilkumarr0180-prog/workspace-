@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { ActiveTimerSession, Contract, TimeEntry, Timesheet, WorkDiarySlot } from '@/lib/types';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -907,3 +908,207 @@ export async function deleteWorkDiarySlot(
     return { success: false, error: msg };
   }
 }
+
+export interface RecordScreenshotSlotInput {
+  contractId: string;
+  slotTime: string;
+  durationMinutes?: number;
+  activityScore: number;
+  keystrokesCount: number;
+  mouseClicksCount: number;
+  memo: string;
+  screenshotUrl: string;
+}
+
+export interface RecordScreenshotSlotResult {
+  success: boolean;
+  slot?: WorkDiarySlot;
+  error?: string;
+  code?: string;
+}
+
+/**
+ * Record a verified Upwork-style screenshot work diary segment (5-10 minute window).
+ */
+export async function recordWorkDiaryScreenshotSlot(
+  input: RecordScreenshotSlotInput
+): Promise<RecordScreenshotSlotResult> {
+  const {
+    contractId,
+    slotTime,
+    durationMinutes = 10,
+    activityScore,
+    keystrokesCount,
+    mouseClicksCount,
+    memo,
+    screenshotUrl,
+  } = input;
+
+  if (!contractId || !UUID_REGEX.test(contractId.trim())) {
+    return { success: false, error: 'Invalid contract ID format.', code: 'INVALID_ID' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required.', code: 'UNAUTHENTICATED' };
+  }
+
+  try {
+    // 1. Verify caller is the active freelancer on this contract
+    const { data: contract, error: contractErr } = await supabase
+      .from('contracts')
+      .select('id, freelancer_id, status, contract_type')
+      .eq('id', contractId.trim())
+      .single();
+
+    if (contractErr || !contract) {
+      return { success: false, error: 'Contract not found.', code: 'NOT_FOUND' };
+    }
+
+    if (contract.freelancer_id !== user.id) {
+      return {
+        success: false,
+        error: 'You are not the assigned freelancer for this contract.',
+        code: 'FORBIDDEN',
+      };
+    }
+
+    // 2. Insert slot into work_diary_slots
+    const { data: slotRow, error: insertErr } = await supabase
+      .from('work_diary_slots')
+      .insert({
+        contract_id: contractId.trim(),
+        freelancer_id: user.id,
+        slot_time: slotTime || new Date().toISOString(),
+        duration_minutes: Math.min(60, Math.max(1, durationMinutes)),
+        activity_score: Math.min(10, Math.max(0, Math.round(activityScore))),
+        keystrokes_count: Math.max(0, Math.round(keystrokesCount)),
+        mouse_clicks_count: Math.max(0, Math.round(mouseClicksCount)),
+        memo: (memo || '').trim() || 'Active work session',
+        screenshot_url: screenshotUrl?.trim() || null,
+        is_manual: false,
+      })
+      .select()
+      .single();
+
+    if (insertErr) {
+      return { success: false, error: insertErr.message, code: 'INSERT_FAILED' };
+    }
+
+    interface RawDbSlot {
+      id: string;
+      contract_id: string;
+      time_entry_id?: string | null;
+      freelancer_id: string;
+      slot_time: string;
+      duration_minutes: number;
+      activity_score: number;
+      keystrokes_count: number;
+      mouse_clicks_count: number;
+      memo: string;
+      screenshot_url?: string | null;
+      is_manual: boolean;
+      created_at: string;
+    }
+
+    const row = slotRow as unknown as RawDbSlot;
+    const formattedSlot: WorkDiarySlot = {
+      id: row.id,
+      contractId: row.contract_id,
+      timeEntryId: row.time_entry_id,
+      freelancerId: row.freelancer_id,
+      slotTime: row.slot_time,
+      durationMinutes: Number(row.duration_minutes) || 10,
+      activityScore: Number(row.activity_score) || 0,
+      keystrokesCount: Number(row.keystrokes_count) || 0,
+      mouseClicksCount: Number(row.mouse_clicks_count) || 0,
+      memo: row.memo || '',
+      screenshotUrl: row.screenshot_url,
+      isManual: Boolean(row.is_manual),
+      createdAt: row.created_at,
+    };
+
+    return { success: true, slot: formattedSlot };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to record screenshot slot.';
+    return { success: false, error: message, code: 'SERVER_ERROR' };
+  }
+}
+
+/**
+ * Upload a live captured desktop screenshot to the work-diary-screenshots storage bucket.
+ */
+export async function uploadWorkDiaryScreenshot(
+  formData: FormData
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    const file = formData.get('file') as File | Blob | null;
+    const contractId = formData.get('contractId') as string | null;
+
+    if (!file) {
+      return { success: false, error: 'No image file provided' };
+    }
+
+    if (!contractId || !UUID_REGEX.test(contractId.trim())) {
+      return { success: false, error: 'Valid contract ID is required' };
+    }
+
+    // Auto-provision bucket via admin client if not already created
+    try {
+      const adminClient = getAdminSupabaseClient();
+      const { data: buckets } = await adminClient.storage.listBuckets();
+      if (!buckets?.some((b) => b.name === 'work-diary-screenshots')) {
+        await adminClient.storage.createBucket('work-diary-screenshots', {
+          public: true,
+          fileSizeLimit: 5242880,
+          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        });
+      }
+    } catch {
+      // Non-fatal if already configured or constrained
+    }
+
+    const ext = file.type === 'image/webp' ? 'webp' : file.type === 'image/png' ? 'png' : 'jpg';
+    const fileName = `${contractId.trim()}/${user.id}-${Date.now()}-${Math.floor(Math.random() * 10000)}.${ext}`;
+
+    const admin = getAdminSupabaseClient();
+    const { error: uploadErr } = await admin.storage
+      .from('work-diary-screenshots')
+      .upload(fileName, file, {
+        contentType: file.type || 'image/jpeg',
+        upsert: true,
+      });
+
+    if (uploadErr) {
+      return { success: false, error: uploadErr.message };
+    }
+
+    const { data: publicUrlData } = admin.storage
+      .from('work-diary-screenshots')
+      .getPublicUrl(fileName);
+
+    return {
+      success: true,
+      url: publicUrlData.publicUrl,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to upload screenshot.';
+    return { success: false, error: message };
+  }
+}
+

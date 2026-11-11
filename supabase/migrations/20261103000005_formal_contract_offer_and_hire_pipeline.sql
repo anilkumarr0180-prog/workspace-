@@ -138,21 +138,29 @@ BEGIN
         'pending_offer'
     ) RETURNING id INTO v_contract_id;
 
-    -- For fixed price contracts, create initial milestone
+    -- For fixed price contracts, create initial milestone in contract_milestones
     IF p_contract_type = 'fixed' THEN
-        INSERT INTO public.milestones (
+        INSERT INTO public.contract_milestones (
             contract_id,
+            client_id,
+            freelancer_id,
             title,
+            description,
             amount,
-            status,
-            sequence_order
+            currency,
+            sequence_order,
+            status
         ) VALUES (
             v_contract_id,
+            v_job.client_id,
+            v_proposal.freelancer_id,
             'Initial Project Milestone',
+            'Full scope and agreed deliverables for contract: ' || COALESCE(NULLIF(trim(p_title), ''), v_job.title),
             p_fixed_price,
-            'pending',
-            1
-        ) ON CONFLICT DO NOTHING;
+            'USD',
+            1,
+            'planned'
+        ) ON CONFLICT (contract_id, sequence_order) DO NOTHING;
     END IF;
 
     -- Advance proposal status to interviewing if submitted or under_review
@@ -166,18 +174,18 @@ BEGIN
     -- Notify freelancer
     INSERT INTO public.notifications (
         user_id,
-        actor_id,
         type,
         title,
         message,
-        link
+        link,
+        metadata
     ) VALUES (
         v_proposal.freelancer_id,
-        v_caller,
         'contract_offer_received',
         'Contract Offer Received',
         'You received an offer for "' || v_job.title || '"',
-        '/contracts/' || v_contract_id::text
+        '/contracts/' || v_contract_id::text,
+        jsonb_build_object('actor_id', v_caller, 'contract_id', v_contract_id)
     );
 
     RETURN v_contract_id;
@@ -234,18 +242,18 @@ BEGIN
     -- Notify client
     INSERT INTO public.notifications (
         user_id,
-        actor_id,
         type,
         title,
         message,
-        link
+        link,
+        metadata
     ) VALUES (
         v_contract.client_id,
-        v_caller,
         'contract_offer_accepted',
         'Offer Accepted',
         'Your contract offer for "' || v_contract.title || '" was accepted!',
-        '/contracts/' || p_contract_id::text
+        '/contracts/' || p_contract_id::text,
+        jsonb_build_object('actor_id', v_caller, 'contract_id', p_contract_id)
     );
 
     RETURN true;
@@ -298,18 +306,18 @@ BEGIN
     -- Notify client
     INSERT INTO public.notifications (
         user_id,
-        actor_id,
         type,
         title,
         message,
-        link
+        link,
+        metadata
     ) VALUES (
         v_contract.client_id,
-        v_caller,
         'contract_offer_declined',
         'Offer Declined',
         'Your contract offer for "' || v_contract.title || '" was declined.',
-        '/contracts/' || p_contract_id::text
+        '/contracts/' || p_contract_id::text,
+        jsonb_build_object('actor_id', v_caller, 'contract_id', p_contract_id)
     );
 
     RETURN true;

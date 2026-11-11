@@ -692,7 +692,7 @@ export async function submitMilestoneDelivery(
 
     // Fetch milestone details for client notification
     const { data: milestoneInfo } = await supabase
-      .from('milestones')
+      .from('contract_milestones')
       .select('id, contract_id, client_id, title')
       .eq('id', milestoneId.trim())
       .maybeSingle();

@@ -87,7 +87,15 @@ interface DbConversationRow {
   created_at: string;
   updated_at: string;
   jobs?: { id: string; title: string } | null;
-  contracts?: { id: string; title: string; status: string } | null;
+  contracts?: {
+    id: string;
+    title: string;
+    status: string;
+    contract_type?: 'hourly' | 'fixed' | null;
+    hourly_rate?: number | null;
+    fixed_price?: number | null;
+    weekly_hour_limit?: number | null;
+  } | null;
   conversation_participants: Array<{
     id: string;
     conversation_id: string;
@@ -244,7 +252,7 @@ export async function getConversations(
         created_at,
         updated_at,
         jobs:job_id ( id, title ),
-        contracts:contract_id ( id, title, status ),
+        contracts:contract_id ( id, title, status, contract_type, hourly_rate, fixed_price, weekly_hour_limit ),
         conversation_participants (
           id,
           conversation_id,
@@ -387,6 +395,10 @@ export async function getConversations(
         const jobTitle = raw.jobs?.title || null;
         const contractTitle = raw.contracts?.title || null;
         const contractStatus = (raw.contracts?.status as Conversation['contractStatus']) || null;
+        const contractType = (raw.contracts?.contract_type as Conversation['contractType']) || null;
+        const hourlyRate = raw.contracts?.hourly_rate !== undefined ? Number(raw.contracts.hourly_rate) : null;
+        const fixedPrice = raw.contracts?.fixed_price !== undefined ? Number(raw.contracts.fixed_price) : null;
+        const weeklyHourLimit = raw.contracts?.weekly_hour_limit !== undefined ? Number(raw.contracts.weekly_hour_limit) : null;
 
         return {
           id: raw.id,
@@ -397,6 +409,10 @@ export async function getConversations(
           contractId: raw.contract_id || null,
           contractTitle,
           contractStatus,
+          contractType,
+          hourlyRate,
+          fixedPrice,
+          weeklyHourLimit,
           title: raw.title || jobTitle || contractTitle || 'Conversation',
           lastMessageAt: raw.last_message_at,
           createdAt: raw.created_at,
@@ -464,7 +480,7 @@ export async function getConversationDetails(
         created_at,
         updated_at,
         jobs:job_id ( id, title ),
-        contracts:contract_id ( id, title, status ),
+        contracts:contract_id ( id, title, status, contract_type, hourly_rate, fixed_price, weekly_hour_limit ),
         conversation_participants (
           id,
           conversation_id,
@@ -541,6 +557,10 @@ export async function getConversationDetails(
         contractId: typedRow.contract_id || null,
         contractTitle: typedRow.contracts?.title || null,
         contractStatus: (typedRow.contracts?.status as Conversation['contractStatus']) || null,
+        contractType: (typedRow.contracts?.contract_type as Conversation['contractType']) || null,
+        hourlyRate: typedRow.contracts?.hourly_rate !== undefined ? Number(typedRow.contracts.hourly_rate) : null,
+        fixedPrice: typedRow.contracts?.fixed_price !== undefined ? Number(typedRow.contracts.fixed_price) : null,
+        weeklyHourLimit: typedRow.contracts?.weekly_hour_limit !== undefined ? Number(typedRow.contracts.weekly_hour_limit) : null,
         title: typedRow.title || typedRow.jobs?.title || typedRow.contracts?.title || 'Conversation',
         lastMessageAt: typedRow.last_message_at,
         createdAt: typedRow.created_at,

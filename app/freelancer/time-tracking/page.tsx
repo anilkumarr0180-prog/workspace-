@@ -35,6 +35,7 @@ import {
   Monitor,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
+import ScreenTrackerWidget from '@/components/contracts/screen-tracker-widget';
 import {
   getFreelancerTimesheets,
   submitTimesheet,
@@ -778,8 +779,22 @@ export default function FreelancerTimeTrackingPage() {
           </div>
         </div>
 
-        {/* Right Column: Selected Contract Terms & Upwork Policy (1 Col) */}
+        {/* Right Column: Automated Screen Tracker & Selected Contract Terms */}
         <div className="space-y-6">
+          {/* Upwork Automated Screen Tracker */}
+          {selectedContractId && (
+            <ScreenTrackerWidget
+              contractId={selectedContractId}
+              isTimerRunning={isTimerRunning}
+              workMemo={workMemo}
+              onSlotRecorded={() => {
+                loadDashboardData(true);
+              }}
+              onToast={showToast}
+              onError={showError}
+            />
+          )}
+
           {/* Selected Contract Info Card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">

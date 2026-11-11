@@ -9,7 +9,11 @@ import WorkspaceLogo from '@/components/layout/workspace-logo';
 export default function Footer() {
   const pathname = usePathname();
 
-  if (pathname === '/login' || pathname.startsWith('/signup')) {
+  if (
+    pathname === '/login' ||
+    pathname.startsWith('/signup') ||
+    pathname.startsWith('/messages')
+  ) {
     return null;
   }
 

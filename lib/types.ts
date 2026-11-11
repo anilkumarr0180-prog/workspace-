@@ -333,6 +333,11 @@ export interface PaymentLedgerEntry {
 export type NotificationType =
   | 'proposal_received'
   | 'proposal_status_updated'
+  | 'contract_offer_received'
+  | 'contract_offer_accepted'
+  | 'contract_offer_declined'
+  | 'contract_feedback_revealed'
+  | 'contract_ended_feedback_required'
   | 'milestone_funded'
   | 'milestone_work_submitted'
   | 'milestone_revision_requested'
@@ -399,6 +404,10 @@ export interface Conversation {
   contractId?: string | null;
   contractTitle?: string | null;
   contractStatus?: ContractStatus | null;
+  contractType?: ProjectType | null;
+  hourlyRate?: number | null;
+  fixedPrice?: number | null;
+  weeklyHourLimit?: number | null;
   title?: string | null;
   lastMessageAt: string;
   createdAt: string;

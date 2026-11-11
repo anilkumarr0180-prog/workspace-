@@ -173,7 +173,7 @@ export default function MessagesInbox({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search messages or people..."
-            className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#14a800] focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition-all"
+            className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/15 transition-all shadow-2xs"
           />
         </div>
       </div>
@@ -263,7 +263,7 @@ export default function MessagesInbox({
                 key={group.contactKey}
                 className={`transition-colors ${
                   isGroupActive
-                    ? 'bg-emerald-50/50 border-l-4 border-l-[#14a800]'
+                    ? 'bg-emerald-50/50 border-l-4 border-l-emerald-600'
                     : 'hover:bg-slate-50/80 border-l-4 border-l-transparent'
                 }`}
               >

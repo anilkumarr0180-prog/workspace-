@@ -167,14 +167,19 @@ export function useRealtimeChat({
         };
 
         setMessages((prev) => {
-          // Reconcile optimistic message if id matches or temporary id
+          // If message already exists in state, do not duplicate
+          if (prev.some((m) => m.id === newMsg.id)) {
+            return prev;
+          }
+
+          // Reconcile optimistic message if temporary id matches sender and content
           const filtered = prev.filter(
             (m) =>
               m.id !== newMsg.id &&
               !(
                 m.id.startsWith('temp-') &&
-                m.senderId === newMsg.senderId &&
-                m.content === newMsg.content
+                (m.senderId === newMsg.senderId || m.senderId === 'me' || m.senderId === currentUserId) &&
+                m.content.trim() === newMsg.content.trim()
               )
           );
           return [...filtered, newMsg];
@@ -432,7 +437,13 @@ export function useRealtimeChat({
 
   // Replace temporary optimistic message with confirmed server message
   const replaceOptimisticMessage = useCallback((tempId: string, confirmed: Message) => {
-    setMessages((prev) => prev.map((m) => (m.id === tempId ? confirmed : m)));
+    setMessages((prev) => {
+      // If Realtime already inserted the confirmed message by id, drop the temporary message cleanly
+      if (prev.some((m) => m.id === confirmed.id)) {
+        return prev.filter((m) => m.id !== tempId);
+      }
+      return prev.map((m) => (m.id === tempId ? confirmed : m));
+    });
     latestMessageTimestampRef.current = confirmed.createdAt;
   }, []);
 
