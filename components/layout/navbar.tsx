@@ -30,10 +30,12 @@ import {
   Repeat,
   Loader2,
   Clock,
-  CreditCard
+  CreditCard,
+  Edit3
 } from 'lucide-react';
 import { switchActiveRole } from '@/lib/actions/profile';
 import NotificationPopover from '@/components/layout/notification-popover';
+import ProfileEditModal from '@/components/profile/profile-edit-modal';
 
 interface UserProfile {
   id?: string;
@@ -63,6 +65,7 @@ export default function Navbar() {
   const [authLoaded, setAuthLoaded] = useState(false);
   const [switchingRole, setSwitchingRole] = useState(false);
   const [roleSwitchError, setRoleSwitchError] = useState<string | null>(null);
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
 
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const navDropdownRef = useRef<HTMLDivElement>(null);
@@ -75,6 +78,125 @@ export default function Navbar() {
     setProfileMenuOpen(false);
     setMobileMenuOpen(false);
   }
+
+  // Real-time Unread Messages Count & In-App Toast
+  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(0);
+  const [messageToast, setMessageToast] = useState<{
+    id: string;
+    title: string;
+    message: string;
+    link: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
+    const supabase = createClient();
+
+    const fetchUnread = async () => {
+      try {
+        const res = await fetch('/api/messages?unreadCount=true');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && typeof data.count === 'number') {
+            setUnreadMessageCount(data.count);
+          }
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+
+    // Global Presence: Broadcast that current user is online across the entire application
+    const presenceChannel = supabase.channel('global-presence', {
+      config: { presence: { key: user.id } },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const ids = Object.keys(state);
+        window.dispatchEvent(new CustomEvent('workspace:presence-sync', { detail: ids }));
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }: { newPresences: unknown[] }) => {
+        const ids = (newPresences as Array<{ userId?: string }>).map((p) => p.userId).filter(Boolean);
+        window.dispatchEvent(new CustomEvent('workspace:presence-join', { detail: ids }));
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }: { leftPresences: unknown[] }) => {
+        const ids = (leftPresences as Array<{ userId?: string }>).map((p) => p.userId).filter(Boolean);
+        window.dispatchEvent(new CustomEvent('workspace:presence-leave', { detail: ids }));
+      });
+
+    presenceChannel.subscribe(async (status: string) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({
+          userId: user.id,
+          userName: profile?.full_name || user.email || 'User',
+          onlineAt: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Realtime notification channel for instant message alerts & unread badge
+    const notifChannel = supabase
+      .channel(`realtime-navbar-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new as unknown as {
+            id: string;
+            type: string;
+            title?: string;
+            message?: string;
+            link?: string;
+            metadata?: { conversationId?: string };
+          };
+          if (row.type === 'new_message') {
+            setUnreadMessageCount((prev) => prev + 1);
+            // If not currently inside this conversation, trigger in-app toast alert
+            const convId = row.metadata?.conversationId;
+            if (!pathname.includes(convId || 'nomatch_conv_id')) {
+              setMessageToast({
+                id: row.id,
+                title: row.title || 'New Message',
+                message: row.message || '',
+                link: row.link || '/messages',
+              });
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversation_participants',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchUnread();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      presenceChannel.unsubscribe();
+      notifChannel.unsubscribe();
+    };
+  }, [user, profile?.full_name, pathname]);
 
   // Subscribe to Supabase Auth State
   useEffect(() => {
@@ -135,6 +257,26 @@ export default function Navbar() {
         if (isMounted) setAuthLoaded(true);
       }, 0);
     }
+  }, []);
+
+  // Sync profile changes triggered anywhere across the app (avatar upload, name edit, etc.)
+  useEffect(() => {
+    const handleProfileUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ avatarUrl?: string | null; fullName?: string }>).detail;
+      setProfile((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(detail?.avatarUrl !== undefined && { avatar_url: detail.avatarUrl || undefined }),
+          ...(detail?.fullName && { full_name: detail.fullName }),
+        };
+      });
+    };
+
+    window.addEventListener('workspace:profile-updated', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('workspace:profile-updated', handleProfileUpdated);
+    };
   }, []);
 
   // Handle outside click & Escape key for dropdowns (uses click instead of mousedown to avoid swallowing links)
@@ -815,11 +957,20 @@ export default function Navbar() {
 
                 {/* Messages Link */}
                 <NextLink
-                  href="/freelancer"
+                  href="/messages"
                   onClick={() => setActiveDropdown(null)}
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
                 >
                   <span>Messages</span>
+                  {unreadMessageCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                      {unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
               </nav>
             ) : (
@@ -874,6 +1025,21 @@ export default function Navbar() {
                   }`}
                 >
                   Reports
+                </NextLink>
+                <NextLink
+                  href="/messages"
+                  className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
+                >
+                  <span>Messages</span>
+                  {unreadMessageCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                      {unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
               </nav>
             )}
@@ -932,11 +1098,23 @@ export default function Navbar() {
 
                 {/* Direct Messages / Chat Link */}
                 <NextLink
-                  href={isClientMode ? '/client' : '/freelancer'}
-                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  href="/messages"
+                  className={`relative p-2 rounded-full transition-colors hidden sm:block ${
+                    pathname.startsWith('/messages')
+                      ? 'text-[#14a800] bg-emerald-50'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
                   title="Messages"
                 >
                   <MessageSquare className="w-4.5 h-4.5" />
+                  {unreadMessageCount > 0 && (
+                    <span
+                      id="navbar-unread-messages-badge"
+                      className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+                    >
+                      {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                    </span>
+                  )}
                 </NextLink>
 
                 {/* Profile Avatar & Dark Upwork-Style Dropdown */}
@@ -1024,6 +1202,21 @@ export default function Navbar() {
                             Active
                           </span>
                         </NextLink>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            setIsEditProfileModalOpen(true);
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Edit3 className="w-4 h-4 text-emerald-400" />
+                            <span>Edit profile</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400">Customise</span>
+                        </button>
 
                         <NextLink
                           href="/saved"
@@ -1214,6 +1407,22 @@ export default function Navbar() {
             </NextLink>
 
             <NextLink
+              href="/messages"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <div className="flex items-center gap-2">
+                <span>Messages</span>
+                {unreadMessageCount > 0 && (
+                  <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                    {unreadMessageCount}
+                  </span>
+                )}
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
               href="/freelancer#proposals"
               onClick={() => {
                 setMobileMenuOpen(false);
@@ -1307,6 +1516,54 @@ export default function Navbar() {
           </div>
         </div>
       )}
+
+      {/* Real-time Floating In-App Message Toast Notification */}
+      {messageToast && (
+        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700/80 flex items-start gap-3 max-w-sm">
+            <div className="w-9 h-9 rounded-xl bg-[#14a800] text-white flex items-center justify-center shrink-0 shadow-xs">
+              <MessageSquare className="w-4.5 h-4.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-bold text-white truncate">{messageToast.title}</h4>
+              <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">{messageToast.message}</p>
+              <div className="flex items-center gap-3 mt-2.5">
+                <NextLink
+                  href={messageToast.link}
+                  onClick={() => setMessageToast(null)}
+                  className="text-xs font-semibold text-[#14a800] hover:text-emerald-400 hover:underline"
+                >
+                  Open Chat →
+                </NextLink>
+                <button
+                  type="button"
+                  onClick={() => setMessageToast(null)}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMessageToast(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Profile Customization & Edit Modal */}
+      <ProfileEditModal
+        isOpen={isEditProfileModalOpen}
+        onClose={() => setIsEditProfileModalOpen(false)}
+        initialRole={isClientMode ? 'client' : 'freelancer'}
+        onProfileUpdated={() => {
+          router.refresh();
+        }}
+      />
     </header>
   );
 }

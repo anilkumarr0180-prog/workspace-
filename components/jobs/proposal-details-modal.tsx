@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import {
   X,
@@ -45,6 +46,43 @@ export default function ProposalDetailsModal({
   isUpdating = false,
   onOpenContact,
 }: ProposalDetailsModalProps) {
+  const router = useRouter();
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
+
+  const handleOpenConversation = async () => {
+    if (!proposal?.id) return;
+    setIsOpeningChat(true);
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposalId: proposal.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.conversationId) {
+        onClose();
+        router.push(`/messages/${data.conversationId}`);
+        return;
+      }
+      if (onOpenContact && proposal.freelancerUsername) {
+        onOpenContact({
+          username: proposal.freelancerUsername,
+          fullName: proposal.freelancerName,
+          avatarUrl: proposal.freelancerAvatar,
+        });
+      }
+    } catch {
+      if (onOpenContact && proposal.freelancerUsername) {
+        onOpenContact({
+          username: proposal.freelancerUsername,
+          fullName: proposal.freelancerName,
+          avatarUrl: proposal.freelancerAvatar,
+        });
+      }
+    } finally {
+      setIsOpeningChat(false);
+    }
+  };
   // Handle Escape key to close modal
   useEffect(() => {
     if (!isOpen) return;
@@ -205,20 +243,16 @@ export default function ProposalDetailsModal({
                     <ArrowRight className="w-3 h-3 text-slate-400" />
                   </Link>
                 )}
-                {onOpenContact && proposal.freelancerUsername && (
+                {proposal.id && (
                   <button
                     type="button"
-                    onClick={() =>
-                      onOpenContact({
-                        username: proposal.freelancerUsername!,
-                        fullName: proposal.freelancerName,
-                        avatarUrl: proposal.freelancerAvatar,
-                      })
-                    }
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    id="proposal-message-btn"
+                    onClick={handleOpenConversation}
+                    disabled={isOpeningChat}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                   >
                     <MessageSquare className="w-3 h-3" />
-                    <span>Message</span>
+                    <span>{isOpeningChat ? 'Opening...' : 'Message'}</span>
                   </button>
                 )}
               </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { getContractById } from '@/lib/actions/contracts';
 import {
   getContractMilestones,
@@ -83,6 +83,30 @@ function ContractDetailsContent() {
   const [milestones, setMilestones] = useState<ContractMilestone[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<PaymentLedgerEntry[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const router = useRouter();
+  const [openingChat, setOpeningChat] = useState(false);
+
+  const handleOpenMessages = async () => {
+    if (!contract?.id) return;
+    setOpeningChat(true);
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractId: contract.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.conversationId) {
+        router.push(`/messages/${data.conversationId}`);
+      } else {
+        router.push('/messages');
+      }
+    } catch {
+      router.push('/messages');
+    } finally {
+      setOpeningChat(false);
+    }
+  };
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -824,6 +848,15 @@ function ContractDetailsContent() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenMessages}
+              disabled={openingChat}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
+              title="Open Contract Messaging Thread"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{openingChat ? 'Opening...' : isClient ? 'Message Freelancer' : 'Message Client'}</span>
+            </button>
             <button
               onClick={() => loadData(true)}
               disabled={refreshing}

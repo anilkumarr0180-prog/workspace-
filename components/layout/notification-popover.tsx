@@ -18,6 +18,7 @@ import {
   DollarSign,
   Briefcase,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react';
 
 interface NotificationPopoverProps {
@@ -47,6 +48,8 @@ function formatTimeAgo(isoString: string): string {
 
 function getNotificationIcon(type: NotificationType) {
   switch (type) {
+    case 'new_message':
+      return <MessageSquare className="w-4 h-4 text-emerald-600" />;
     case 'milestone_funded':
     case 'milestone_approved':
     case 'payment_processed':

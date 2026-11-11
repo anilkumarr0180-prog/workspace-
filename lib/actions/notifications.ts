@@ -29,6 +29,7 @@ export interface CreateNotificationInput {
   message: string;
   link?: string | null;
   metadata?: Record<string, unknown>;
+  idempotencyKey?: string | null;
 }
 
 interface SupabaseNotificationRow {
@@ -232,20 +233,29 @@ export async function createNotification(
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
     const admin = getAdminSupabaseClient();
+    const insertPayload: Record<string, unknown> = {
+      user_id: input.userId,
+      type: input.type,
+      title: input.title,
+      message: input.message,
+      link: input.link || null,
+      metadata: input.metadata || {},
+    };
+    if (input.idempotencyKey) {
+      insertPayload.idempotency_key = input.idempotencyKey;
+    }
+
     const { data, error } = await admin
       .from('notifications')
-      .insert({
-        user_id: input.userId,
-        type: input.type,
-        title: input.title,
-        message: input.message,
-        link: input.link || null,
-        metadata: input.metadata || {},
-      })
+      .insert(insertPayload)
       .select('id')
       .single();
 
     if (error) {
+      // Idempotent return on duplicate key
+      if (error.code === '23505') {
+        return { success: true };
+      }
       return { success: false, error: error.message };
     }
 

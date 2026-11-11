@@ -558,6 +558,7 @@ export async function fundMilestone(milestoneId: string): Promise<MilestoneResul
         message: `Milestone "${raw.title}" ($${raw.amount}) has been funded into escrow. You can begin work.`,
         link: `/contracts/${raw.contract_id}`,
         metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
+        idempotencyKey: `notif:milestone_funded:${raw.id}`,
       }).catch(() => {});
     }
 
