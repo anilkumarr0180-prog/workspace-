@@ -22,12 +22,34 @@ import {
   Search,
   Filter,
   Sparkles,
+  X,
+  Zap,
+  Briefcase,
 } from 'lucide-react';
 import {
   getClientBillingData,
   ClientBillingDataResult,
+  ClientPendingMilestoneItem,
 } from '@/lib/actions/client-billing';
+import {
+  createMilestoneRazorpayOrder,
+  verifyAndFundMilestoneRazorpay,
+} from '@/lib/actions/payments';
+import { fundMilestone } from '@/lib/actions/milestones';
 import { MilestoneStatus, LedgerEventType } from '@/lib/types';
+
+const loadRazorpayScript = (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if (typeof window !== 'undefined' && (window as unknown as { Razorpay?: unknown }).Razorpay) {
+      return resolve(true);
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
 
 export default function ClientBillingPage() {
   const [data, setData] = useState<ClientBillingDataResult | null>(null);
@@ -41,6 +63,124 @@ export default function ClientBillingPage() {
   // Filters
   const [transactionSearch, setTransactionSearch] = useState<string>('');
   const [eventTypeFilter, setEventTypeFilter] = useState<'all' | LedgerEventType>('all');
+
+  // Razorpay Checkout Modal States
+  const [isFundModalOpen, setIsFundModalOpen] = useState(false);
+  const [selectedMilestoneForFund, setSelectedMilestoneForFund] = useState<ClientPendingMilestoneItem | null>(null);
+  const [isFundingWithRazorpay, setIsFundingWithRazorpay] = useState(false);
+  const [isFundingSimulated, setIsFundingSimulated] = useState(false);
+  const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
+  const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  const openFundModal = (milestone: ClientPendingMilestoneItem) => {
+    setSelectedMilestoneForFund(milestone);
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsFundModalOpen(true);
+  };
+
+  const handleSimulatedFunding = async (milestoneId: string) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsFundingSimulated(true);
+
+    const res = await fundMilestone(milestoneId);
+    setIsFundingSimulated(false);
+
+    if (res.success) {
+      setActionSuccessMessage('Milestone funded successfully! Funds are held safely in escrow.');
+      setIsFundModalOpen(false);
+      refreshBillingData();
+    } else {
+      setActionErrorMessage(res.error || 'Failed to fund milestone.');
+    }
+  };
+
+  const handleRazorpayCheckout = async (milestone: ClientPendingMilestoneItem) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsFundingWithRazorpay(true);
+
+    try {
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error('Could not load Razorpay Checkout SDK. Please check your internet connection.');
+      }
+
+      const orderRes = await createMilestoneRazorpayOrder(milestone.id);
+      if (!orderRes.success || !orderRes.orderId || !orderRes.keyId) {
+        throw new Error(orderRes.error || 'Failed to initialize Razorpay payment order.');
+      }
+
+      const isTestMode = typeof orderRes.keyId === 'string' && orderRes.keyId.startsWith('rzp_test_');
+      const testContact = isTestMode ? process.env.NEXT_PUBLIC_RAZORPAY_TEST_CONTACT?.trim() : undefined;
+
+      const options = {
+        key: orderRes.keyId,
+        amount: orderRes.amount,
+        currency: orderRes.currency || 'USD',
+        name: 'Workspace Escrow',
+        description: `Escrow Funding: Milestone #${milestone.sequenceOrder} (${milestone.title})`,
+        order_id: orderRes.orderId,
+        prefill: {
+          name: orderRes.clientName || 'Client',
+          email: orderRes.clientEmail || '',
+          ...(testContact ? { contact: testContact } : {}),
+        },
+        theme: {
+          color: '#059669', // Emerald 600
+        },
+        notes: {
+          milestone_id: milestone.id,
+          contract_id: milestone.contractId,
+          environment: 'test',
+        },
+        handler: async function (response: {
+          razorpay_order_id: string;
+          razorpay_payment_id: string;
+          razorpay_signature: string;
+        }) {
+          setIsFundingWithRazorpay(true);
+          try {
+            const verifyRes = await verifyAndFundMilestoneRazorpay({
+              milestoneId: milestone.id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+
+            if (verifyRes.success) {
+              setActionSuccessMessage(
+                `Milestone funded successfully via Razorpay Test Mode! Payment ID: ${response.razorpay_payment_id}. Funds are locked in escrow.`
+              );
+              setIsFundModalOpen(false);
+              refreshBillingData();
+            } else {
+              setActionErrorMessage(verifyRes.error || 'Payment signature verification failed.');
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to finalize payment.';
+            setActionErrorMessage(msg);
+          } finally {
+            setIsFundingWithRazorpay(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setIsFundingWithRazorpay(false);
+          },
+        },
+      };
+
+      const RazorpayConstructor = (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay;
+      const rzpInstance = new RazorpayConstructor(options);
+      rzpInstance.open();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error launching Razorpay Checkout.';
+      setActionErrorMessage(msg);
+      setIsFundingWithRazorpay(false);
+    }
+  };
 
   const refreshBillingData = useCallback(async () => {
     setRefreshing(true);
@@ -302,6 +442,45 @@ export default function ClientBillingPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
+        {/* Action Success / Error Notifications */}
+        {actionSuccessMessage && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-emerald-900 flex items-center justify-between gap-4 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div>
+                <h3 className="font-bold text-sm">Escrow Payment Successful</h3>
+                <p className="text-xs text-emerald-700 mt-0.5">{actionSuccessMessage}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActionSuccessMessage(null)}
+              type="button"
+              className="text-emerald-700 hover:text-emerald-900 text-xs font-semibold cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {actionErrorMessage && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-rose-900 flex items-center justify-between gap-4 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <h3 className="font-bold text-sm">Payment Gateway Error</h3>
+                <p className="text-xs text-rose-700 mt-0.5">{actionErrorMessage}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActionErrorMessage(null)}
+              type="button"
+              className="text-rose-700 hover:text-rose-900 text-xs font-semibold cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Error Banner */}
         {error && (
           <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -608,14 +787,24 @@ export default function ClientBillingPage() {
                             <span className="text-[10px] text-slate-400 block">{milestone.currency}</span>
                           </div>
 
-                          <Link
-                            href={`/contracts/${milestone.contractId}?fundMilestone=${milestone.id}`}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer w-full sm:w-auto"
-                          >
-                            <Lock className="w-3.5 h-3.5" />
-                            <span>Fund Milestone Escrow</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </Link>
+                          <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => openFundModal(milestone)}
+                              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer w-full sm:w-auto"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              <span>Pay with Razorpay</span>
+                            </button>
+
+                            <Link
+                              href={`/contracts/${milestone.contractId}`}
+                              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer w-full sm:w-auto"
+                            >
+                              <span>Contract Room</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -913,12 +1102,124 @@ export default function ClientBillingPage() {
                 <p className="text-sm font-semibold text-slate-700">Loading gateway records...</p>
               </div>
             ) : paymentAttempts.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3 shadow-xs">
-                <CreditCard className="w-8 h-8 text-slate-400 mx-auto" />
-                <h3 className="text-base font-bold text-slate-900">No Gateway Orders Yet</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  When you initiate escrow funding using the Razorpay checkout button, order IDs and payment IDs will appear here.
-                </p>
+              <div className="space-y-4">
+                {/* Visual Guide on How to Pay with Razorpay */}
+                <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 text-white border border-slate-700 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                    <Sparkles className="w-4 h-4" />
+                    <span>How to Test Razorpay Payments</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                    In Workspace, escrow payments are tied directly to agreed contract milestones (for Fixed-Price contracts) or approved timesheets (for Hourly contracts). Once a milestone or timesheet is ready, you can pay using Razorpay Test Mode.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
+                    <div className="p-3.5 bg-white/5 rounded-xl border border-white/10 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold flex items-center justify-center">1</span>
+                        <span className="font-bold text-white">Hire Candidate</span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        Go to your Candidates tab on the Client dashboard and click <strong>Hire / Offer</strong> with <strong>Fixed Price</strong>.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 bg-white/5 rounded-xl border border-white/10 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold flex items-center justify-center">2</span>
+                        <span className="font-bold text-white">Open Pending Milestone</span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        The contract offer creates an initial milestone in <strong>Pending Funding</strong> ready to deposit into escrow.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 bg-white/5 rounded-xl border border-white/10 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold flex items-center justify-center">3</span>
+                        <span className="font-bold text-white">Pay with Razorpay</span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        Click <strong>Pay with Razorpay</strong> to open the test checkout modal and pay using test card <code className="text-emerald-400 font-mono">4111 1111 1111 1111</code>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Test Credentials Box */}
+                  <div className="p-3 bg-emerald-950/60 rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-emerald-300">Razorpay Test Card Credentials:</span>
+                      <p className="text-slate-300 text-[11px]">
+                        Card: <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono">4111 1111 1111 1111</code> | Expiry: <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono">12/28</code> | CVV: <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono">123</code> | OTP: Any 6 digits
+                      </p>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30 shrink-0">
+                      Zero Cost Simulation
+                    </span>
+                  </div>
+                </div>
+
+                {/* If There Are Pending Milestones Waiting, Render Them Right Here */}
+                {pendingMilestones.length > 0 ? (
+                  <div className="bg-white rounded-2xl border border-amber-200 p-6 space-y-4 shadow-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="space-y-0.5">
+                        <h4 className="text-sm font-bold text-slate-900">Pending Milestones Ready to Fund</h4>
+                        <p className="text-xs text-slate-500">You have {pendingMilestones.length} milestone(s) awaiting Razorpay escrow deposit.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      {pendingMilestones.map((m) => (
+                        <div key={m.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div>
+                            <span className="text-xs font-bold text-slate-900 block">{m.title}</span>
+                            <span className="text-xs text-slate-500">Contract: {m.contractTitle}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg font-black text-slate-900">${m.amount.toFixed(2)}</span>
+                            <button
+                              type="button"
+                              onClick={() => openFundModal(m)}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              <span>Pay with Razorpay</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4 shadow-xs">
+                    <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-slate-900">No Pending Payments or Completed Orders</h4>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto">
+                        To initiate your first Razorpay checkout, hire a candidate on a Fixed-Price contract from your Client dashboard.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-3 pt-1 flex-wrap">
+                      <Link
+                        href="/client"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
+                      >
+                        <Briefcase className="w-3.5 h-3.5" />
+                        <span>Go to Candidates &amp; Hire</span>
+                      </Link>
+                      <Link
+                        href="/contracts"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>View Contracts</span>
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
@@ -995,6 +1296,146 @@ export default function ClientBillingPage() {
           </div>
         )}
       </div>
+
+      {/* Razorpay Escrow Funding Modal */}
+      {isFundModalOpen && selectedMilestoneForFund && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Fund Milestone Escrow</h3>
+                  <p className="text-xs text-slate-500">
+                    Milestone #{selectedMilestoneForFund.sequenceOrder}: {selectedMilestoneForFund.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isFundingWithRazorpay && !isFundingSimulated) {
+                    setIsFundModalOpen(false);
+                  }
+                }}
+                disabled={isFundingWithRazorpay || isFundingSimulated}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="text-xs font-semibold text-slate-500">Escrow Deposit Amount</span>
+                <div className="text-3xl font-black text-slate-900 tracking-tight">
+                  ${selectedMilestoneForFund.amount.toFixed(2)} {selectedMilestoneForFund.currency}
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 pt-1">
+                  <span>Contract:</span>
+                  <span className="font-semibold text-slate-800">{selectedMilestoneForFund.contractTitle}</span>
+                </div>
+              </div>
+
+              {/* Protection Details */}
+              <div className="space-y-1 text-xs text-slate-600 border border-emerald-100 bg-emerald-50/40 rounded-xl p-3.5">
+                <div className="flex items-center justify-between font-medium">
+                  <span className="flex items-center gap-1.5 text-emerald-800 font-bold">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    Platform Escrow Protection
+                  </span>
+                  <span className="font-bold text-emerald-700">100% Protected</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                  Your deposit is locked safely in escrow. Funds are not disbursed to the freelancer until you review and approve their deliverables.
+                </p>
+              </div>
+
+              {/* Payment Method 1: Razorpay Test Checkout */}
+              <div className="p-4 rounded-xl border-2 border-emerald-500/30 bg-emerald-50/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">Pay with Razorpay</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                      <Zap className="w-2.5 h-2.5 text-amber-600" />
+                      TEST MODE
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white/90 rounded-lg border border-slate-200/60 text-[11px] text-slate-600 space-y-1">
+                  <span className="font-semibold text-slate-800 block">Test Payment Tip:</span>
+                  <p>
+                    In the Razorpay modal, select <strong>Card</strong> and enter test number <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">4111 1111 1111 1111</code> with any future expiry &amp; CVV <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">123</code>, or click <strong>Success</strong> for instant simulation.
+                  </p>
+                </div>
+
+                {actionErrorMessage && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <span className="font-bold text-rose-950 block">Gateway Error</span>
+                      <p>{actionErrorMessage}</p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleRazorpayCheckout(selectedMilestoneForFund)}
+                  disabled={isFundingWithRazorpay || isFundingSimulated}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {isFundingWithRazorpay ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Opening Razorpay Gateway...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Launch Razorpay Test Checkout</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Payment Method 2: Instant Simulated Funding */}
+              {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true') && (
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                  <span className="text-xs font-bold text-slate-800 block">Alternative: Direct Mock Deposit</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulatedFunding(selectedMilestoneForFund.id)}
+                    disabled={isFundingWithRazorpay || isFundingSimulated}
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isFundingSimulated ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Simulating Deposit...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Simulate Escrow Deposit (Instant)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -107,7 +107,7 @@ export default function SpecializationCategories({
   };
 
   return (
-    <section className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 ${className}`}>
+    <section className={`max-w-[1140px] mx-auto px-4 sm:px-6 ${className}`}>
       {/* Header with Visual Hierarchy Matching Upwork Reference */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 sm:mb-10">
         <div>

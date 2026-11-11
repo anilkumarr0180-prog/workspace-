@@ -47,7 +47,7 @@ export default function HomePage() {
   return (
     <div className="space-y-16 pb-20">
       {/* 1. Upwork Hero & Social Proof Section */}
-      <section className="w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 sm:pt-6">
+      <section className="w-full max-w-[1140px] mx-auto px-4 sm:px-6">
         <PromoBanner />
         <UpworkHero />
         <TrustedBrands />
@@ -64,7 +64,7 @@ export default function HomePage() {
 
       {/* 5. How It Works Section */}
       <section className="bg-white border-y border-slate-200/80 py-16">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
+        <div className="max-w-[1140px] mx-auto px-4 sm:px-6">
           <div className="text-center max-w-2xl mx-auto mb-10">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
               Transparent & Secure
@@ -192,7 +192,7 @@ export default function HomePage() {
       </section>
 
       {/* 6. Dual CTA Section */}
-      <section className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
+      <section className="max-w-[1140px] mx-auto px-4 sm:px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Client Card */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 sm:p-10 text-white relative overflow-hidden flex flex-col justify-between">

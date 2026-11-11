@@ -93,7 +93,7 @@ export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
   return (
     <section
       aria-labelledby="featured-jobs-heading"
-      className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 ${className}`}
+      className={`max-w-[1140px] mx-auto px-4 sm:px-6 ${className}`}
     >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 sm:mb-10">
