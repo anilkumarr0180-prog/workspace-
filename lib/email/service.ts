@@ -106,7 +106,8 @@ export function getEmailAdapter(): EmailAdapter {
       throw new Error(
         `Unsupported EMAIL_PROVIDER="${provider}". Supported providers are: "mailpit", "resend", "test".`
       );
-  }
+      
+      
 }
 
 /**

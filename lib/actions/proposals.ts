@@ -451,12 +451,6 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
 
     query = query.order('created_at', { ascending: false });
 
-    const { data, count, error } = await query;
-
-    if (error) {
-      return { proposals: [], total: 0, source: 'fallback' };
-    }
-
     interface ProposalRow {
       id: string;
       job_id: string;
@@ -474,6 +468,99 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       updated_at: string;
       jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
       profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }> | null;
+    }
+
+    const { data: rawData, count, error } = await query;
+    let data: ProposalRow[] | null = rawData as unknown as ProposalRow[];
+
+    if (error) {
+      console.warn('[PROPOSALS] Primary proposal query failed, attempting standard join fallback:', error.message);
+
+      // Fallback 1: Query without pipeline fields in case migration 20261103000006 is not yet applied
+      let fallbackQuery = supabase
+        .from('proposals')
+        .select(`
+          id,
+          job_id,
+          freelancer_id,
+          bid_amount,
+          rate_type,
+          delivery_days,
+          cover_letter,
+          status,
+          created_at,
+          updated_at,
+          jobs (id, title, client_id, company_id, status),
+          profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
+        `);
+
+      if (filters.jobId) {
+        fallbackQuery = fallbackQuery.eq('job_id', filters.jobId.trim());
+      }
+      if (filters.status) {
+        fallbackQuery = fallbackQuery.eq('status', filters.status);
+      }
+      if (filters.as === 'freelancer' || (!filters.as && !filters.jobId)) {
+        fallbackQuery = fallbackQuery.eq('freelancer_id', user.id);
+      }
+
+      fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
+      const { data: fbData, error: fbError } = await fallbackQuery;
+
+      if (!fbError && fbData) {
+        data = fbData as unknown as ProposalRow[];
+      } else {
+        console.warn('[PROPOSALS] Standard join query failed, attempting direct select without joins:', fbError?.message);
+
+        // Fallback 2: Direct select from proposals table without foreign key joins
+        let directQuery = supabase
+          .from('proposals')
+          .select('*');
+
+        if (filters.jobId) {
+          directQuery = directQuery.eq('job_id', filters.jobId.trim());
+        }
+        if (filters.status) {
+          directQuery = directQuery.eq('status', filters.status);
+        }
+        if (filters.as === 'freelancer' || (!filters.as && !filters.jobId)) {
+          directQuery = directQuery.eq('freelancer_id', user.id);
+        }
+
+        directQuery = directQuery.order('created_at', { ascending: false });
+        const { data: dirData, error: dirError } = await directQuery;
+
+        if (!dirError && dirData) {
+          const freelancerIds = [...new Set(dirData.map((p) => p.freelancer_id).filter(Boolean))];
+          const profMap = new Map<string, { id: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }>();
+          if (freelancerIds.length > 0) {
+            const { data: profs } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url, username, title, hourly_rate')
+              .in('id', freelancerIds);
+            (profs || []).forEach((p) => profMap.set(p.id, p));
+          }
+
+          const targetJobIds = [...new Set(dirData.map((p) => p.job_id).filter(Boolean))];
+          const jobMap = new Map<string, { id: string; title?: string; client_id?: string; company_id?: string | null; status?: string }>();
+          if (targetJobIds.length > 0) {
+            const { data: jbs } = await supabase
+              .from('jobs')
+              .select('id, title, client_id, company_id, status')
+              .in('id', targetJobIds);
+            (jbs || []).forEach((j) => jobMap.set(j.id, j));
+          }
+
+          data = dirData.map((p) => ({
+            ...p,
+            profiles: profMap.get(p.freelancer_id) || null,
+            jobs: jobMap.get(p.job_id) || null,
+          })) as unknown as ProposalRow[];
+        } else {
+          console.error('[PROPOSALS] All queries failed:', dirError?.message);
+          return { proposals: [], total: 0, source: 'fallback' };
+        }
+      }
     }
 
     const mapped: ProposalRecord[] = ((data as unknown as ProposalRow[]) || []).map((row) => {
