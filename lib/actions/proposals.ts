@@ -341,12 +341,22 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         return { proposals: [], total: 0, source: 'supabase', error: 'Job not found', code: 'NOT_FOUND' };
       }
 
-      // Verify job ownership
-      const { data: targetJob } = await db
+      // Verify job ownership with resilient client resolution
+      const { data: jobFromDb } = await db
         .from('jobs')
         .select('id, client_id, company_id, status')
         .eq('id', filters.jobId.trim())
         .maybeSingle();
+
+      let targetJob = jobFromDb;
+      if (!targetJob && db !== supabase) {
+        const { data: jobFromSession } = await supabase
+          .from('jobs')
+          .select('id, client_id, company_id, status')
+          .eq('id', filters.jobId.trim())
+          .maybeSingle();
+        targetJob = jobFromSession;
+      }
 
       if (!targetJob) {
         return { proposals: [], total: 0, source: 'supabase', error: 'Job not found', code: 'NOT_FOUND' };
