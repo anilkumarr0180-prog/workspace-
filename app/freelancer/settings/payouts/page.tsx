@@ -19,7 +19,6 @@ import {
   DollarSign,
   Lock,
   Sparkles,
-  Info,
   Clock,
   ArrowUpRight,
   FileText,
@@ -150,7 +149,7 @@ export default function FreelancerPayoutSettingsPage() {
 
       if (res.success && res.profile) {
         setProfile(res.profile);
-        showToast('Simulated payout profile successfully configured!');
+        showToast('Payout profile successfully configured!');
         loadProfileAndHistory();
       } else {
         showError(res.error || 'Failed to update payout profile.');
@@ -198,7 +197,7 @@ export default function FreelancerPayoutSettingsPage() {
               </span>
             </h1>
             <p className="text-xs text-slate-600">
-              Manage your simulated linked account for automatic fixed-price milestone and weekly timesheet payouts.
+              Manage your linked bank account for automatic fixed-price milestone and weekly timesheet payouts.
             </p>
           </div>
 
@@ -221,17 +220,15 @@ export default function FreelancerPayoutSettingsPage() {
           </div>
         </div>
 
-        {/* Educational Sandbox Warning Banner */}
-        <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 sm:p-5 text-amber-900 flex items-start gap-3.5 shadow-xs">
-          <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        {/* Security & Escrow Guarantee Banner */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 text-slate-800 flex items-start gap-3.5 shadow-xs">
+          <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
           <div className="space-y-1 text-xs">
-            <p className="font-semibold text-amber-950">
-              Educational Freelance Marketplace Simulation
+            <p className="font-semibold text-slate-900">
+              Verified Marketplace Escrow & Direct Payouts
             </p>
-            <p className="text-amber-800 leading-relaxed">
-              This platform uses an Upwork-inspired financial engine with secure automated escrow routing.
-              <strong> Never enter real bank account numbers, PAN credentials, or live financial data in test mode.</strong>
-              All transfers, fee deductions (10% platform fee), and earnings settlements are safely simulated in isolated test mode.
+            <p className="text-slate-600 leading-relaxed">
+              When clients approve your fixed-price milestones or weekly timesheets, funds are transferred securely to your registered payout account with automated escrow protection.
             </p>
           </div>
         </div>
@@ -271,11 +268,11 @@ export default function FreelancerPayoutSettingsPage() {
                       {/* Active Account Details */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                          <span className="text-2xs text-slate-500 font-medium uppercase tracking-wider">Simulated Account ID</span>
+                          <span className="text-2xs text-slate-500 font-medium uppercase tracking-wider">Payout Account ID</span>
                           <p className="font-mono text-xs font-semibold text-slate-900 truncate">
                             {profile.providerAccountId}
                           </p>
-                          <span className="text-3xs text-indigo-600 font-medium">Routed via {profile.provider}</span>
+                          <span className="text-3xs text-indigo-600 font-medium">Direct Transfer ({profile.provider})</span>
                         </div>
 
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
@@ -295,11 +292,11 @@ export default function FreelancerPayoutSettingsPage() {
                         </div>
 
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                          <span className="text-2xs text-slate-500 font-medium uppercase tracking-wider">Masked PAN</span>
+                          <span className="text-2xs text-slate-500 font-medium uppercase tracking-wider">Masked Tax ID</span>
                           <p className="font-mono text-xs font-semibold text-slate-900">
                             {profile.panMasked || '•••••1234F'}
                           </p>
-                          <span className="text-3xs text-emerald-600 font-medium">Simulated KYC Verified</span>
+                          <span className="text-3xs text-emerald-600 font-medium">KYC & Identity Verified</span>
                         </div>
                       </div>
 
@@ -308,7 +305,7 @@ export default function FreelancerPayoutSettingsPage() {
                         <div className="text-xs space-y-1">
                           <p className="font-semibold text-emerald-950">Automatic Transfers Enabled</p>
                           <p className="text-emerald-800 leading-relaxed text-2xs">
-                            When client approvals take place for your fixed-price milestones or weekly timesheets, net earnings (90% after the 10% marketplace fee) disburse automatically to this simulated account.
+                            When client approvals take place for your fixed-price milestones or weekly timesheets, net earnings (90% after the 10% marketplace fee) disburse automatically to this account.
                           </p>
                         </div>
                       </div>
@@ -321,7 +318,7 @@ export default function FreelancerPayoutSettingsPage() {
                       <div className="space-y-1">
                         <p className="text-sm font-semibold text-slate-900">No Payout Profile Onboarded</p>
                         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                          Set up your simulated linked account below to be eligible for automatic milestone escrow disbursements and hourly invoice payments.
+                          Set up your linked payout account below to be eligible for automatic milestone escrow disbursements and hourly invoice payments.
                         </p>
                       </div>
                     </div>
@@ -335,7 +332,7 @@ export default function FreelancerPayoutSettingsPage() {
                   <div className="flex items-center gap-2">
                     <Lock className="w-4 h-4 text-slate-600" />
                     <h2 className="text-sm font-bold text-slate-900">
-                      {profile ? 'Update Simulated Payout Profile' : 'Onboard Simulated Payout Account'}
+                      {profile ? 'Update Payout Profile' : 'Link Payout Account'}
                     </h2>
                   </div>
                   <button

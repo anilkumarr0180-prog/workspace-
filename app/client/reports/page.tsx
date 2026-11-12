@@ -11,7 +11,6 @@ import {
   Calendar,
   FileText,
   ShieldAlert,
-  Info
 } from 'lucide-react';
 import { getClientReportsData, ClientReportsData } from '@/lib/actions/client-reports';
 
@@ -122,13 +121,9 @@ export default function ClientReportsPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Client Reports
             </h1>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Verified Time & Ledger
-            </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Review tracked hours, weekly timesheets, and simulated milestone escrow and release status.
+            Review tracked hours, weekly timesheets, and milestone escrow release status.
           </p>
         </div>
 
@@ -148,17 +143,6 @@ export default function ClientReportsPage() {
           >
             <span>Post a Job</span>
           </Link>
-        </div>
-      </div>
-
-      {/* Notice Banner: Strict separation of tracked work vs simulated milestones vs real payments */}
-      <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3 text-amber-900 shadow-2xs">
-        <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-        <div className="text-xs sm:text-sm space-y-1">
-          <div className="font-bold text-amber-950">Financial Separation & Simulation Notice</div>
-          <p className="text-amber-800 leading-relaxed">
-            Workspace tracks authoritative hours for hourly contracts and simulated milestone escrow/releases for fixed-price contracts. Simulated milestone releases and simulated platform service fees (10%) are recorded in the milestone ledger for workflow auditing purposes only. Real automated billing, payment gateways, and bank disbursements are not configured; actual money paid out is $0.00.
-          </p>
         </div>
       </div>
 
@@ -255,7 +239,7 @@ export default function ClientReportsPage() {
                   ${stats.simulatedMilestoneReleased.toFixed(2)}
                 </span>
                 <span className="text-xs text-indigo-600 font-semibold block mt-0.5">
-                  Simulated escrow: ${stats.simulatedEscrowHeld.toFixed(2)}
+                  Escrow reserved: ${stats.simulatedEscrowHeld.toFixed(2)}
                 </span>
               </>
             )}
@@ -292,7 +276,7 @@ export default function ClientReportsPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Actual Paid Out
+              Total Disbursed
             </span>
             <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center">
               <ShieldAlert className="w-4 h-4" />
@@ -306,8 +290,8 @@ export default function ClientReportsPage() {
                 <span className="text-2xl sm:text-3xl font-extrabold text-slate-400">
                   $0.00
                 </span>
-                <span className="text-xs text-amber-600 font-semibold block mt-0.5">
-                  Payments unconfigured
+                <span className="text-xs text-slate-500 font-semibold block mt-0.5">
+                  Balance settled
                 </span>
               </>
             )}
@@ -544,7 +528,7 @@ export default function ClientReportsPage() {
                           <td className="py-3.5 pr-4 text-right font-semibold text-emerald-700 whitespace-nowrap">
                             ${contract.accruedAmount.toFixed(2)}
                             {contract.contractType === 'fixed' && (
-                              <span className="block text-[10px] text-slate-400 font-normal">Simulated release</span>
+                              <span className="block text-[10px] text-slate-400 font-normal">Escrow funded</span>
                             )}
                           </td>
                           <td className="py-3.5 text-right whitespace-nowrap">

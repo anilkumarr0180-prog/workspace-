@@ -360,7 +360,7 @@ export default function FreelancerTimeTrackingPage() {
           <Link
             href="/freelancer/settings/payouts"
             className="px-3.5 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-2xs"
-            title="Manage simulated linked account for automatic payouts"
+            title="Manage payout settings and linked accounts"
           >
             <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
             <span>Payout Settings</span>

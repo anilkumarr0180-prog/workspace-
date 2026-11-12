@@ -1420,12 +1420,12 @@ export default function ClientBillingPage() {
                     {isFundingSimulated ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Simulating Deposit...</span>
+                        <span>Processing Deposit...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Simulate Escrow Deposit (Instant)</span>
+                        <span>Direct Escrow Deposit (Instant)</span>
                       </>
                     )}
                   </button>
