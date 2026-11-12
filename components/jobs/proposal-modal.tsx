@@ -22,7 +22,7 @@ interface ProposalModalProps {
 }
 
 export default function ProposalModal({ job, isOpen, onClose }: ProposalModalProps) {
-  const { addProposal, hasAppliedToJob, proposals } = useMarketplace();
+  const { hasAppliedToJob, proposals } = useMarketplace();
   const alreadyApplied = hasAppliedToJob(job.id);
   const existingProposal = proposals.find((p) => p.jobId === job.id);
 
@@ -115,14 +115,6 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
 
       if (res.ok && data.success && data.proposal) {
         setSubmissionSource('supabase');
-        addProposal({
-          jobId: job.id,
-          jobTitle: job.title,
-          bidAmount: Number(data.proposal.bidAmount || bidAmount),
-          rateType: data.proposal.rateType || job.budget.type,
-          coverLetter: data.proposal.coverLetter || coverLetter.trim(),
-          deliveryDays: Number(data.proposal.deliveryDays || deliveryDays),
-        });
         setIsSubmitted(true);
       } else if (res.status === 409) {
         setApiErrorMessage(data.error || 'You already have an active proposal submitted for this job.');

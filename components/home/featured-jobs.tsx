@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useMarketplace } from '@/lib/context/marketplace-context';
 import { Job } from '@/lib/types';
 import JobCard from '@/components/jobs/job-card';
 import { ArrowRight, AlertCircle, RefreshCw, Briefcase } from 'lucide-react';
@@ -12,15 +11,9 @@ interface FeaturedJobsProps {
 }
 
 export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
-  const { jobs: contextJobs } = useMarketplace();
-
-  // Initial state derived from local context to ensure instant SSR/CSR paint
-  const initialFeatured = contextJobs.filter((j) => j.isFeatured).slice(0, 3);
-  const [jobs, setJobs] = useState<Job[]>(
-    initialFeatured.length > 0 ? initialFeatured : contextJobs.slice(0, 3)
-  );
-  const [totalJobs, setTotalJobs] = useState<number>(contextJobs.length);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [totalJobs, setTotalJobs] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch real published jobs from database API on mount

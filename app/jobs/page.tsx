@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useMarketplace } from '@/lib/context/marketplace-context';
+import { Job } from '@/lib/types';
 import { CATEGORIES } from '@/lib/mock-data';
 import JobCard from '@/components/jobs/job-card';
 import Link from 'next/link';
@@ -22,8 +22,6 @@ function JobsContent() {
   const initialQuery = searchParams.get('q') || '';
   const initialCategory = searchParams.get('category') || '';
 
-  const { jobs: contextJobs } = useMarketplace();
-
   // Filter states
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
@@ -34,7 +32,7 @@ function JobsContent() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Real API state
-  const [apiJobs, setApiJobs] = useState<typeof contextJobs | null>(null);
+  const [apiJobs, setApiJobs] = useState<Job[] | null>(null);
   const [apiSource, setApiSource] = useState<'supabase' | 'fallback' | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -70,16 +68,10 @@ function JobsContent() {
     };
   }, [searchQuery, selectedCategory, selectedProjectType, selectedExperience, minBudget, sortBy]);
 
-  // Merge any locally added custom jobs with the fetched list
+  // Use genuine API jobs from Supabase strictly to eliminate duplicate or ghost data
   const baseJobs = useMemo(() => {
-    if (apiJobs !== null) {
-      // Prepend any custom demo jobs created in this browser session that aren't yet in the API response
-      const apiIds = new Set(apiJobs.map((j) => j.id));
-      const localCustomOnly = contextJobs.filter((j) => j.client.id === 'cli-user' && !apiIds.has(j.id));
-      return [...localCustomOnly, ...apiJobs];
-    }
-    return contextJobs;
-  }, [apiJobs, contextJobs]);
+    return apiJobs || [];
+  }, [apiJobs]);
 
   // In-memory filter and sort computation over the resolved jobs
   const filteredJobs = useMemo(() => {

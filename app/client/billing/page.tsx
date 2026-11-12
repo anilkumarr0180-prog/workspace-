@@ -7,7 +7,6 @@ import {
   CreditCard,
   Lock,
   Clock,
-  ArrowRight,
   ExternalLink,
   RefreshCw,
   AlertCircle,
@@ -71,6 +70,23 @@ export default function ClientBillingPage() {
   const [isFundingSimulated, setIsFundingSimulated] = useState(false);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  const refreshBillingData = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await getClientBillingData();
+      if (res.success) {
+        setData(res);
+      } else {
+        setError(res.error || 'Failed to load client billing details.');
+      }
+    } catch {
+      setError('Network error while retrieving client billing records.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const openFundModal = (milestone: ClientPendingMilestoneItem) => {
     setSelectedMilestoneForFund(milestone);
@@ -181,23 +197,6 @@ export default function ClientBillingPage() {
       setIsFundingWithRazorpay(false);
     }
   };
-
-  const refreshBillingData = useCallback(async () => {
-    setRefreshing(true);
-    setError(null);
-    try {
-      const res = await getClientBillingData();
-      if (res.success) {
-        setData(res);
-      } else {
-        setError(res.error || 'Failed to load client billing details.');
-      }
-    } catch {
-      setError('Network error while retrieving client billing records.');
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
