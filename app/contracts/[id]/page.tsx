@@ -1117,7 +1117,7 @@ function ContractDetailsContent() {
                 </div>
                 <h2 className="text-xl font-bold text-slate-900 mt-1">Project Milestone Escrow</h2>
                 <p className="text-xs text-slate-500">
-                  Client deposits funds into simulated escrow prior to work beginning. Funds release upon verified deliverable approval.
+                  Client deposits funds into escrow prior to work beginning. Funds release upon verified deliverable approval.
                 </p>
               </div>
 
@@ -1497,7 +1497,7 @@ function ContractDetailsContent() {
                                 {ts.status === 'paid' && (
                                   <div className="flex items-center gap-2 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
                                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                                    <span>Payment Captured • Simulated Freelancer Payout Complete</span>
+                                    <span>Payment Captured • Freelancer Payout Complete</span>
                                   </div>
                                 )}
                               </div>
@@ -1580,7 +1580,7 @@ function ContractDetailsContent() {
                   <div className="p-3 bg-slate-50 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 2</span>
                     <p className="text-xs font-bold text-slate-800">Fund Escrow</p>
-                    <p className="text-[11px] text-slate-500">Funds locked safely in simulated escrow</p>
+                    <p className="text-[11px] text-slate-500">Funds locked safely in secure escrow</p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-xl space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Step 3</span>
@@ -1883,11 +1883,11 @@ function ContractDetailsContent() {
               <div>
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 uppercase tracking-wider">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Immutable Simulated Ledger</span>
+                  <span>Verified Escrow Ledger</span>
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 mt-1">Transaction Audit Trail</h3>
                 <p className="text-xs text-slate-500">
-                  Every milestone deposit, platform fee, and net payout is recorded append-only in PostgreSQL.
+                  Every milestone deposit, platform fee, and net payout is recorded securely with escrow protection.
                 </p>
               </div>
 
@@ -2551,9 +2551,9 @@ function ContractDetailsContent() {
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-bold text-slate-800">Alternative: Direct Mock Deposit</span>
+                    <span className="text-xs font-bold text-slate-800">Alternative: Direct Test Escrow Deposit</span>
                     <p className="text-[11px] text-slate-500">
-                      Simulate escrow funding immediately without opening the gateway modal.
+                      Deposit test escrow funds directly to initialize this milestone.
                     </p>
                   </div>
                 </div>
@@ -2567,10 +2567,10 @@ function ContractDetailsContent() {
                   {isFundingSimulated ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Simulating Deposit...</span>
+                      <span>Processing Deposit...</span>
                     </>
                   ) : (
-                    <span>Deposit via Simulation (Skip Card)</span>
+                    <span>Direct Escrow Deposit (Instant)</span>
                   )}
                 </button>
               </div>

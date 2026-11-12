@@ -30,7 +30,6 @@ export default function FindFreelancersPage() {
 
   // Dynamic API state
   const [apiFreelancers, setApiFreelancers] = useState<Freelancer[] | null>(null);
-  const [apiSource, setApiSource] = useState<'supabase' | 'fallback' | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch real talent dynamically from Supabase API
@@ -51,7 +50,6 @@ export default function FindFreelancersPage() {
       .then((data) => {
         if (!isCancelled && data && Array.isArray(data.freelancers)) {
           setApiFreelancers(data.freelancers);
-          setApiSource(data.source);
         }
       })
       .catch(() => {
@@ -148,12 +146,6 @@ export default function FindFreelancersPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Find Top Independent Talent
             </h1>
-            {apiSource === 'supabase' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live PostgreSQL Talent
-              </span>
-            )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
             Hire pre-vetted senior software engineers, AI architects, and UI/UX designers ready to start.

@@ -1,6 +1,8 @@
+
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { ProjectType, ExperienceLevel, ProjectDuration } from '@/lib/types';
 import { ProposalRecord } from '@/lib/actions/proposals';
 
@@ -100,24 +102,6 @@ interface SupabaseRawJob {
   categories?: CategoryJoin | CategoryJoin[] | null;
 }
 
-interface ProposalRawRow {
-  id: string;
-  job_id: string;
-  freelancer_id: string;
-  bid_amount: number;
-  rate_type: string;
-  delivery_days: number | null;
-  cover_letter: string;
-  status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
-  is_shortlisted?: boolean | null;
-  shortlisted_at?: string | null;
-  declined_reason?: string | null;
-  client_notes?: string | null;
-  created_at: string;
-  updated_at: string;
-  jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
-  profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }> | null;
-}
 
 /**
  * Fetch authenticated client's comprehensive dashboard data strictly from Supabase.
@@ -226,106 +210,55 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
     let proposals: ProposalRecord[] = [];
 
     if (jobIds.length > 0) {
-      let rawProposals: ProposalRawRow[] | null = null;
+      let db = supabase;
+      try {
+        const admin = getAdminSupabaseClient();
+        if (admin) db = admin;
+      } catch {
+        // Safe fallback to session client if service role key is unconfigured
+      }
 
-      // Tier 1: Comprehensive select with joins and candidate pipeline fields
-      const { data: primaryData, error: primaryError } = await supabase
+      // Direct, resilient select from proposals table
+      const { data: rawData, error: rawError } = await db
         .from('proposals')
-        .select(`
-          id,
-          job_id,
-          freelancer_id,
-          bid_amount,
-          rate_type,
-          delivery_days,
-          cover_letter,
-          status,
-          is_shortlisted,
-          shortlisted_at,
-          declined_reason,
-          client_notes,
-          created_at,
-          updated_at,
-          jobs (id, title, client_id, company_id, status),
-          profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
-        `)
+        .select('*')
         .in('job_id', jobIds)
         .order('created_at', { ascending: false });
 
-      if (!primaryError && primaryData) {
-        rawProposals = primaryData as unknown as ProposalRawRow[];
-      } else {
-        console.warn(
-          '[CLIENT DASHBOARD] Primary proposal query failed, attempting standard join query:',
-          primaryError?.message
-        );
-
-        // Tier 2: Without candidate pipeline fields in case migration 20261103000006 is not applied
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('proposals')
-          .select(`
-            id,
-            job_id,
-            freelancer_id,
-            bid_amount,
-            rate_type,
-            delivery_days,
-            cover_letter,
-            status,
-            created_at,
-            updated_at,
-            jobs (id, title, client_id, company_id, status),
-            profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
-          `)
-          .in('job_id', jobIds)
-          .order('created_at', { ascending: false });
-
-        if (!fallbackError && fallbackData) {
-          rawProposals = fallbackData as unknown as ProposalRawRow[];
-        } else {
-          console.warn(
-            '[CLIENT DASHBOARD] Standard join query failed, attempting direct table select with manual profile resolution:',
-            fallbackError?.message
-          );
-
-          // Tier 3: Direct single-table query without foreign key joins (guaranteed against join/schema cache failures)
-          const { data: directData, error: directError } = await supabase
-            .from('proposals')
-            .select('*')
-            .in('job_id', jobIds)
-            .order('created_at', { ascending: false });
-
-          if (!directError && directData) {
-            const freelancerIds = [...new Set(directData.map((p) => p.freelancer_id).filter(Boolean))];
-            const profilesMap = new Map<string, { id: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }>();
-
-            if (freelancerIds.length > 0) {
-              const { data: profs } = await supabase
-                .from('profiles')
-                .select('id, full_name, avatar_url, username, title, hourly_rate')
-                .in('id', freelancerIds);
-
-              (profs || []).forEach((p) => profilesMap.set(p.id, p));
-            }
-
-            const jobsMap = new Map<string, ClientJobSummary>();
-            clientJobs.forEach((j) => jobsMap.set(j.id, j));
-
-            rawProposals = directData.map((row) => ({
-              ...row,
-              profiles: profilesMap.get(row.freelancer_id) || null,
-              jobs: jobsMap.get(row.job_id) || null,
-            })) as unknown as ProposalRawRow[];
-          } else {
-            console.error('[CLIENT DASHBOARD] All proposal query tiers failed:', directError?.message);
-          }
-        }
+      if (rawError) {
+        console.warn('[CLIENT DASHBOARD] Proposals fetch warning:', rawError.message);
       }
 
-      if (rawProposals) {
-        proposals = rawProposals.map((row) => {
-          const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
-          const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+      const rows = rawData || [];
+      if (rows.length > 0) {
+        const freelancerIds = [...new Set(rows.map((p) => p.freelancer_id).filter(Boolean))];
+        const profilesMap = new Map<
+          string,
+          {
+            id: string;
+            full_name?: string | null;
+            avatar_url?: string | null;
+            username?: string | null;
+            title?: string | null;
+            hourly_rate?: number | null;
+          }
+        >();
+
+        if (freelancerIds.length > 0) {
+          const { data: profs } = await db
+            .from('profiles')
+            .select('id, full_name, avatar_url, username, title, hourly_rate')
+            .in('id', freelancerIds);
+
+          (profs || []).forEach((p) => profilesMap.set(p.id, p));
+        }
+
+        const jobsMap = new Map<string, ClientJobSummary>();
+        clientJobs.forEach((j) => jobsMap.set(j.id, j));
+
+        proposals = rows.map((row) => {
+          const jobObj = jobsMap.get(row.job_id);
+          const profileObj = profilesMap.get(row.freelancer_id);
 
           return {
             id: row.id,

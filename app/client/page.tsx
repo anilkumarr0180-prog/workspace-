@@ -458,12 +458,6 @@ export default function ClientDashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Client Dashboard
             </h1>
-            {dashboardData?.source === 'supabase' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live PostgreSQL Verified
-              </span>
-            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {dashboardData?.client?.fullName ? `Welcome back, ${dashboardData.client.fullName}. ` : ''}
@@ -697,7 +691,7 @@ export default function ClientDashboardPage() {
             {loading ? (
               <div className="p-12 text-center space-y-3">
                 <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs text-slate-500">Loading client dashboard from Supabase...</p>
+                <p className="text-xs text-slate-500">Loading client dashboard...</p>
               </div>
             ) : (
               <>

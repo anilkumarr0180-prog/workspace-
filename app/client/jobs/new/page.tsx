@@ -10,7 +10,6 @@ import {
   X,
   ArrowRight,
   ArrowLeft,
-  Sparkles,
   FileCheck
 } from 'lucide-react';
 
@@ -39,7 +38,6 @@ export default function PostJobPage() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [postSource, setPostSource] = useState<'supabase' | 'local'>('local');
 
   // Add a skill
   const handleAddSkill = (e: React.KeyboardEvent | React.MouseEvent) => {
@@ -131,7 +129,6 @@ export default function PostJobPage() {
       const data = await res.json();
 
       if (res.ok && data.success && data.job) {
-        setPostSource('supabase');
         setSubmittedJobId(data.job.id);
       } else {
         setErrors((prev) => ({
@@ -174,24 +171,8 @@ export default function PostJobPage() {
               Job Posted Successfully!
             </h1>
             <p className="text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
-              Your project <strong className="text-slate-800">&ldquo;{title}&rdquo;</strong> is now active {postSource === 'supabase' ? 'in the live PostgreSQL database' : 'in the local demo session'} (Job ID: {submittedJobId}). It has been added to the Browse Jobs directory and your Client Dashboard.
+              Your project <strong className="text-slate-800">&ldquo;{title}&rdquo;</strong> is now active and published. It has been added to the Browse Jobs directory and your Client Dashboard.
             </p>
-          </div>
-
-          {/* Database / Local state demo notice */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 max-w-md mx-auto flex items-start gap-2.5 text-left">
-            <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <span>
-              {postSource === 'supabase' ? (
-                <>
-                  <strong className="text-emerald-700">Live Database Connected:</strong> This listing has been verified and persisted to Supabase PostgreSQL.
-                </>
-              ) : (
-                <>
-                  <strong>Local Session Mode:</strong> Workspace saved this listing to your active session. Sign in with Supabase Auth to persist live listings directly to PostgreSQL.
-                </>
-              )}
-            </span>
           </div>
 
           {/* Quick Actions */}

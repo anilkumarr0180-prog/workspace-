@@ -9,7 +9,6 @@ import { Bookmark, ArrowRight, Briefcase } from 'lucide-react';
 export default function SavedJobsPage() {
   const { savedJobs: contextSavedJobs, isJobSaved } = useMarketplace();
   const [apiSavedJobs, setApiSavedJobs] = useState<typeof contextSavedJobs | null>(null);
-  const [source, setSource] = useState<'supabase' | 'fallback' | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   React.useEffect(() => {
@@ -20,7 +19,6 @@ export default function SavedJobsPage() {
       .then((data) => {
         if (!isCancelled && data && Array.isArray(data.savedJobs)) {
           setApiSavedJobs(data.savedJobs);
-          setSource(data.source);
         }
       })
       .catch(() => {
@@ -50,12 +48,6 @@ export default function SavedJobsPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Bookmarked Projects
             </h1>
-            {source === 'supabase' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live PostgreSQL Verified
-              </span>
-            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Keep track of projects you are interested in and prepare your proposals.

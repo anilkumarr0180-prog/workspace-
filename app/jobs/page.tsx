@@ -33,7 +33,6 @@ function JobsContent() {
 
   // Real API state
   const [apiJobs, setApiJobs] = useState<Job[] | null>(null);
-  const [apiSource, setApiSource] = useState<'supabase' | 'fallback' | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch from the real API when filter criteria change
@@ -53,7 +52,6 @@ function JobsContent() {
       .then((data) => {
         if (!isCancelled && data && Array.isArray(data.jobs)) {
           setApiJobs(data.jobs);
-          setApiSource(data.source);
         }
       })
       .catch(() => {
@@ -151,12 +149,6 @@ function JobsContent() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Browse Opportunities
             </h1>
-            {apiSource === 'supabase' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live PostgreSQL API
-              </span>
-            )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
             Explore verified freelance contracts and projects posted by vetted clients.
