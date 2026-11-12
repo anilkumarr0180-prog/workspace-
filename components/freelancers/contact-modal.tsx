@@ -46,8 +46,21 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
       return;
     }
 
-    if (!freelancer.id) {
-      setError('Freelancer ID is missing.');
+    let targetRecipientId = freelancer.id;
+    if (!targetRecipientId && freelancer.username) {
+      try {
+        const uRes = await fetch(`/api/freelancers/${encodeURIComponent(freelancer.username)}`);
+        const uData = await uRes.json();
+        if (uData?.profile?.id) {
+          targetRecipientId = uData.profile.id;
+        }
+      } catch {
+        // continue to error check
+      }
+    }
+
+    if (!targetRecipientId) {
+      setError('Freelancer ID is missing. Please refresh and try again.');
       return;
     }
 
@@ -59,7 +72,7 @@ export default function ContactModal({ freelancer, isOpen, onClose }: ContactMod
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recipientId: freelancer.id,
+          recipientId: targetRecipientId,
           title: subject.trim(),
           initialMessage: message.trim(),
         }),

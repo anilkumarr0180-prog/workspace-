@@ -68,6 +68,7 @@ export default function ClientDashboardPage() {
   const [selectedProposalForReview, setSelectedProposalForReview] = useState<ProposalRecord | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [contactFreelancer, setContactFreelancer] = useState<{
+    id?: string;
     username: string;
     name?: string;
     fullName?: string;
@@ -382,18 +383,20 @@ export default function ClientDashboardPage() {
         router.push(`/messages/${data.conversationId}`);
         return;
       }
-      if (proposal.freelancerUsername) {
+      if (proposal.freelancerUsername || proposal.freelancerId) {
         setContactFreelancer({
-          username: proposal.freelancerUsername,
+          id: proposal.freelancerId,
+          username: proposal.freelancerUsername || 'specialist',
           fullName: proposal.freelancerName,
           avatarUrl: proposal.freelancerAvatar,
           title: proposal.freelancerTitle,
         });
       }
     } catch {
-      if (proposal.freelancerUsername) {
+      if (proposal.freelancerUsername || proposal.freelancerId) {
         setContactFreelancer({
-          username: proposal.freelancerUsername,
+          id: proposal.freelancerId,
+          username: proposal.freelancerUsername || 'specialist',
           fullName: proposal.freelancerName,
           avatarUrl: proposal.freelancerAvatar,
           title: proposal.freelancerTitle,

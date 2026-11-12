@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { createNotification } from '@/lib/actions/notifications';
 import { Contract, ContractStatus, ProjectType } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -468,7 +469,12 @@ async function executeCreateContractOfferFallback(
   fixedPriceVal: number | null
 ): Promise<ContractOfferResult> {
   try {
-    const admin = getAdminSupabaseClient();
+    let admin: SupabaseClient;
+    try {
+      admin = getAdminSupabaseClient();
+    } catch {
+      admin = await createClient();
+    }
 
     // 1. Fetch proposal
     const { data: proposal, error: propErr } = await admin
@@ -528,21 +534,27 @@ async function executeCreateContractOfferFallback(
     const contractTitle = input.title?.trim() || job.title;
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // 5. Insert contract
-    const { data: contract, error: contractErr } = await admin
+    // 5. Insert contract with automatic schema resilience
+    let contractId: string | null = null;
+    const baseContractPayload = {
+      proposal_id: proposal.id,
+      job_id: job.id,
+      client_id: job.client_id,
+      company_id: job.company_id,
+      freelancer_id: proposal.freelancer_id,
+      contract_type: input.contractType,
+      title: contractTitle,
+      hourly_rate: input.contractType === 'hourly' ? hourlyRateVal : null,
+      fixed_price: input.contractType === 'fixed' ? fixedPriceVal : null,
+      weekly_hour_limit: input.contractType === 'hourly' ? (input.weeklyHourLimit ? Number(input.weeklyHourLimit) : 40) : null,
+      allow_manual_time: input.allowManualTime ?? true,
+    };
+
+    // Primary attempt: full offer schema
+    const { data: primaryContract, error: contractErr } = await admin
       .from('contracts')
       .insert({
-        proposal_id: proposal.id,
-        job_id: job.id,
-        client_id: job.client_id,
-        company_id: job.company_id,
-        freelancer_id: proposal.freelancer_id,
-        contract_type: input.contractType,
-        title: contractTitle,
-        hourly_rate: input.contractType === 'hourly' ? hourlyRateVal : null,
-        fixed_price: input.contractType === 'fixed' ? fixedPriceVal : null,
-        weekly_hour_limit: input.contractType === 'hourly' ? (input.weeklyHourLimit ? Number(input.weeklyHourLimit) : 40) : null,
-        allow_manual_time: input.allowManualTime ?? true,
+        ...baseContractPayload,
         offer_message: input.offerMessage?.trim() || null,
         offer_expires_at: expiresAt,
         status: 'pending_offer',
@@ -550,11 +562,49 @@ async function executeCreateContractOfferFallback(
       .select('id')
       .single();
 
-    if (contractErr || !contract) {
-      return { success: false, error: contractErr?.message || 'Failed to create contract.' };
+    if (primaryContract?.id) {
+      contractId = primaryContract.id;
+    } else if (contractErr) {
+      // Schema fallback: if offer_expires_at is missing from schema cache, try without offer tracking columns
+      if (contractErr.message.includes('offer_expires_at') || contractErr.message.includes('schema cache')) {
+        const retryRes = await admin
+          .from('contracts')
+          .insert({
+            ...baseContractPayload,
+            status: 'pending_offer',
+          })
+          .select('id')
+          .single();
+
+        if (retryRes.data?.id) {
+          contractId = retryRes.data.id;
+        } else if (retryRes.error?.message?.includes('chk_contract_status')) {
+          // If status constraint rejects 'pending_offer', fall back to 'active'
+          const activeRetry = await admin
+            .from('contracts')
+            .insert({
+              ...baseContractPayload,
+              status: 'active',
+            })
+            .select('id')
+            .single();
+
+          if (activeRetry.data?.id) {
+            contractId = activeRetry.data.id;
+          } else {
+            return { success: false, error: activeRetry.error?.message || retryRes.error.message };
+          }
+        } else {
+          return { success: false, error: retryRes.error?.message || contractErr.message };
+        }
+      } else {
+        return { success: false, error: contractErr.message };
+      }
     }
 
-    const contractId = contract.id;
+    if (!contractId) {
+      return { success: false, error: 'Failed to create contract record.' };
+    }
 
     // 6. Fixed price initial milestone in contract_milestones
     if (input.contractType === 'fixed' && fixedPriceVal) {

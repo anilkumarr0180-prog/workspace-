@@ -35,6 +35,7 @@ interface ProposalDetailsModalProps {
   onWithdraw?: (proposalId: string) => Promise<void>;
   isUpdating?: boolean;
   onOpenContact?: (freelancer: {
+    id?: string;
     username: string;
     name?: string;
     fullName?: string;
@@ -168,17 +169,19 @@ export default function ProposalDetailsModal({
         router.push(`/messages/${data.conversationId}`);
         return;
       }
-      if (onOpenContact && proposal.freelancerUsername) {
+      if (onOpenContact && (proposal.freelancerUsername || proposal.freelancerId)) {
         onOpenContact({
-          username: proposal.freelancerUsername,
+          id: proposal.freelancerId,
+          username: proposal.freelancerUsername || 'specialist',
           fullName: proposal.freelancerName,
           avatarUrl: proposal.freelancerAvatar,
         });
       }
     } catch {
-      if (onOpenContact && proposal.freelancerUsername) {
+      if (onOpenContact && (proposal.freelancerUsername || proposal.freelancerId)) {
         onOpenContact({
-          username: proposal.freelancerUsername,
+          id: proposal.freelancerId,
+          username: proposal.freelancerUsername || 'specialist',
           fullName: proposal.freelancerName,
           avatarUrl: proposal.freelancerAvatar,
         });
