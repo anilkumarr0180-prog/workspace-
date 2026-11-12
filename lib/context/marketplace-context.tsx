@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState } from 'react';
 import { Job, Freelancer, ProposalSubmission } from '../types';
-import { INITIAL_JOBS, INITIAL_FREELANCERS, INITIAL_PROPOSALS } from '../mock-data';
 
 interface MarketplaceContextType {
   jobs: Job[];
@@ -29,70 +28,52 @@ function generateUniqueId(prefix: string): string {
 }
 
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
-  const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
-  const [freelancers] = useState<Freelancer[]>(INITIAL_FREELANCERS);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [freelancers, setFreelancers] = useState<Freelancer[]>([]);
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [persistedSavedJobs, setPersistedSavedJobs] = useState<Job[]>([]);
-  const [proposals, setProposals] = useState<ProposalSubmission[]>(INITIAL_PROPOSALS);
+  const [proposals, setProposals] = useState<ProposalSubmission[]>([]);
   const [contactMessagesCount, setContactMessagesCount] = useState<number>(0);
-  const [isHydrated, setIsHydrated] = useState<boolean>(false);
+  const isMountedRef = React.useRef(false);
 
-  // Safely read and validate localStorage once on client mount (prevents SSR hydration mismatches)
+  // Clear any legacy mock localStorage state on mount
   React.useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        const storedJobs =
-          localStorage.getItem('upwork_custom_jobs') ||
-          localStorage.getItem('workspace_custom_jobs') ||
-          localStorage.getItem('skillbridge_custom_jobs');
-        if (storedJobs) {
-          const parsedCustomJobs = JSON.parse(storedJobs);
-          if (Array.isArray(parsedCustomJobs)) {
-            setJobs([...parsedCustomJobs, ...INITIAL_JOBS]);
-          }
-        }
-      } catch {
-        // Safe fallback if localStorage is unavailable or corrupted
-      }
-
-      try {
-        const storedSaved =
-          localStorage.getItem('upwork_saved_jobs') ||
-          localStorage.getItem('workspace_saved_jobs') ||
-          localStorage.getItem('skillbridge_saved_jobs');
-        if (storedSaved) {
-          const parsedSaved = JSON.parse(storedSaved);
-          if (Array.isArray(parsedSaved)) {
-            setSavedJobIds(parsedSaved);
-          }
-        }
-      } catch {
-        // Safe fallback
-      }
-
-      try {
-        const storedProposals =
-          localStorage.getItem('upwork_proposals') ||
-          localStorage.getItem('workspace_proposals') ||
-          localStorage.getItem('skillbridge_proposals');
-        if (storedProposals) {
-          const parsedProposals = JSON.parse(storedProposals);
-          if (Array.isArray(parsedProposals)) {
-            setProposals(parsedProposals);
-          }
-        }
-      } catch {
-        // Safe fallback
-      }
-
-      setIsHydrated(true);
-    }, 0);
-
-    return () => clearTimeout(timer);
+    try {
+      localStorage.removeItem('upwork_custom_jobs');
+      localStorage.removeItem('workspace_custom_jobs');
+      localStorage.removeItem('skillbridge_custom_jobs');
+      localStorage.removeItem('upwork_proposals');
+      localStorage.removeItem('workspace_proposals');
+      localStorage.removeItem('skillbridge_proposals');
+    } catch {
+      // Safe fallback
+    }
+    isMountedRef.current = true;
   }, []);
 
-  // Fetch genuine saved jobs from Supabase API on mount
+  // Fetch genuine data strictly from Supabase API on mount
   React.useEffect(() => {
+    // 1. Live Jobs
+    fetch('/api/jobs?limit=50')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.jobs)) {
+          setJobs(data.jobs);
+        }
+      })
+      .catch(() => {});
+
+    // 2. Live Freelancers
+    fetch('/api/freelancers?limit=50')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.freelancers)) {
+          setFreelancers(data.freelancers);
+        }
+      })
+      .catch(() => {});
+
+    // 3. Live Saved Jobs
     fetch('/api/saved-jobs')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -105,7 +86,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       })
       .catch(() => {});
 
-    // Fetch genuine proposals from Supabase API on mount
+    // 4. Live Proposals
     fetch('/api/proposals')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -138,36 +119,15 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       .catch(() => {});
   }, []);
 
-  // Reactively sync custom jobs to localStorage whenever jobs state changes (after hydration)
-  React.useEffect(() => {
-    if (!isHydrated) return;
-    try {
-      const customOnly = jobs.filter((j) => j.client.id === 'cli-user');
-      localStorage.setItem('upwork_custom_jobs', JSON.stringify(customOnly));
-    } catch {
-      // Safe fallback
-    }
-  }, [jobs, isHydrated]);
-
   // Reactively sync saved job IDs to localStorage
   React.useEffect(() => {
-    if (!isHydrated) return;
+    if (!isMountedRef.current) return;
     try {
       localStorage.setItem('upwork_saved_jobs', JSON.stringify(savedJobIds));
     } catch {
       // Safe fallback
     }
-  }, [savedJobIds, isHydrated]);
-
-  // Reactively sync proposals to localStorage
-  React.useEffect(() => {
-    if (!isHydrated) return;
-    try {
-      localStorage.setItem('upwork_proposals', JSON.stringify(proposals));
-    } catch {
-      // Safe fallback
-    }
-  }, [proposals, isHydrated]);
+  }, [savedJobIds]);
 
   // Pure state updater: toggle job saved status with API synchronization
   const toggleSaveJob = (jobId: string) => {

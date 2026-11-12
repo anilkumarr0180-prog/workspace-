@@ -4,22 +4,20 @@ import { ChevronRight } from 'lucide-react';
 
 export default function PromoBanner() {
   return (
-    <div className="w-full mb-5 sm:mb-6">
+    <div className="w-full mt-7 sm:mt-10 mb-6 sm:mb-8">
       <Link
         href="/freelancers"
-        className="group block w-full bg-[#D5F7CA] hover:bg-[#C8F2BC] text-[#001E00] transition-all duration-200 rounded-2xl sm:rounded-[20px] px-6 py-3.5 sm:px-8 sm:py-4 border border-[#C2EBB5] shadow-2xs"
+        className="group flex flex-row items-center justify-between w-full bg-[#D5F7CA] hover:bg-[#c9f2bc] text-[#001E00] transition-colors duration-200 rounded-2xl px-6 sm:px-8 py-5 sm:py-[24px] min-h-[64px] sm:h-[76px] border border-[#c2ebb5]/60"
       >
-        <div className="flex flex-row items-center justify-between gap-4">
-          <p className="text-[14px] sm:text-[15px] font-medium tracking-tight text-[#001E00] truncate">
-            Hire the top 1% of talent on Business Plus.
-          </p>
-          <span className="inline-flex items-center gap-1.5 text-xs sm:text-[14px] font-semibold text-[#001E00] shrink-0">
-            <span className="underline underline-offset-4 decoration-1 group-hover:text-emerald-950 transition-colors">
-              Get started
-            </span>
-            <ChevronRight className="w-4 h-4 text-[#001E00] group-hover:translate-x-0.5 transition-transform" />
+        <p className="text-[14px] sm:text-[15px] font-medium tracking-normal text-[#001E00] truncate">
+          Hire the top 1% of talent on Business Plus.
+        </p>
+        <span className="inline-flex items-center gap-1.5 text-[14px] font-medium sm:font-semibold text-[#001E00] shrink-0">
+          <span className="underline underline-offset-4 decoration-1 group-hover:text-emerald-950 transition-colors">
+            Get started
           </span>
-        </div>
+          <ChevronRight className="w-4 h-4 text-[#001E00] group-hover:translate-x-0.5 transition-transform" />
+        </span>
       </Link>
     </div>
   );

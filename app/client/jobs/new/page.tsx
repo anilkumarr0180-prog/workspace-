@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useMarketplace } from '@/lib/context/marketplace-context';
 import { CATEGORIES } from '@/lib/mock-data';
 import { ProjectType, ExperienceLevel, ProjectDuration } from '@/lib/types';
 import {
@@ -16,8 +15,6 @@ import {
 } from 'lucide-react';
 
 export default function PostJobPage() {
-  const { addJob } = useMarketplace();
-
   // Form Fields
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0].name);
@@ -136,63 +133,17 @@ export default function PostJobPage() {
       if (res.ok && data.success && data.job) {
         setPostSource('supabase');
         setSubmittedJobId(data.job.id);
-        addJob({
-          title: data.job.title,
-          category: data.job.category,
-          description: data.job.description,
-          deliverables: data.job.deliverables,
-          projectType: data.job.projectType,
-          budget: data.job.budget,
-          experienceLevel: data.job.experienceLevel,
-          duration: data.job.duration,
-          skills: data.job.skills,
-          clientName: data.job.client?.name || clientName,
-          companyName: data.job.client?.companyName || companyName,
-        });
       } else {
-        // Fallback to local session if unauthenticated or database table pending
-        setPostSource('local');
-        const newId = addJob({
-          title: title.trim(),
-          category,
-          description: description.trim(),
-          deliverables,
-          projectType,
-          budget: {
-            type: projectType,
-            fixedAmount: projectType === 'fixed' ? Number(fixedAmount) : undefined,
-            hourlyMin: projectType === 'hourly' ? Number(hourlyMin) : undefined,
-            hourlyMax: projectType === 'hourly' ? Number(hourlyMax) : undefined,
-          },
-          experienceLevel,
-          duration,
-          skills,
-          clientName,
-          companyName,
-        });
-        setSubmittedJobId(newId);
+        setErrors((prev) => ({
+          ...prev,
+          submit: data.error || 'Failed to publish job. Please ensure you are signed in with an authorized client account.',
+        }));
       }
     } catch {
-      setPostSource('local');
-      const newId = addJob({
-        title: title.trim(),
-        category,
-        description: description.trim(),
-        deliverables,
-        projectType,
-        budget: {
-          type: projectType,
-          fixedAmount: projectType === 'fixed' ? Number(fixedAmount) : undefined,
-          hourlyMin: projectType === 'hourly' ? Number(hourlyMin) : undefined,
-          hourlyMax: projectType === 'hourly' ? Number(hourlyMax) : undefined,
-        },
-        experienceLevel,
-        duration,
-        skills,
-        clientName,
-        companyName,
-      });
-      setSubmittedJobId(newId);
+      setErrors((prev) => ({
+        ...prev,
+        submit: 'Network error while connecting to the server. Please verify your connection.',
+      }));
     } finally {
       setIsSubmitting(false);
     }
@@ -643,6 +594,13 @@ export default function PostJobPage() {
               </div>
             </div>
           </div>
+
+          {errors.submit && (
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+              <span>{errors.submit}</span>
+            </div>
+          )}
 
           {/* Submit Actions */}
           <div className="pt-2 flex items-center justify-between">
