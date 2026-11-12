@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { ProjectType } from '@/lib/types';
 import { createNotification } from '@/lib/actions/notifications';
 
@@ -324,38 +325,24 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
   }
 
   try {
-    let query = supabase
-      .from('proposals')
-      .select(
-        `
-        id,
-        job_id,
-        freelancer_id,
-        bid_amount,
-        rate_type,
-        delivery_days,
-        cover_letter,
-        status,
-        is_shortlisted,
-        shortlisted_at,
-        declined_reason,
-        client_notes,
-        created_at,
-        updated_at,
-        jobs (id, title, client_id, company_id, status),
-        profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
-      `,
-        { count: 'exact' }
-      );
+    let db = supabase;
+    try {
+      const admin = getAdminSupabaseClient();
+      if (admin) db = admin;
+    } catch {
+      // Safe fallback to session client if service role key is unconfigured
+    }
 
-    // If specific job is requested: verify client/company authority or freelancer participation
+    let targetJobIds: string[] = [];
+    let freelancerFilterId: string | null = null;
+
     if (filters.jobId) {
       if (!UUID_REGEX.test(filters.jobId.trim())) {
         return { proposals: [], total: 0, source: 'supabase', error: 'Job not found', code: 'NOT_FOUND' };
       }
 
       // Verify job ownership
-      const { data: targetJob } = await supabase
+      const { data: targetJob } = await db
         .from('jobs')
         .select('id, client_id, company_id, status')
         .eq('id', filters.jobId.trim())
@@ -368,7 +355,7 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       let isClientManager = targetJob.client_id === user.id;
 
       if (!isClientManager && targetJob.company_id) {
-        const { data: member } = await supabase
+        const { data: member } = await db
           .from('company_members')
           .select('role')
           .eq('company_id', targetJob.company_id)
@@ -389,22 +376,20 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
             code: 'FORBIDDEN',
           };
         }
-        query = query.eq('job_id', filters.jobId.trim());
+        targetJobIds = [filters.jobId.trim()];
       } else if (filters.as === 'freelancer') {
-        query = query.eq('job_id', filters.jobId.trim()).eq('freelancer_id', user.id);
+        targetJobIds = [filters.jobId.trim()];
+        freelancerFilterId = user.id;
       } else {
-        // Default when role perspective not specified
-        if (isClientManager) {
-          query = query.eq('job_id', filters.jobId.trim());
-        } else {
-          query = query.eq('job_id', filters.jobId.trim()).eq('freelancer_id', user.id);
+        targetJobIds = [filters.jobId.trim()];
+        if (!isClientManager) {
+          freelancerFilterId = user.id;
         }
       }
     } else {
       // No specific jobId provided
       if (filters.as === 'client') {
-        // Retrieve proposals submitted to client's jobs
-        const { data: userCompanies } = await supabase
+        const { data: userCompanies } = await db
           .from('company_members')
           .select('company_id')
           .eq('user_id', user.id)
@@ -412,7 +397,7 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
 
         const companyIds = (userCompanies || []).map((c) => c.company_id);
 
-        let jobQuery = supabase.from('jobs').select('id');
+        let jobQuery = db.from('jobs').select('id');
         if (companyIds.length > 0) {
           jobQuery = jobQuery.or(`client_id.eq.${user.id},company_id.in.(${companyIds.join(',')})`);
         } else {
@@ -420,152 +405,111 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         }
 
         const { data: clientJobs } = await jobQuery;
-        const clientJobIds = (clientJobs || []).map((j) => j.id);
+        targetJobIds = (clientJobs || []).map((j) => j.id);
 
-        if (clientJobIds.length === 0) {
+        if (targetJobIds.length === 0) {
           return { proposals: [], total: 0, source: 'supabase' };
         }
-
-        query = query.in('job_id', clientJobIds);
       } else {
-        // Default: fetch the authenticated freelancer's own proposals
-        query = query.eq('freelancer_id', user.id);
+        freelancerFilterId = user.id;
       }
+    }
+
+    let propQuery = db.from('proposals').select('*');
+
+    if (targetJobIds.length === 1) {
+      propQuery = propQuery.eq('job_id', targetJobIds[0]);
+    } else if (targetJobIds.length > 1) {
+      propQuery = propQuery.in('job_id', targetJobIds);
+    }
+
+    if (freelancerFilterId) {
+      propQuery = propQuery.eq('freelancer_id', freelancerFilterId);
     }
 
     if (filters.status) {
-      query = query.eq('status', filters.status);
+      propQuery = propQuery.eq('status', filters.status);
     }
 
     if (filters.isShortlisted !== undefined) {
-      query = query.eq('is_shortlisted', filters.isShortlisted);
+      propQuery = propQuery.eq('is_shortlisted', filters.isShortlisted);
     }
 
     if (filters.pipelineTab === 'shortlisted') {
-      query = query.eq('is_shortlisted', true).neq('status', 'withdrawn');
+      propQuery = propQuery.eq('is_shortlisted', true).neq('status', 'withdrawn');
     } else if (filters.pipelineTab === 'interviewing') {
-      query = query.eq('status', 'interviewing');
+      propQuery = propQuery.eq('status', 'interviewing');
     } else if (filters.pipelineTab === 'archived') {
-      query = query.in('status', ['rejected', 'withdrawn']);
+      propQuery = propQuery.in('status', ['rejected', 'withdrawn']);
     }
 
-    query = query.order('created_at', { ascending: false });
+    propQuery = propQuery.order('created_at', { ascending: false });
 
-    interface ProposalRow {
-      id: string;
-      job_id: string;
-      freelancer_id: string;
-      bid_amount: number;
-      rate_type: string;
-      delivery_days: number | null;
-      cover_letter: string;
-      status: 'submitted' | 'under_review' | 'interviewing' | 'accepted' | 'rejected' | 'withdrawn';
-      is_shortlisted?: boolean | null;
-      shortlisted_at?: string | null;
-      declined_reason?: string | null;
-      client_notes?: string | null;
-      created_at: string;
-      updated_at: string;
-      jobs?: { id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string } | Array<{ id?: string; title?: string; client_id?: string; company_id?: string | null; status?: string }> | null;
-      profiles?: { id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null } | Array<{ id?: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }> | null;
-    }
+    let { data: rawProposals, error: propError } = await propQuery;
 
-    const { data: rawData, count, error } = await query;
-    let data: ProposalRow[] | null = rawData as unknown as ProposalRow[];
-
-    if (error) {
-      console.warn('[PROPOSALS] Primary proposal query failed, attempting standard join fallback:', error.message);
-
-      // Fallback 1: Query without pipeline fields in case migration 20261103000006 is not yet applied
-      let fallbackQuery = supabase
-        .from('proposals')
-        .select(`
-          id,
-          job_id,
-          freelancer_id,
-          bid_amount,
-          rate_type,
-          delivery_days,
-          cover_letter,
-          status,
-          created_at,
-          updated_at,
-          jobs (id, title, client_id, company_id, status),
-          profiles!freelancer_id (id, full_name, avatar_url, username, title, hourly_rate)
-        `);
-
-      if (filters.jobId) {
-        fallbackQuery = fallbackQuery.eq('job_id', filters.jobId.trim());
+    // Graceful recovery if pipelineTab filter failed due to unapplied is_shortlisted column
+    if (propError && (filters.isShortlisted !== undefined || filters.pipelineTab === 'shortlisted')) {
+      let retryQuery = db.from('proposals').select('*');
+      if (targetJobIds.length === 1) {
+        retryQuery = retryQuery.eq('job_id', targetJobIds[0]);
+      } else if (targetJobIds.length > 1) {
+        retryQuery = retryQuery.in('job_id', targetJobIds);
+      }
+      if (freelancerFilterId) {
+        retryQuery = retryQuery.eq('freelancer_id', freelancerFilterId);
       }
       if (filters.status) {
-        fallbackQuery = fallbackQuery.eq('status', filters.status);
+        retryQuery = retryQuery.eq('status', filters.status);
       }
-      if (filters.as === 'freelancer' || (!filters.as && !filters.jobId)) {
-        fallbackQuery = fallbackQuery.eq('freelancer_id', user.id);
-      }
-
-      fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
-      const { data: fbData, error: fbError } = await fallbackQuery;
-
-      if (!fbError && fbData) {
-        data = fbData as unknown as ProposalRow[];
-      } else {
-        console.warn('[PROPOSALS] Standard join query failed, attempting direct select without joins:', fbError?.message);
-
-        // Fallback 2: Direct select from proposals table without foreign key joins
-        let directQuery = supabase
-          .from('proposals')
-          .select('*');
-
-        if (filters.jobId) {
-          directQuery = directQuery.eq('job_id', filters.jobId.trim());
-        }
-        if (filters.status) {
-          directQuery = directQuery.eq('status', filters.status);
-        }
-        if (filters.as === 'freelancer' || (!filters.as && !filters.jobId)) {
-          directQuery = directQuery.eq('freelancer_id', user.id);
-        }
-
-        directQuery = directQuery.order('created_at', { ascending: false });
-        const { data: dirData, error: dirError } = await directQuery;
-
-        if (!dirError && dirData) {
-          const freelancerIds = [...new Set(dirData.map((p) => p.freelancer_id).filter(Boolean))];
-          const profMap = new Map<string, { id: string; full_name?: string | null; avatar_url?: string | null; username?: string | null; title?: string | null; hourly_rate?: number | null }>();
-          if (freelancerIds.length > 0) {
-            const { data: profs } = await supabase
-              .from('profiles')
-              .select('id, full_name, avatar_url, username, title, hourly_rate')
-              .in('id', freelancerIds);
-            (profs || []).forEach((p) => profMap.set(p.id, p));
-          }
-
-          const targetJobIds = [...new Set(dirData.map((p) => p.job_id).filter(Boolean))];
-          const jobMap = new Map<string, { id: string; title?: string; client_id?: string; company_id?: string | null; status?: string }>();
-          if (targetJobIds.length > 0) {
-            const { data: jbs } = await supabase
-              .from('jobs')
-              .select('id, title, client_id, company_id, status')
-              .in('id', targetJobIds);
-            (jbs || []).forEach((j) => jobMap.set(j.id, j));
-          }
-
-          data = dirData.map((p) => ({
-            ...p,
-            profiles: profMap.get(p.freelancer_id) || null,
-            jobs: jobMap.get(p.job_id) || null,
-          })) as unknown as ProposalRow[];
-        } else {
-          console.error('[PROPOSALS] All queries failed:', dirError?.message);
-          return { proposals: [], total: 0, source: 'fallback' };
-        }
+      retryQuery = retryQuery.order('created_at', { ascending: false });
+      const retryRes = await retryQuery;
+      if (!retryRes.error) {
+        rawProposals = retryRes.data;
+        propError = null;
       }
     }
 
-    const mapped: ProposalRecord[] = ((data as unknown as ProposalRow[]) || []).map((row) => {
-      const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
-      const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+    if (propError) {
+      console.error('[PROPOSALS] Direct proposals query error:', propError.message);
+      return { proposals: [], total: 0, source: 'supabase', error: propError.message };
+    }
+
+    const rows = rawProposals || [];
+    const freelancerIds = [...new Set(rows.map((p) => p.freelancer_id).filter(Boolean))];
+    const profMap = new Map<
+      string,
+      {
+        id: string;
+        full_name?: string | null;
+        avatar_url?: string | null;
+        username?: string | null;
+        title?: string | null;
+        hourly_rate?: number | null;
+      }
+    >();
+
+    if (freelancerIds.length > 0) {
+      const { data: profs } = await db
+        .from('profiles')
+        .select('id, full_name, avatar_url, username, title, hourly_rate')
+        .in('id', freelancerIds);
+      (profs || []).forEach((p) => profMap.set(p.id, p));
+    }
+
+    const targetIdsForJobs = [...new Set(rows.map((p) => p.job_id).filter(Boolean))];
+    const jobMap = new Map<string, { id: string; title?: string; client_id?: string; company_id?: string | null; status?: string }>();
+
+    if (targetIdsForJobs.length > 0) {
+      const { data: jbs } = await db
+        .from('jobs')
+        .select('id, title, client_id, company_id, status')
+        .in('id', targetIdsForJobs);
+      (jbs || []).forEach((j) => jobMap.set(j.id, j));
+    }
+
+    const mapped: ProposalRecord[] = rows.map((row) => {
+      const jobObj = jobMap.get(row.job_id);
+      const profileObj = profMap.get(row.freelancer_id);
 
       return {
         id: row.id,
@@ -593,11 +537,13 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
 
     return {
       proposals: mapped,
-      total: count ?? mapped.length,
+      total: mapped.length,
       source: 'supabase',
     };
-  } catch {
-    return { proposals: [], total: 0, source: 'fallback' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to retrieve proposals';
+    console.error('[PROPOSALS] getProposals exception:', message);
+    return { proposals: [], total: 0, source: 'fallback', error: message };
   }
 }
 
@@ -814,13 +760,37 @@ export async function toggleProposalShortlist(
       p_shortlist: isShortlisted,
     });
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (!error) {
+      return {
+        success: true,
+        isShortlisted: (data as { is_shortlisted?: boolean })?.is_shortlisted ?? isShortlisted,
+      };
+    }
+
+    // Direct fallback if RPC is unapplied in database
+    let db = supabase;
+    try {
+      const admin = getAdminSupabaseClient();
+      if (admin) db = admin;
+    } catch {
+      // fallback
+    }
+
+    const { error: updateErr } = await db
+      .from('proposals')
+      .update({
+        is_shortlisted: isShortlisted,
+        shortlisted_at: isShortlisted ? new Date().toISOString() : null,
+      })
+      .eq('id', proposalId.trim());
+
+    if (updateErr) {
+      return { success: false, error: updateErr.message };
     }
 
     return {
       success: true,
-      isShortlisted: (data as { is_shortlisted?: boolean })?.is_shortlisted ?? isShortlisted,
+      isShortlisted,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to update shortlist status';
@@ -855,8 +825,29 @@ export async function declineProposal(
       p_reason: reason?.trim() || null,
     });
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (!error) {
+      return { success: true };
+    }
+
+    // Direct fallback if RPC is unapplied in database
+    let db = supabase;
+    try {
+      const admin = getAdminSupabaseClient();
+      if (admin) db = admin;
+    } catch {
+      // fallback
+    }
+
+    const { error: updateErr } = await db
+      .from('proposals')
+      .update({
+        status: 'rejected',
+        declined_reason: reason?.trim() || null,
+      })
+      .eq('id', proposalId.trim());
+
+    if (updateErr) {
+      return { success: false, error: updateErr.message };
     }
 
     return { success: true };
@@ -893,14 +884,32 @@ export async function saveProposalNotes(
       p_notes: notes,
     });
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (!error) {
+      return {
+        success: true,
+        notes: (data as { client_notes?: string })?.client_notes ?? notes,
+      };
     }
 
-    return {
-      success: true,
-      notes: (data as { client_notes?: string })?.client_notes ?? notes,
-    };
+    // Direct fallback if RPC is unapplied in database
+    let db = supabase;
+    try {
+      const admin = getAdminSupabaseClient();
+      if (admin) db = admin;
+    } catch {
+      // fallback
+    }
+
+    const { error: updateErr } = await db
+      .from('proposals')
+      .update({ client_notes: notes.trim() })
+      .eq('id', proposalId.trim());
+
+    if (updateErr) {
+      return { success: false, error: updateErr.message };
+    }
+
+    return { success: true, notes: notes.trim() };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to save notes';
     return { success: false, error: message };
