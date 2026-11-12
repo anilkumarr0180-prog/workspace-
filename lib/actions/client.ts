@@ -102,6 +102,32 @@ interface SupabaseRawJob {
   categories?: CategoryJoin | CategoryJoin[] | null;
 }
 
+interface ProposalDbRow {
+  id: string;
+  job_id: string;
+  freelancer_id: string;
+  bid_amount: number;
+  rate_type: string;
+  delivery_days?: number | null;
+  cover_letter: string;
+  status: ProposalRecord['status'];
+  is_shortlisted?: boolean | null;
+  shortlisted_at?: string | null;
+  declined_reason?: string | null;
+  client_notes?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+interface RawProfileRow {
+  id: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  username?: string | null;
+  title?: string | null;
+  hourly_rate?: number | null;
+}
+
 
 /**
  * Fetch authenticated client's comprehensive dashboard data strictly from Supabase.
@@ -210,22 +236,45 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
     let proposals: ProposalRecord[] = [];
 
     if (jobIds.length > 0) {
-      let db = supabase;
+      let rawData: ProposalDbRow[] | null = null;
+      let rawError: { message: string } | null = null;
+      let activeDbClient = supabase;
+
+      // 1. Try elevated admin client first to bypass RLS recursion
       try {
         const admin = getAdminSupabaseClient();
-        if (admin) db = admin;
-      } catch {
-        // Safe fallback to session client if service role key is unconfigured
+        if (admin) {
+          activeDbClient = admin;
+          const res = await admin
+            .from('proposals')
+            .select('*')
+            .in('job_id', jobIds)
+            .order('created_at', { ascending: false });
+          if (res.data && res.data.length > 0) {
+            rawData = res.data as ProposalDbRow[];
+          } else if (res.error) {
+            rawError = res.error;
+          }
+        }
+      } catch (err: unknown) {
+        console.warn('[CLIENT DASHBOARD] Admin client unavailable, falling back to session client:', err instanceof Error ? err.message : err);
       }
 
-      // Direct, resilient select from proposals table
-      const { data: rawData, error: rawError } = await db
-        .from('proposals')
-        .select('*')
-        .in('job_id', jobIds)
-        .order('created_at', { ascending: false });
+      // 2. Fallback to authenticated session client if admin returned nothing or is unconfigured
+      if (!rawData || rawData.length === 0) {
+        const sessionRes = await supabase
+          .from('proposals')
+          .select('*')
+          .in('job_id', jobIds)
+          .order('created_at', { ascending: false });
+        if (sessionRes.data && sessionRes.data.length > 0) {
+          rawData = sessionRes.data as ProposalDbRow[];
+        } else if (sessionRes.error) {
+          rawError = sessionRes.error;
+        }
+      }
 
-      if (rawError) {
+      if (rawError && (!rawData || rawData.length === 0)) {
         console.warn('[CLIENT DASHBOARD] Proposals fetch warning:', rawError.message);
       }
 
@@ -245,12 +294,12 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
         >();
 
         if (freelancerIds.length > 0) {
-          const { data: profs } = await db
+          const { data: profs } = await activeDbClient
             .from('profiles')
             .select('id, full_name, avatar_url, username, title, hourly_rate')
             .in('id', freelancerIds);
 
-          (profs || []).forEach((p) => profilesMap.set(p.id, p));
+          ((profs as RawProfileRow[]) || []).forEach((p) => profilesMap.set(p.id, p));
         }
 
         const jobsMap = new Map<string, ClientJobSummary>();
@@ -279,7 +328,7 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
             declinedReason: row.declined_reason || null,
             clientNotes: row.client_notes || null,
             createdAt: row.created_at,
-            updatedAt: row.updated_at,
+            updatedAt: row.updated_at || row.created_at,
           };
         });
       }
