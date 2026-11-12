@@ -80,6 +80,15 @@ export default function ClientDashboardPage() {
   const handleViewJobProposals = useCallback(async (job: { id: string; title: string }) => {
     setSelectedJobFilter(job);
     setActiveTab('proposals');
+
+    // Instantly show already-fetched proposals from dashboard data if available
+    const existing = dashboardData?.proposals?.filter((p) => p.jobId === job.id);
+    if (existing && existing.length > 0) {
+      setJobSpecificProposals(existing);
+      setJobProposalsError(null);
+      return;
+    }
+
     setLoadingJobProposals(true);
     setJobProposalsError(null);
 
@@ -90,14 +99,25 @@ export default function ClientDashboardPage() {
       if (res.ok && Array.isArray(data.proposals)) {
         setJobSpecificProposals(data.proposals);
       } else {
-        setJobProposalsError(data.error || 'Failed to retrieve proposals for this project.');
+        // Fallback to client proposals in memory if API call fails
+        if (dashboardData?.proposals) {
+          const matched = dashboardData.proposals.filter((p) => p.jobId === job.id);
+          setJobSpecificProposals(matched);
+        } else {
+          setJobProposalsError(data.error || 'Failed to retrieve proposals for this project.');
+        }
       }
     } catch {
-      setJobProposalsError('Network error while retrieving job proposals.');
+      if (dashboardData?.proposals) {
+        const matched = dashboardData.proposals.filter((p) => p.jobId === job.id);
+        setJobSpecificProposals(matched);
+      } else {
+        setJobProposalsError('Network error while retrieving job proposals.');
+      }
     } finally {
       setLoadingJobProposals(false);
     }
-  }, []);
+  }, [dashboardData]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
