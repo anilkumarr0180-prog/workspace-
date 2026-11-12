@@ -232,7 +232,13 @@ export async function createNotification(
   input: CreateNotificationInput
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
-    const admin = getAdminSupabaseClient();
+    let client;
+    try {
+      client = getAdminSupabaseClient();
+    } catch {
+      client = await createClient();
+    }
+
     const insertPayload: Record<string, unknown> = {
       user_id: input.userId,
       type: input.type,
@@ -245,7 +251,7 @@ export async function createNotification(
       insertPayload.idempotency_key = input.idempotencyKey;
     }
 
-    const { data, error } = await admin
+    const { data, error } = await client
       .from('notifications')
       .insert(insertPayload)
       .select('id')
