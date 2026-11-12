@@ -291,12 +291,6 @@ export default function FreelancerDashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Freelancer Hub
             </h1>
-            {dashboardData?.source === 'supabase' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live PostgreSQL Verified
-              </span>
-            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {profile?.fullName ? `Welcome back, ${profile.fullName}. ` : ''}
@@ -610,7 +604,7 @@ export default function FreelancerDashboardPage() {
             {loading ? (
               <div className="p-10 text-center space-y-3">
                 <div className="w-7 h-7 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs text-slate-500">Retrieving proposal records from Supabase...</p>
+                <p className="text-xs text-slate-500">Retrieving proposal records...</p>
               </div>
             ) : filteredProposals.length === 0 ? (
               <div className="p-10 text-center space-y-3">

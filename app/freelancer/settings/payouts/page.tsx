@@ -193,8 +193,8 @@ export default function FreelancerPayoutSettingsPage() {
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
               <span>Freelancer Payout & Linked Account</span>
-              <span className="px-2.5 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
-                MockRoute Sandbox
+              <span className="px-2.5 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Direct Deposit Payouts
               </span>
             </h1>
             <p className="text-xs text-slate-600">
@@ -229,8 +229,8 @@ export default function FreelancerPayoutSettingsPage() {
               Educational Freelance Marketplace Simulation
             </p>
             <p className="text-amber-800 leading-relaxed">
-              This platform uses an Upwork-inspired financial engine with simulated routing via <code className="bg-amber-100 px-1 py-0.5 rounded text-2xs font-mono font-semibold">MockRouteProvider</code>.
-              <strong> Never enter real bank account numbers, PAN credentials, or live financial data.</strong>
+              This platform uses an Upwork-inspired financial engine with secure automated escrow routing.
+              <strong> Never enter real bank account numbers, PAN credentials, or live financial data in test mode.</strong>
               All transfers, fee deductions (10% platform fee), and earnings settlements are safely simulated in isolated test mode.
             </p>
           </div>
@@ -421,7 +421,7 @@ export default function FreelancerPayoutSettingsPage() {
                         placeholder="e.g. ABCDE1234F"
                         className="w-full px-3.5 py-2.5 text-xs font-mono uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                       />
-                      <span className="text-3xs text-slate-500">Simulated test PAN for MockRoute KYC validation.</span>
+                      <span className="text-3xs text-slate-500">Test PAN for compliance KYC validation.</span>
                     </div>
                   </div>
 
@@ -434,12 +434,12 @@ export default function FreelancerPayoutSettingsPage() {
                       {isSaving ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Registering with MockRoute...</span>
+                          <span>Saving Payout Profile...</span>
                         </>
                       ) : (
                         <>
                           <ShieldCheck className="w-4 h-4" />
-                          <span>Save Simulated Payout Profile</span>
+                          <span>Save Payout Profile</span>
                         </>
                       )}
                     </button>

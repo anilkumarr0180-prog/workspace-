@@ -1031,7 +1031,7 @@ export default function ClientBillingPage() {
                                 {tx.paymentMethod === 'razorpay'
                                   ? 'Razorpay Test'
                                   : tx.paymentMethod === 'simulated'
-                                  ? 'Mock Deposit'
+                                  ? 'Test Escrow Deposit'
                                   : 'Escrow Ledger'}
                               </span>
                             </td>
@@ -1410,7 +1410,7 @@ export default function ClientBillingPage() {
               {/* Payment Method 2: Instant Simulated Funding */}
               {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true') && (
                 <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                  <span className="text-xs font-bold text-slate-800 block">Alternative: Direct Mock Deposit</span>
+                  <span className="text-xs font-bold text-slate-800 block">Alternative: Direct Test Escrow Deposit</span>
                   <button
                     type="button"
                     onClick={() => handleSimulatedFunding(selectedMilestoneForFund.id)}

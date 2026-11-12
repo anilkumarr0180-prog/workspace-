@@ -1883,11 +1883,11 @@ function ContractDetailsContent() {
               <div>
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 uppercase tracking-wider">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Immutable Simulated Ledger</span>
+                  <span>Verified Escrow Ledger</span>
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 mt-1">Transaction Audit Trail</h3>
                 <p className="text-xs text-slate-500">
-                  Every milestone deposit, platform fee, and net payout is recorded append-only in PostgreSQL.
+                  Every milestone deposit, platform fee, and net payout is recorded securely with escrow protection.
                 </p>
               </div>
 
@@ -2551,7 +2551,7 @@ function ContractDetailsContent() {
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-bold text-slate-800">Alternative: Direct Mock Deposit</span>
+                    <span className="text-xs font-bold text-slate-800">Alternative: Direct Test Escrow Deposit</span>
                     <p className="text-[11px] text-slate-500">
                       Simulate escrow funding immediately without opening the gateway modal.
                     </p>

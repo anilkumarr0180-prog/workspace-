@@ -867,7 +867,7 @@ export default function FreelancerTimeTrackingPage() {
               <li className="flex items-start gap-2">
                 <span className="text-emerald-600 font-bold">•</span>
                 <span>
-                  <strong>Server Timestamps:</strong> Elapsed duration is calculated securely by PostgreSQL using trusted server clocks.
+                  <strong>Server Timestamps:</strong> Elapsed duration is calculated securely using verified server clocks.
                 </span>
               </li>
               <li className="flex items-start gap-2">

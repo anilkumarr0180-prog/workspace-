@@ -37,7 +37,6 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [submissionSource, setSubmissionSource] = useState<'supabase' | 'local'>('local');
   const [apiErrorMessage, setApiErrorMessage] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -114,7 +113,6 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
       const data = await res.json();
 
       if (res.ok && data.success && data.proposal) {
-        setSubmissionSource('supabase');
         setIsSubmitted(true);
       } else if (res.status === 409) {
         setApiErrorMessage(data.error || 'You already have an active proposal submitted for this job.');
@@ -266,20 +264,8 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
               <div className="space-y-1">
                 <h4 className="text-xl font-bold text-slate-900">Proposal Sent Successfully!</h4>
                 <p className="text-sm text-slate-600 max-w-md mx-auto">
-                  Your proposal for <strong className="text-slate-800">{job.title}</strong> has been recorded {submissionSource === 'supabase' ? 'in the live database' : 'in the local demo session'}.
+                  Your proposal for <strong className="text-slate-800">{job.title}</strong> has been submitted to the client.
                 </p>
-              </div>
-
-              {/* Status Indicator */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center justify-center gap-2 max-w-md mx-auto">
-                {submissionSource === 'supabase' ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span><strong className="text-emerald-700">Live Database Connected:</strong> Proposal persisted to Supabase PostgreSQL.</span>
-                  </>
-                ) : (
-                  <span><strong>Local Session Mode:</strong> Proposal recorded in client state. Sign in with Supabase to submit live database bids.</span>
-                )}
               </div>
 
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 max-w-md mx-auto text-left text-xs space-y-2">
