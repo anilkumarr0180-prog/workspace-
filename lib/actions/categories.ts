@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/client';
 import { TaxonomyCategory, TaxonomySkill } from '@/lib/types';
 
 interface DbSkillRow {
@@ -30,7 +30,7 @@ export interface GetCategoriesResult {
  */
 export async function getCategories(): Promise<GetCategoriesResult> {
   try {
-    const supabase = await createClient();
+    const supabase = createClient();
 
     // 1. Query active categories and their relational skills from Supabase
     const { data: dbCategories, error: catError } = await supabase

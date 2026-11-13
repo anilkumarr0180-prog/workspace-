@@ -1,8 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
 import PromoBanner from '@/components/home/promo-banner';
 import UpworkHero from '@/components/home/upwork-hero';
 import TrustedBrands from '@/components/home/trusted-brands';
@@ -11,34 +9,7 @@ import FeaturedJobs from '@/components/home/featured-jobs';
 import FeaturedFreelancers from '@/components/home/featured-freelancers';
 import HowItWorksSection from '@/components/home/how-it-works-section';
 
-export default async function HomePage() {
-  try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('active_mode')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      const role = profile?.active_mode || (user.user_metadata?.role as string) || 'freelancer';
-      redirect(role === 'client' ? '/client' : '/freelancer');
-    }
-  } catch (err) {
-    if (
-      err &&
-      typeof err === 'object' &&
-      'digest' in err &&
-      typeof (err as { digest: string }).digest === 'string' &&
-      (err as { digest: string }).digest.startsWith('NEXT_REDIRECT')
-    ) {
-      throw err;
-    }
-    // Guest or unauthenticated - proceed to render home page
-  }
-
+export default function HomePage() {
   return (
     <div className="space-y-16 pb-20">
       {/* 1. Upwork Hero & Social Proof Section */}

@@ -733,6 +733,18 @@ export async function getContractWorkDiary(
     const { data: rawSlots, error: slotsErr } = await query;
 
     if (slotsErr) {
+      // If table is missing or schema cache is not yet refreshed, gracefully return empty diary instead of crashing the UI
+      const isMissingTableOrCache =
+        slotsErr.code === 'PGRST205' ||
+        slotsErr.code === '42P01' ||
+        slotsErr.message?.toLowerCase().includes('schema cache') ||
+        slotsErr.message?.toLowerCase().includes('does not exist') ||
+        slotsErr.details?.toLowerCase().includes('schema cache');
+
+      if (isMissingTableOrCache) {
+        return { success: true, slots: [], summary: emptySummary };
+      }
+
       return { success: false, slots: [], summary: emptySummary, error: slotsErr.message };
     }
 

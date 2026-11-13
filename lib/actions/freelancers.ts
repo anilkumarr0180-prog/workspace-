@@ -56,7 +56,7 @@ function mapProfileRowToFreelancer(row: DbProfileRow): Freelancer {
         .filter((name): name is string => Boolean(name))
     : [];
 
-  const hourlyRate = row.hourly_rate ? Number(row.hourly_rate) : 50;
+  const hourlyRate = row.hourly_rate ? Number(row.hourly_rate) : 0;
   const rating = row.rating ? Number(row.rating) : 5.0;
   const reviewCount = row.review_count ? Number(row.review_count) : 0;
   const totalEarningsNum = row.total_earnings ? Number(row.total_earnings) : 0;
@@ -76,19 +76,20 @@ function mapProfileRowToFreelancer(row: DbProfileRow): Freelancer {
   }
 
   // Fallback avatar using user initials if avatar_url is missing
+  const displayName = row.full_name || row.username || 'Specialist';
   const avatarUrl =
     row.avatar_url && row.avatar_url.trim().length > 0
       ? row.avatar_url
-      : `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80`;
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&size=256&bold=true`;
 
   return {
     id: row.id,
     username: row.username,
     name: row.full_name,
     avatarUrl,
-    title: row.title || 'Independent Professional',
+    title: row.title || 'Independent Specialist',
     tagline: row.title || 'Specialized Marketplace Talent',
-    bio: row.bio || 'Verified independent specialist on Workspace.',
+    bio: row.bio || 'Available for freelance contracts and project collaboration on Workspace.',
     hourlyRate,
     rating,
     reviewCount,
@@ -97,10 +98,10 @@ function mapProfileRowToFreelancer(row: DbProfileRow): Freelancer {
     location: 'Remote / Global',
     localTime: 'Flexible Timezone',
     totalEarnings: totalEarningsFormatted,
-    hoursWorked: Math.max(10, Math.round(totalEarningsNum / Math.max(hourlyRate, 20))),
+    hoursWorked: Math.max(10, Math.round(totalEarningsNum / Math.max(hourlyRate || 25, 20))),
     completedJobsCount: Math.max(reviewCount, totalEarningsNum > 0 ? 1 : 0),
     primaryCategory: 'Development & IT',
-    skills: skillsList.length > 0 ? skillsList : ['Full-Stack Development', 'TypeScript', 'Next.js'],
+    skills: skillsList.length > 0 ? skillsList : ['General Specialist'],
     availability: 'Available now',
     englishLevel: 'Fluent',
     portfolio: [],
@@ -337,9 +338,10 @@ export async function getFreelancerByUsername(
     }
 
     const supabase = await createClient();
-    const cleanUsername = username.trim();
+    const cleanIdentifier = username.trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanIdentifier);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select(`
         id,
@@ -361,10 +363,15 @@ export async function getFreelancerByUsername(
           )
         )
       `)
-      .ilike('username', cleanUsername)
-      .eq('can_work', true)
-      .eq('is_suspended', false)
-      .maybeSingle();
+      .eq('is_suspended', false);
+
+    if (isUuid) {
+      query = query.or(`id.eq.${cleanIdentifier},username.ilike.${cleanIdentifier}`);
+    } else {
+      query = query.ilike('username', cleanIdentifier);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (!error && data) {
       const skills: TaxonomySkill[] = Array.isArray(data.freelancer_skills)
@@ -375,8 +382,8 @@ export async function getFreelancerByUsername(
 
       const freelancer: PublicFreelancer = {
         id: data.id,
-        username: data.username,
-        fullName: data.full_name,
+        username: data.username || data.id,
+        fullName: data.full_name || 'Independent Specialist',
         avatarUrl: data.avatar_url,
         title: data.title,
         bio: data.bio,
@@ -399,7 +406,9 @@ export async function getFreelancerByUsername(
     // Only if a database/network error occurred during offline development, allow demo accounts
     if (error) {
       const fallback = INITIAL_FREELANCERS.find(
-        (f) => f.username.toLowerCase() === cleanUsername.toLowerCase()
+        (f) =>
+          f.username.toLowerCase() === cleanIdentifier.toLowerCase() ||
+          f.id.toLowerCase() === cleanIdentifier.toLowerCase()
       );
 
       if (fallback) {

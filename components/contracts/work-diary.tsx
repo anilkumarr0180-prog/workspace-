@@ -109,7 +109,16 @@ export default function WorkDiary({
             setSummary(res.summary);
             setError(null);
           } else {
-            setError(res.error || 'Failed to retrieve work diary');
+            // Gracefully handle missing table or schema cache notice as empty diary
+            if (
+              res.error?.toLowerCase().includes('schema cache') ||
+              res.error?.toLowerCase().includes('does not exist')
+            ) {
+              setSlots([]);
+              setError(null);
+            } else {
+              setError(res.error || 'Failed to retrieve work diary');
+            }
           }
         }
       } catch {

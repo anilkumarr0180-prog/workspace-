@@ -17,8 +17,35 @@ interface FreelancerCardProps {
   freelancer: Freelancer;
 }
 
+function getInitials(name: string): string {
+  const parts = (name || '').trim().split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return (name || '').slice(0, 2).toUpperCase() || 'U';
+}
+
+function getAvatarColor(name: string): string {
+  const colors = [
+    'bg-indigo-600',
+    'bg-emerald-600',
+    'bg-blue-600',
+    'bg-purple-600',
+    'bg-teal-600',
+    'bg-amber-600',
+    'bg-rose-600',
+    'bg-slate-800',
+  ];
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
   const [isContactOpen, setIsContactOpen] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   const getBadgeDisplay = (badge: string) => {
     switch (badge) {
@@ -56,12 +83,23 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
             <div className="flex items-start gap-4">
               <div className="relative shrink-0">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={freelancer.avatarUrl}
-                  alt={freelancer.name}
-                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white shadow-xs"
-                />
+                {freelancer.avatarUrl && !avatarError ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={freelancer.avatarUrl}
+                    alt={freelancer.name}
+                    onError={() => setAvatarError(true)}
+                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white shadow-xs"
+                  />
+                ) : (
+                  <div
+                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full ${getAvatarColor(
+                      freelancer.name
+                    )} text-white font-bold flex items-center justify-center text-lg sm:text-xl border-2 border-white shadow-xs select-none`}
+                  >
+                    {getInitials(freelancer.name)}
+                  </div>
+                )}
                 <span
                   className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"
                   title="Available for projects"
@@ -100,8 +138,14 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
             {/* Rate & Job Success */}
             <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1 shrink-0 bg-slate-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
               <div className="text-right">
-                <span className="text-xl font-bold text-slate-900">${freelancer.hourlyRate}</span>
-                <span className="text-xs text-slate-500 font-medium">/hr</span>
+                {freelancer.hourlyRate > 0 ? (
+                  <>
+                    <span className="text-xl font-bold text-slate-900">${freelancer.hourlyRate}</span>
+                    <span className="text-xs text-slate-500 font-medium">/hr</span>
+                  </>
+                ) : (
+                  <span className="text-sm font-bold text-slate-700">Rate Negotiable</span>
+                )}
               </div>
 
               <div className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">

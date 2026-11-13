@@ -86,8 +86,8 @@ export async function proxy(request: NextRequest) {
       return redirectResponse;
     }
 
-    // If authenticated user visits login page, redirect to their role dashboard
-    if (pathname === '/login') {
+    // If authenticated user visits login page or root homepage, redirect to their role dashboard
+    if (pathname === '/login' || pathname === '/') {
       const targetDashboard = role === 'client' ? '/client' : '/freelancer';
       const redirectResponse = NextResponse.redirect(new URL(targetDashboard, request.url));
       copyCookies(supabaseResponse, redirectResponse);
