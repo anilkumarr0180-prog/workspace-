@@ -1,48 +1,43 @@
-'use client';
-
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { redirect } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
+import { createClient } from '@/lib/supabase/server';
 import PromoBanner from '@/components/home/promo-banner';
 import UpworkHero from '@/components/home/upwork-hero';
 import TrustedBrands from '@/components/home/trusted-brands';
 import SpecializationCategories from '@/components/home/specialization-categories';
 import FeaturedJobs from '@/components/home/featured-jobs';
 import FeaturedFreelancers from '@/components/home/featured-freelancers';
+import HowItWorksSection from '@/components/home/how-it-works-section';
 
-export default function HomePage() {
-  const router = useRouter();
-  const [howItWorksTab, setHowItWorksTab] = useState<'clients' | 'freelancers'>('clients');
+export default async function HomePage() {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  useEffect(() => {
-    let isMounted = true;
-    async function checkUserSession() {
-      try {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getUser();
-        if (data?.user && isMounted) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('active_mode')
-            .eq('id', data.user.id)
-            .maybeSingle();
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('active_mode')
+        .eq('id', user.id)
+        .maybeSingle();
 
-          if (!isMounted) return;
-          const role = profile?.active_mode || (data.user.user_metadata?.role as string) || 'freelancer';
-          router.replace(role === 'client' ? '/client' : '/freelancer');
-        }
-      } catch {
-        // Guest user or network failure - continue rendering public homepage
-      }
+      const role = profile?.active_mode || (user.user_metadata?.role as string) || 'freelancer';
+      redirect(role === 'client' ? '/client' : '/freelancer');
     }
-    checkUserSession();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [router]);
+  } catch (err) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'digest' in err &&
+      typeof (err as { digest: string }).digest === 'string' &&
+      (err as { digest: string }).digest.startsWith('NEXT_REDIRECT')
+    ) {
+      throw err;
+    }
+    // Guest or unauthenticated - proceed to render home page
+  }
 
   return (
     <div className="space-y-16 pb-20">
@@ -63,133 +58,7 @@ export default function HomePage() {
       <FeaturedFreelancers />
 
       {/* 5. How It Works Section */}
-      <section className="bg-white border-y border-slate-200/80 py-16">
-        <div className="max-w-[1140px] mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto mb-10">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-              Transparent & Secure
-            </span>
-            <h2 className="text-3xl font-bold text-slate-900 mt-1">
-              How Workspace Works
-            </h2>
-            <p className="text-sm text-slate-600 mt-2">
-              A frictionless workflow designed for quality, accountability, and peace of mind.
-            </p>
-
-            {/* Toggle Tabs */}
-            <div className="inline-flex p-1 bg-slate-100 rounded-xl mt-6">
-              <button
-                onClick={() => setHowItWorksTab('clients')}
-                type="button"
-                className={`px-5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  howItWorksTab === 'clients'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                For Organizations & Clients
-              </button>
-              <button
-                onClick={() => setHowItWorksTab('freelancers')}
-                type="button"
-                className={`px-5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  howItWorksTab === 'freelancers'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                For Independent Talent
-              </button>
-            </div>
-          </div>
-
-          {howItWorksTab === 'clients' ? (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  1
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Post Your Project</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Detail your scope, deliverables, timeline, and budget (fixed-price or hourly rate).
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  2
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Review Proposals</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Compare verified portfolios, ratings, and custom bids from top-tier specialists.
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  3
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Fund Milestones</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Deposit funds safely into escrow. Money is only released when you inspect and approve deliverables.
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  4
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Collaborate & Scale</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Track real-time progress, leave verified reviews, and rehire your favorite specialists with one click.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  1
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Build Your Profile</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Highlight your core tech stack, real portfolio case studies, and verifiable professional achievements.
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  2
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Submit High-Value Bids</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Browse matching client projects, define your exact milestones, and propose tailored solutions.
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  3
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Deliver Quality Work</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Work directly with decision makers with full payment protection funded upfront in escrow.
-                </p>
-              </div>
-
-              <div className="bg-slate-50/70 rounded-xl p-6 border border-slate-200/70 space-y-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                  4
-                </div>
-                <h4 className="font-bold text-slate-900 text-base">Get Paid On Time</h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Enjoy reliable payouts, build your Job Success Score, and unlock Top Rated Plus status perks.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      <HowItWorksSection />
 
       {/* 6. Dual CTA Section */}
       <section className="max-w-[1140px] mx-auto px-4 sm:px-6">

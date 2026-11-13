@@ -102,3 +102,8 @@ BEGIN
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION public.create_or_get_direct_conversation(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_or_get_direct_conversation(UUID, TEXT) TO service_role;
+
+NOTIFY pgrst, 'reload schema';
+
