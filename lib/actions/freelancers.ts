@@ -337,9 +337,10 @@ export async function getFreelancerByUsername(
     }
 
     const supabase = await createClient();
-    const cleanUsername = username.trim();
+    const cleanIdentifier = username.trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanIdentifier);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select(`
         id,
@@ -361,10 +362,15 @@ export async function getFreelancerByUsername(
           )
         )
       `)
-      .ilike('username', cleanUsername)
-      .eq('can_work', true)
-      .eq('is_suspended', false)
-      .maybeSingle();
+      .eq('is_suspended', false);
+
+    if (isUuid) {
+      query = query.or(`id.eq.${cleanIdentifier},username.ilike.${cleanIdentifier}`);
+    } else {
+      query = query.ilike('username', cleanIdentifier);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (!error && data) {
       const skills: TaxonomySkill[] = Array.isArray(data.freelancer_skills)
@@ -375,8 +381,8 @@ export async function getFreelancerByUsername(
 
       const freelancer: PublicFreelancer = {
         id: data.id,
-        username: data.username,
-        fullName: data.full_name,
+        username: data.username || data.id,
+        fullName: data.full_name || 'Independent Specialist',
         avatarUrl: data.avatar_url,
         title: data.title,
         bio: data.bio,
@@ -399,7 +405,9 @@ export async function getFreelancerByUsername(
     // Only if a database/network error occurred during offline development, allow demo accounts
     if (error) {
       const fallback = INITIAL_FREELANCERS.find(
-        (f) => f.username.toLowerCase() === cleanUsername.toLowerCase()
+        (f) =>
+          f.username.toLowerCase() === cleanIdentifier.toLowerCase() ||
+          f.id.toLowerCase() === cleanIdentifier.toLowerCase()
       );
 
       if (fallback) {
