@@ -150,20 +150,22 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
   }
 
   try {
-    // 1. Fetch Client Profile
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, full_name, username, total_spent, rating, review_count')
-      .eq('id', user.id)
-      .maybeSingle();
+    // 1 & 2. Fetch Client Profile & User Companies concurrently
+    const [profileRes, userCompaniesRes] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, full_name, username, total_spent, rating, review_count')
+        .eq('id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('company_members')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin', 'hiring_manager']),
+    ]);
 
-    // 2. Fetch User Companies (Hiring authority)
-    const { data: userCompanies } = await supabase
-      .from('company_members')
-      .select('company_id')
-      .eq('user_id', user.id)
-      .in('role', ['owner', 'admin', 'hiring_manager']);
-
+    const profile = profileRes.data;
+    const userCompanies = userCompaniesRes.data;
     const companyIds = (userCompanies || []).map((c) => c.company_id);
 
     // 3. Fetch Client Jobs (all statuses owned by client or client's companies)
@@ -238,39 +240,35 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
     if (jobIds.length > 0) {
       let rawData: ProposalDbRow[] | null = null;
       let rawError: { message: string } | null = null;
-      let activeDbClient = supabase;
 
-      // 1. Try elevated admin client first to bypass RLS recursion
-      try {
-        const admin = getAdminSupabaseClient();
-        if (admin) {
-          activeDbClient = admin;
-          const res = await admin
-            .from('proposals')
-            .select('*')
-            .in('job_id', jobIds)
-            .order('created_at', { ascending: false });
-          if (res.data && res.data.length > 0) {
-            rawData = res.data as ProposalDbRow[];
-          } else if (res.error) {
-            rawError = res.error;
+      // 1. Direct fetch via authenticated session client (fast & verified by RLS)
+      const sessionRes = await supabase
+        .from('proposals')
+        .select('*')
+        .in('job_id', jobIds)
+        .order('created_at', { ascending: false });
+
+      if (sessionRes.data && sessionRes.data.length > 0) {
+        rawData = sessionRes.data as ProposalDbRow[];
+      } else if (sessionRes.error) {
+        rawError = sessionRes.error;
+
+        // 2. Fallback to admin client only if session client failed due to permission/recursion
+        try {
+          const admin = getAdminSupabaseClient();
+          if (admin) {
+            const adminRes = await admin
+              .from('proposals')
+              .select('*')
+              .in('job_id', jobIds)
+              .order('created_at', { ascending: false });
+            if (adminRes.data && adminRes.data.length > 0) {
+              rawData = adminRes.data as ProposalDbRow[];
+              rawError = null;
+            }
           }
-        }
-      } catch (err: unknown) {
-        console.warn('[CLIENT DASHBOARD] Admin client unavailable, falling back to session client:', err instanceof Error ? err.message : err);
-      }
-
-      // 2. Fallback to authenticated session client if admin returned nothing or is unconfigured
-      if (!rawData || rawData.length === 0) {
-        const sessionRes = await supabase
-          .from('proposals')
-          .select('*')
-          .in('job_id', jobIds)
-          .order('created_at', { ascending: false });
-        if (sessionRes.data && sessionRes.data.length > 0) {
-          rawData = sessionRes.data as ProposalDbRow[];
-        } else if (sessionRes.error) {
-          rawError = sessionRes.error;
+        } catch {
+          // admin unavailable
         }
       }
 
@@ -294,7 +292,7 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
         >();
 
         if (freelancerIds.length > 0) {
-          const { data: profs } = await activeDbClient
+          const { data: profs } = await supabase
             .from('profiles')
             .select('id, full_name, avatar_url, username, title, hourly_rate')
             .in('id', freelancerIds);

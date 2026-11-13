@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProposalRecord } from '@/lib/actions/proposals';
@@ -31,10 +31,32 @@ import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 import ContactModal from '@/components/freelancers/contact-modal';
 import HireOfferModal from '@/components/jobs/hire-offer-modal';
 
+const DASHBOARD_CACHE_KEY = 'workspace_client_dashboard_cache';
+
 export default function ClientDashboardPage() {
   const router = useRouter();
-  const [dashboardData, setDashboardData] = useState<ClientDashboardResult | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [dashboardData, setDashboardData] = useState<ClientDashboardResult | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (cached) return JSON.parse(cached);
+      } catch {
+        // Safe cache fallback
+      }
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return !sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  });
+  const [isRevalidating, setIsRevalidating] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'published' | 'proposals' | 'drafts' | 'completed'>('published');
@@ -132,15 +154,32 @@ export default function ClientDashboardPage() {
 
   const [refreshIndex, setRefreshIndex] = useState(0);
 
+  const hasCachedData = useRef(!!dashboardData);
+  useEffect(() => {
+    if (dashboardData) {
+      hasCachedData.current = true;
+    }
+  }, [dashboardData]);
+
   // Fetch real client dashboard data from Supabase
   useEffect(() => {
     let isCancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 12000);
 
     async function fetchDashboard() {
-      setLoading(true);
+      if (!hasCachedData.current) {
+        setLoading(true);
+      }
+      setIsRevalidating(true);
       setFetchError(null);
       try {
-        const res = await fetch('/api/client/dashboard');
+        const res = await fetch('/api/client/dashboard', {
+          signal: controller.signal,
+          headers: { 'Cache-Control': 'no-cache' },
+        });
         if (isCancelled) return;
 
         if (res.status === 401) {
@@ -153,16 +192,30 @@ export default function ClientDashboardPage() {
 
         if (res.ok && data.success) {
           setDashboardData(data);
+          hasCachedData.current = true;
+          try {
+            sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data));
+          } catch {
+            // Safe fallback if sessionStorage is restricted or full
+          }
         } else {
-          setFetchError(data.error || 'Failed to retrieve client dashboard records.');
+          if (!hasCachedData.current) {
+            setFetchError(data.error || 'Failed to retrieve client dashboard records.');
+          }
         }
-      } catch {
+      } catch (err: unknown) {
         if (!isCancelled) {
-          setFetchError('Network error while connecting to Supabase database.');
+          if (err instanceof Error && err.name === 'AbortError') {
+            console.warn('[CLIENT DASHBOARD] Request timed out, displaying cached records.');
+          } else if (!hasCachedData.current) {
+            setFetchError('Network error while connecting to Supabase database.');
+          }
         }
       } finally {
+        clearTimeout(timeoutId);
         if (!isCancelled) {
           setLoading(false);
+          setIsRevalidating(false);
         }
       }
     }
@@ -171,6 +224,8 @@ export default function ClientDashboardPage() {
 
     return () => {
       isCancelled = true;
+      controller.abort();
+      clearTimeout(timeoutId);
     };
   }, [refreshIndex]);
 
@@ -492,11 +547,11 @@ export default function ClientDashboardPage() {
           <button
             onClick={handleRefresh}
             type="button"
-            disabled={loading}
+            disabled={loading && !dashboardData}
             className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
             title="Refresh dashboard data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isRevalidating || loading ? 'animate-spin' : ''}`} />
           </button>
           <Link
             href="/client/jobs/new"
@@ -548,7 +603,7 @@ export default function ClientDashboardPage() {
             </div>
           </div>
           <div className="mt-3">
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
@@ -581,7 +636,7 @@ export default function ClientDashboardPage() {
             </div>
           </div>
           <div className="mt-3">
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
@@ -604,7 +659,7 @@ export default function ClientDashboardPage() {
             </div>
           </div>
           <div className="mt-3">
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
@@ -627,7 +682,7 @@ export default function ClientDashboardPage() {
             </div>
           </div>
           <div className="mt-3">
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
@@ -711,7 +766,7 @@ export default function ClientDashboardPage() {
             </div>
 
             {/* Tab content */}
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="p-12 text-center space-y-3">
                 <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
                 <p className="text-xs text-slate-500">Loading client dashboard...</p>
@@ -1345,7 +1400,7 @@ export default function ClientDashboardPage() {
               <span>Recent Activity</span>
             </div>
 
-            {loading ? (
+            {loading && !dashboardData ? (
               <div className="space-y-3 py-2">
                 <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
                 <div className="h-3 bg-slate-100 rounded animate-pulse w-1/2" />
