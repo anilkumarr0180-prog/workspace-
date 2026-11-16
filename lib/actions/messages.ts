@@ -44,6 +44,7 @@ export interface SendMessageResult {
 export interface GetMessagesOptions {
   limit?: number;
   before?: string; // cursor (ISO timestamp or message ID)
+  after?: string;  // fetch messages created after this timestamp
 }
 
 export interface GetMessagesResult {
@@ -256,11 +257,28 @@ export async function createOrGetConversation(params: {
 
         const { data: contract } = await dbClient
           .from('contracts')
-          .select('id, job_id, client_id, freelancer_id, title')
+          .select('id, proposal_id, job_id, client_id, freelancer_id, title')
           .eq('id', params.contractId)
           .single();
 
         if (contract) {
+          // If a conversation already exists for the proposal or job, attach this contract to it
+          if (contract.proposal_id) {
+            const { data: propConv } = await dbClient
+              .from('conversations')
+              .select('id')
+              .eq('proposal_id', contract.proposal_id)
+              .maybeSingle();
+
+            if (propConv?.id) {
+              await dbClient
+                .from('conversations')
+                .update({ contract_id: contract.id })
+                .eq('id', propConv.id);
+              return { success: true, conversationId: propConv.id };
+            }
+          }
+
           const { data: newConv } = await dbClient
             .from('conversations')
             .insert({
@@ -571,10 +589,32 @@ export async function getConversations(
       }
     );
 
+    // Deduplicate duplicate conversations between the same parties for the same job
+    const deduplicatedMap = new Map<string, Conversation>();
+    for (const c of mapped) {
+      const otherId = c.otherParticipant?.userId || c.id;
+      const jobKey = c.jobId || c.jobTitle || 'general';
+      const key = `${otherId}::${jobKey}`;
+      const existing = deduplicatedMap.get(key);
+      if (!existing) {
+        deduplicatedMap.set(key, c);
+      } else {
+        // Prefer the one with an active contract, or whichever has the newer message
+        if (c.contractId && !existing.contractId) {
+          deduplicatedMap.set(key, c);
+        } else if (!c.contractId && existing.contractId) {
+          // keep existing
+        } else if (new Date(c.lastMessageAt).getTime() > new Date(existing.lastMessageAt).getTime()) {
+          deduplicatedMap.set(key, c);
+        }
+      }
+    }
+    const finalConversations = Array.from(deduplicatedMap.values());
+
     // Filter by search query if provided
     if (options.search && options.search.trim()) {
       const q = options.search.trim().toLowerCase();
-      const filtered = mapped.filter(
+      const filtered = finalConversations.filter(
         (c) =>
           c.otherParticipant?.fullName.toLowerCase().includes(q) ||
           c.otherParticipant?.username.toLowerCase().includes(q) ||
@@ -584,7 +624,7 @@ export async function getConversations(
       return { success: true, conversations: filtered };
     }
 
-    return { success: true, conversations: mapped };
+    return { success: true, conversations: finalConversations };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch conversations';
     return { success: false, conversations: [], error: msg };
@@ -730,7 +770,7 @@ export async function getMessages(
   conversationId: string,
   options: GetMessagesOptions = {}
 ): Promise<GetMessagesResult> {
-  const { limit = 40, before } = options;
+  const { limit = 40, before, after } = options;
 
   try {
     if (!UUID_REGEX.test(conversationId)) {
@@ -782,12 +822,21 @@ export async function getMessages(
           username
         )
       `)
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(limit + 1);
+      .eq('conversation_id', conversationId);
 
-    if (before) {
-      query = query.lt('created_at', before);
+    if (after) {
+      query = query
+        .gt('created_at', after)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+    } else {
+      query = query
+        .order('created_at', { ascending: false })
+        .limit(limit + 1);
+
+      if (before) {
+        query = query.lt('created_at', before);
+      }
     }
 
     const { data: rawMessages, error: msgError } = await query;
@@ -796,11 +845,11 @@ export async function getMessages(
       return { success: false, messages: [], hasMore: false, error: msgError.message };
     }
 
-    const hasMore = (rawMessages || []).length > limit;
+    const hasMore = after ? false : (rawMessages || []).length > limit;
     const sliced = hasMore ? (rawMessages || []).slice(0, limit) : rawMessages || [];
 
-    // Reverse to chronological order (oldest to newest)
-    const chronological = sliced.slice().reverse();
+    // Chronological order (oldest to newest)
+    const chronological = after ? sliced : sliced.slice().reverse();
 
     // Generate signed URLs for attachments if present
     const admin = getAdminSupabaseClient();

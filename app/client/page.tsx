@@ -222,10 +222,16 @@ export default function ClientDashboardPage() {
 
     fetchDashboard();
 
+    const onWindowFocus = () => {
+      fetchDashboard();
+    };
+    window.addEventListener('focus', onWindowFocus);
+
     return () => {
       isCancelled = true;
       controller.abort();
       clearTimeout(timeoutId);
+      window.removeEventListener('focus', onWindowFocus);
     };
   }, [refreshIndex]);
 
@@ -460,7 +466,23 @@ export default function ClientDashboardPage() {
     }
   };
 
-  const getProposalStatusBadge = (status: string) => {
+  const getProposalStatusBadge = (status: string, contractStatus?: string | null) => {
+    if (contractStatus === 'pending_offer') {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+          <Clock className="w-3 h-3 text-amber-600" />
+          <span>Offer Sent</span>
+        </span>
+      );
+    }
+    if (contractStatus === 'active') {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+          <span>Hired</span>
+        </span>
+      );
+    }
     switch (status) {
       case 'under_review':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Under Review</span>;
@@ -1163,7 +1185,7 @@ export default function ClientDashboardPage() {
                                     </span>
                                   </button>
 
-                                  <div>{getProposalStatusBadge(prop.status)}</div>
+                                  <div>{getProposalStatusBadge(prop.status, prop.contractStatus)}</div>
                                 </div>
                               </div>
 
@@ -1243,17 +1265,36 @@ export default function ClientDashboardPage() {
                                       )}
 
                                       {/* Upwork Hire / Make Formal Offer Button */}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setProposalForHire(prop);
-                                          setIsHireModalOpen(true);
-                                        }}
-                                        className="px-3 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors shadow-2xs flex items-center gap-1 cursor-pointer"
-                                      >
-                                        <Briefcase className="w-3 h-3" />
-                                        <span>Hire / Offer</span>
-                                      </button>
+                                      {prop.contractStatus === 'pending_offer' ? (
+                                        <Link
+                                          href={`/contracts/${prop.contractId || ''}`}
+                                          className="px-3 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                                          title="Contract offer dispatched. Awaiting freelancer review and acceptance."
+                                        >
+                                          <Clock className="w-3 h-3 text-amber-600" />
+                                          <span>Offer Pending</span>
+                                        </Link>
+                                      ) : prop.contractStatus === 'active' || prop.status === 'accepted' ? (
+                                        <Link
+                                          href={`/contracts/${prop.contractId || ''}`}
+                                          className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                          <span>Hired (Active Contract)</span>
+                                        </Link>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setProposalForHire(prop);
+                                            setIsHireModalOpen(true);
+                                          }}
+                                          className="px-3 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors shadow-2xs flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Briefcase className="w-3 h-3" />
+                                          <span>Hire / Offer</span>
+                                        </button>
+                                      )}
 
                                       {/* Upwork Decline with Reason Modal Trigger */}
                                       <button
@@ -1501,9 +1542,26 @@ export default function ClientDashboardPage() {
             setIsHireModalOpen(false);
             setProposalForHire(null);
           }}
-          onOfferSent={() => {
+          onOfferSent={(contractId) => {
             setIsHireModalOpen(false);
+            if (proposalForHire) {
+              const pId = proposalForHire.id;
+              setDashboardData((prev) => {
+                if (!prev || !prev.proposals) return prev;
+                return {
+                  ...prev,
+                  proposals: prev.proposals.map((p) =>
+                    p.id === pId ? { ...p, contractId, contractStatus: 'pending_offer' } : p
+                  ),
+                };
+              });
+            }
             setProposalForHire(null);
+            try {
+              sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+            } catch {
+              // ignore
+            }
             showToast('Formal contract offer sent to candidate!');
             handleRefresh();
           }}

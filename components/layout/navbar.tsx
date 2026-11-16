@@ -111,7 +111,13 @@ export default function Navbar() {
     };
 
     fetchUnread();
-    const interval = setInterval(fetchUnread, 30000);
+    const interval = setInterval(fetchUnread, 5000);
+
+    const onWindowFocus = () => {
+      fetchUnread();
+    };
+    window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('workspace:unread-messages-refresh', fetchUnread);
 
     // Global Presence: Broadcast that current user is online across the entire application
     const presenceChannel = supabase.channel('global-presence', {
@@ -195,6 +201,8 @@ export default function Navbar() {
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener('workspace:unread-messages-refresh', fetchUnread);
       presenceChannel.unsubscribe();
       notifChannel.unsubscribe();
     };

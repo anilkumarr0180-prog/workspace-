@@ -162,14 +162,20 @@ export default function ChatWindow({
 
   // Handle typing debounce
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value);
+    const val = e.target.value;
+    setInputText(val);
     setErrorMessage(null);
 
-    onTyping(true);
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => {
+    if (val.trim().length > 0) {
+      onTyping(true);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        onTyping(false);
+      }, 1500);
+    } else {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       onTyping(false);
-    }, 2000);
+    }
   };
 
   // Handle key press (Enter sends, Shift+Enter for newline, checking composition for IME)
@@ -964,6 +970,10 @@ export default function ChatWindow({
               value={inputText}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              onBlur={() => {
+                if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                onTyping(false);
+              }}
               placeholder={`Write a message to ${other?.fullName || 'participant'}... (Shift+Enter for newline)`}
               disabled={isSubmitting}
               className="w-full py-1 px-1 bg-transparent text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-hidden resize-none max-h-36 min-h-[48px] leading-relaxed"

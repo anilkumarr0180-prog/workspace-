@@ -123,6 +123,7 @@ export default function MessagesShell({
     isUserOnline,
     otherParticipantLastRead,
     sendTypingStatus,
+    broadcastMessage,
     addOptimisticMessage,
     replaceOptimisticMessage,
     removeOptimisticMessage,
@@ -158,8 +159,44 @@ export default function MessagesShell({
         const others = prev.filter((_, idx) => idx !== convIndex);
         return [updated, ...others];
       });
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+      }
     },
   });
+
+  // Background polling and focus sync for conversation sidebar list
+  useEffect(() => {
+    let isCancelled = false;
+
+    const syncConversations = async () => {
+      try {
+        const res = await fetch('/api/messages', {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (res.ok && !isCancelled) {
+          const data = await res.json();
+          if (Array.isArray(data.conversations)) {
+            setConversations(data.conversations);
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+
+    const interval = setInterval(syncConversations, 4000);
+    const onFocus = () => syncConversations();
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   // Handle selecting a conversation
   const handleSelectConversation = useCallback(
@@ -250,6 +287,15 @@ export default function MessagesShell({
 
         // 2. Reconcile with server response
         replaceOptimisticMessage(tempId, data.message);
+
+        // Broadcast confirmed message to other participants instantly over WebSocket
+        if (data.message) {
+          broadcastMessage(data.message);
+        }
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+        }
 
         // 3. Update conversation preview
         setConversations((prev) => {

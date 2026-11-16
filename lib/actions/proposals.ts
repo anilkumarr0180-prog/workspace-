@@ -32,6 +32,8 @@ export interface ProposalRecord {
   declinedReason?: string | null;
   clientNotes?: string | null;
   jobStatus?: string;
+  contractId?: string | null;
+  contractStatus?: 'pending_offer' | 'active' | 'completed' | 'declined' | null;
   createdAt: string;
   updatedAt: string;
 }

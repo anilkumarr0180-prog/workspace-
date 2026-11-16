@@ -9,7 +9,6 @@ import {
   Image as ImageIcon,
   Briefcase,
   ShieldCheck,
-  ChevronRight,
 } from 'lucide-react';
 
 interface MessagesInboxProps {
@@ -116,7 +115,23 @@ export default function MessagesInbox({
         groupMap.set(key, group);
       }
 
-      group.conversations.push(conv);
+      // If a conversation for the same job already exists in this group, coalesce it
+      const existingConvIndex = group.conversations.findIndex(
+        (existing) =>
+          (conv.jobId && existing.jobId === conv.jobId) ||
+          (conv.jobTitle && existing.jobTitle === conv.jobTitle)
+      );
+
+      if (existingConvIndex !== -1) {
+        const existing = group.conversations[existingConvIndex];
+        if (conv.contractId && !existing.contractId) {
+          group.conversations[existingConvIndex] = conv;
+        } else if (new Date(conv.lastMessageAt).getTime() > new Date(existing.lastMessageAt).getTime()) {
+          group.conversations[existingConvIndex] = conv;
+        }
+      } else {
+        group.conversations.push(conv);
+      }
       group.totalUnreadCount += conv.unreadCount || 0;
 
       if (conv.id === activeConversationId) {
@@ -332,25 +347,20 @@ export default function MessagesInbox({
                       </span>
                     </div>
 
-                    {/* Single conversation project badge */}
-                    {!hasMultiple && (
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {primaryConv.contractId ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 truncate max-w-full">
-                            <ShieldCheck className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
-                            <span className="truncate">{primaryConv.contractTitle || 'Contract'}</span>
-                            <span className="text-[9px] text-emerald-600/90 font-mono shrink-0">
-                              #{primaryConv.contractId.slice(0, 4)}
-                            </span>
-                          </span>
-                        ) : primaryConv.jobTitle ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60 truncate max-w-full">
-                            <Briefcase className="w-2.5 h-2.5 text-slate-500 shrink-0" />
-                            <span className="truncate">{primaryConv.jobTitle}</span>
-                          </span>
-                        ) : null}
-                      </div>
-                    )}
+                    {/* Workroom Project Badge */}
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {primaryConv.contractId ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/70 truncate max-w-full">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">{primaryConv.contractTitle || primaryConv.jobTitle || 'Active Contract'}</span>
+                        </span>
+                      ) : primaryConv.jobTitle ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/70 truncate max-w-full">
+                          <Briefcase className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                          <span className="truncate">{primaryConv.jobTitle}</span>
+                        </span>
+                      ) : null}
+                    </div>
 
                     {/* Message Snippet */}
                     <div className="flex items-center justify-between gap-2 mt-1">
@@ -392,74 +402,6 @@ export default function MessagesInbox({
                     </div>
                   </div>
                 </button>
-
-                {/* Multi-Project Workroom Sub-List (Clean Upwork-Style Nested Rooms) */}
-                {hasMultiple && (
-                  <div className="px-3 pb-3 pt-0">
-                    <div className="p-2 rounded-xl bg-slate-50/80 border border-slate-200/70 space-y-1.5">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between px-1">
-                        <span>Workrooms with {group.fullName.split(' ')[0]}</span>
-                        <span className="text-[9px] text-slate-400 font-normal">Select active room</span>
-                      </div>
-
-                      <div className="space-y-1">
-                        {group.conversations.map((c) => {
-                          const isSelected = c.id === activeConversationId;
-                          const label = c.contractTitle || c.jobTitle || 'General Discussion';
-                          const shortTag = c.contractId ? `#${c.contractId.slice(0, 4)}` : `#${c.id.slice(0, 4)}`;
-
-                          return (
-                            <button
-                              key={c.id}
-                              type="button"
-                              id={`conversation-item-${c.id}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSelectConversation(c.id);
-                              }}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                                isSelected
-                                  ? 'bg-[#14a800] text-white shadow-2xs font-semibold'
-                                  : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/60 font-medium'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                {c.contractId ? (
-                                  <ShieldCheck
-                                    className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-white' : 'text-emerald-600'}`}
-                                  />
-                                ) : (
-                                  <Briefcase
-                                    className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-white' : 'text-slate-500'}`}
-                                  />
-                                )}
-                                <span className="truncate">{label}</span>
-                                <span
-                                  className={`text-[10px] font-mono shrink-0 ${
-                                    isSelected ? 'text-emerald-100' : 'text-slate-400'
-                                  }`}
-                                >
-                                  {shortTag}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                {c.unreadCount > 0 && (
-                                  <span className="min-w-4 h-4 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                                    {c.unreadCount}
-                                  </span>
-                                )}
-                                <ChevronRight
-                                  className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-slate-400'}`}
-                                />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })
