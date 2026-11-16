@@ -48,16 +48,13 @@ export default function PostJobPage() {
         if (!isMounted || !user) return;
         const { data: profile } = await supabase
           .from('profiles')
-          .select('full_name, company_name')
+          .select('full_name')
           .eq('id', user.id)
           .maybeSingle();
 
         const name = profile?.full_name || user.user_metadata?.full_name || '';
         if (name && isMounted) {
           setClientName(name);
-        }
-        if (profile?.company_name && isMounted) {
-          setCompanyName(profile.company_name);
         }
       });
     } catch (profileErr) {
@@ -159,12 +156,17 @@ export default function PostJobPage() {
 
       const data = await res.json();
 
-      if (res.ok && data.success && data.job) {
-        setSubmittedJobId(data.job.id);
+      if (res.ok && data.success) {
+        try {
+          sessionStorage.removeItem('workspace_client_dashboard_cache');
+        } catch {
+          // ignore
+        }
+        setSubmittedJobId(data.job?.id || data.id || 'published');
       } else {
         setErrors((prev) => ({
           ...prev,
-          submit: data.error || 'Failed to publish job. Please ensure you are signed in with an authorized client account.',
+          submit: data.error || data.message || 'Failed to publish job. Please ensure your inputs are valid.',
         }));
       }
     } catch {

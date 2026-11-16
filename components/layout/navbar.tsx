@@ -361,8 +361,12 @@ export default function Navbar() {
         setProfile((prev) => (prev ? { ...prev, active_mode: nextRole } : null));
         setProfileMenuOpen(false);
         setMobileMenuOpen(false);
-        router.push(nextRole === 'client' ? '/client' : '/freelancer');
-        router.refresh();
+        try {
+          sessionStorage.removeItem('workspace_client_dashboard_cache');
+        } catch {
+          // ignore
+        }
+        window.location.href = nextRole === 'client' ? '/client' : '/freelancer';
       } else {
         setRoleSwitchError(res.error || 'Failed to switch role.');
       }

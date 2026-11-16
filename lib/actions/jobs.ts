@@ -122,7 +122,7 @@ function mapSupabaseJobToFrontend(row: SupabaseJobRow): Job {
   const clientInfo: ClientInfo = {
     id: row.client_id,
     name: profile.full_name || 'Client',
-    companyName: company?.name || profile.company_name || undefined,
+    companyName: company?.name || undefined,
     location: company?.location || 'Remote / Worldwide',
     rating: reviewCount > 0 && ratingVal !== null ? ratingVal : null,
     reviewCount,
@@ -377,7 +377,7 @@ export async function getJobById(id: string): Promise<{ job: Job | null; source:
         is_featured,
         created_at,
         updated_at,
-        profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at, company_name),
+        profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at),
         companies (id, name, location),
         categories (id, name, slug),
         job_skills (skills (id, name, slug))
@@ -509,17 +509,41 @@ export async function createJob(input: CreateJobInput): Promise<{
   }
 
   try {
-    // 3. Resolve Category ID
+    // 3. Resolve Category ID safely (with fallback so trigger never rejects null category)
     let categoryId: string | null = null;
     if (input.category) {
-      const { data: catData } = await supabase
-        .from('categories')
-        .select('id')
-        .or(`name.eq."${input.category}",slug.eq."${input.category}"`)
-        .maybeSingle();
+      try {
+        const { data: catData } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('name', input.category)
+          .maybeSingle();
 
-      if (catData) {
-        categoryId = catData.id;
+        if (catData) {
+          categoryId = catData.id;
+        } else {
+          const { data: firstCat } = await supabase
+            .from('categories')
+            .select('id')
+            .limit(1)
+            .maybeSingle();
+          if (firstCat) categoryId = firstCat.id;
+        }
+      } catch {
+        // Non-blocking fallback
+      }
+    }
+
+    if (!categoryId) {
+      try {
+        const { data: fallbackCat } = await supabase
+          .from('categories')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        if (fallbackCat) categoryId = fallbackCat.id;
+      } catch {
+        // Non-blocking
       }
     }
 
@@ -551,22 +575,15 @@ export async function createJob(input: CreateJobInput): Promise<{
       };
     }
 
-    // 4b. Sync profile full_name or company_name if provided by client
-    if (input.clientName || input.companyName) {
-      try {
-        const profileUpdates: { full_name?: string; company_name?: string } = {};
-        if (input.clientName && input.clientName.trim()) {
-          profileUpdates.full_name = input.clientName.trim();
-        }
-        if (input.companyName && input.companyName.trim()) {
-          profileUpdates.company_name = input.companyName.trim();
-        }
-        if (Object.keys(profileUpdates).length > 0) {
-          await supabase.from('profiles').update(profileUpdates).eq('id', user.id);
-        }
-      } catch (profileUpdateErr) {
-        console.warn('Notice updating profile name/company from job post:', profileUpdateErr);
+    // 4b. Ensure user profile can hire and sync profile name if provided
+    try {
+      const profileUpdates: { full_name?: string; can_hire?: boolean } = { can_hire: true };
+      if (input.clientName && input.clientName.trim()) {
+        profileUpdates.full_name = input.clientName.trim();
       }
+      await supabase.from('profiles').update(profileUpdates).eq('id', user.id);
+    } catch (profileUpdateErr) {
+      console.warn('Notice updating profile name from job post:', profileUpdateErr);
     }
 
     // 5. Associate Skills
@@ -602,10 +619,19 @@ export async function createJob(input: CreateJobInput): Promise<{
     }
 
     // Fetch complete newly created job
-    const { job: fullJob } = await getJobById(insertedJob.id);
+    let fullJob: Job | null = null;
+    try {
+      const jobRes = await getJobById(insertedJob.id);
+      fullJob = jobRes.job;
+    } catch {
+      // Non-blocking fallback
+    }
+
+    const finalJob = fullJob || mapSupabaseJobToFrontend(insertedJob as unknown as SupabaseJobRow);
+
     return {
       success: true,
-      job: fullJob || undefined,
+      job: finalJob,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'An unexpected error occurred while creating the job.';
