@@ -159,20 +159,24 @@ function mapSupabaseJob(row: SupabaseRawJob): Job {
         .filter((name): name is string => Boolean(name))
     : [];
 
+  const fReviewCount = profileRaw?.review_count ? Number(profileRaw.review_count) : 0;
+  const fRatingVal = profileRaw?.rating !== null && profileRaw?.rating !== undefined ? Number(profileRaw.rating) : null;
+  const fTotalSpent = profileRaw?.total_spent ? Number(profileRaw.total_spent) : 0;
+
   const clientInfo: ClientInfo = {
     id: row.client_id,
-    name: profileRaw?.full_name || 'Verified Client',
+    name: profileRaw?.full_name || 'Client',
     companyName: companyRaw?.name || undefined,
     location: companyRaw?.location || 'Remote / Worldwide',
-    rating: profileRaw?.rating ? Number(profileRaw.rating) : 5.0,
-    reviewCount: profileRaw?.review_count ? Number(profileRaw.review_count) : 0,
-    totalSpent: profileRaw?.total_spent ? Number(profileRaw.total_spent) : 0,
-    paymentVerified: true,
+    rating: fReviewCount > 0 && fRatingVal !== null ? fRatingVal : null,
+    reviewCount: fReviewCount,
+    totalSpent: fTotalSpent,
+    paymentVerified: fTotalSpent > 0,
     memberSince: profileRaw?.created_at
       ? new Date(profileRaw.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-      : 'Active Client',
-    hireRate: 90,
-    openJobsCount: 1,
+      : 'Active Member',
+    hireRate: null,
+    openJobsCount: null,
   };
 
   const projectType = row.project_type as ProjectType;

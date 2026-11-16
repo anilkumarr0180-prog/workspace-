@@ -115,20 +115,24 @@ export async function getSavedJobs(): Promise<SavedJobResult> {
             .filter((name): name is string => Boolean(name))
         : [];
 
+      const sReviewCount = Number(profile.review_count) || 0;
+      const sRatingVal = profile.rating !== null && profile.rating !== undefined ? Number(profile.rating) : null;
+      const sTotalSpent = Number(profile.total_spent) || 0;
+
       const clientInfo: ClientInfo = {
         id: rawJob.client_id,
-        name: profile.full_name || 'Verified Client',
+        name: profile.full_name || 'Client',
         companyName: company?.name || undefined,
         location: company?.location || 'Remote / Worldwide',
-        rating: Number(profile.rating) || 5.0,
-        reviewCount: Number(profile.review_count) || 0,
-        totalSpent: Number(profile.total_spent) || 0,
-        paymentVerified: true,
+        rating: sReviewCount > 0 && sRatingVal !== null ? sRatingVal : null,
+        reviewCount: sReviewCount,
+        totalSpent: sTotalSpent,
+        paymentVerified: sTotalSpent > 0,
         memberSince: profile.created_at
           ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
           : 'Recent Member',
-        hireRate: 90,
-        openJobsCount: 1,
+        hireRate: null,
+        openJobsCount: null,
       };
 
       const projectType = rawJob.project_type as ProjectType;

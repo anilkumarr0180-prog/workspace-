@@ -644,7 +644,7 @@ function ContractDetailsContent() {
 
             if (verifyRes.success) {
               setActionSuccessMessage(
-                `Timesheet paid successfully via Razorpay Test Mode! Payment ID: ${response.razorpay_payment_id}. Payout transfer automatically initiated.`
+                `Timesheet payment confirmed via Razorpay (Test Mode)! Payment ID: ${response.razorpay_payment_id}. Simulated payout transfer initiated.`
               );
               loadData(true);
             } else {
@@ -2008,12 +2008,17 @@ function ContractDetailsContent() {
                               ? 'bg-slate-100 text-slate-700'
                               : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}>
-                            {entry.eventType.replace(/_/g, ' ')}
+                            {entry.eventType === 'payout_disbursed' ? 'Simulated Payout' : entry.eventType.replace(/_/g, ' ')}
                           </span>
                         </td>
                         <td className="py-3.5 pr-4 text-slate-800 font-medium">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>{entry.description}</span>
+                            {entry.eventType === 'payout_disbursed' && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <span>Simulated Transfer</span>
+                              </span>
+                            )}
                             {entry.metadata && typeof entry.metadata === 'object' && 'provider' in entry.metadata && (entry.metadata as { provider?: string }).provider === 'razorpay' && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                                 <Zap className="w-2.5 h-2.5 text-amber-600" />

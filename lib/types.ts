@@ -7,13 +7,13 @@ export interface ClientInfo {
   name: string;
   companyName?: string;
   location: string;
-  rating: number;
+  rating: number | null;
   reviewCount: number;
   totalSpent: number;
   paymentVerified: boolean;
   memberSince: string;
-  hireRate: number; // e.g. 85 for 85%
-  openJobsCount: number;
+  hireRate: number | null; // e.g. 85 for 85%, or null if unavailable
+  openJobsCount?: number | null;
 }
 
 export interface Job {

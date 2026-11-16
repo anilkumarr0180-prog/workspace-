@@ -130,22 +130,36 @@ export default function JobCard({ job, compact = false }: JobCardProps) {
       {/* Footer: Client verification and proposals info */}
       <div className="pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-y-2 text-xs text-slate-500">
         <div className="flex flex-wrap items-center gap-3">
-          {job.client.paymentVerified && (
+          {job.client.paymentVerified ? (
             <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
               <CheckCircle className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
               <span>Payment verified</span>
             </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-slate-400 font-medium">
+              <span>Payment unverified</span>
+            </span>
           )}
 
-          <div className="flex items-center gap-1 font-medium text-slate-700">
-            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span>{job.client.rating.toFixed(1)}</span>
-            <span className="text-slate-400">({job.client.reviewCount})</span>
-          </div>
+          {job.client.rating !== null && job.client.reviewCount > 0 ? (
+            <div className="flex items-center gap-1 font-medium text-slate-700">
+              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              <span>{job.client.rating.toFixed(1)}</span>
+              <span className="text-slate-400">({job.client.reviewCount})</span>
+            </div>
+          ) : (
+            <span className="text-slate-400">No reviews yet</span>
+          )}
 
-          <span className="text-slate-400 font-medium">
-            ${(job.client.totalSpent / 1000).toFixed(0)}k+ spent
-          </span>
+          {job.client.totalSpent > 0 ? (
+            <span className="text-slate-400 font-medium">
+              {job.client.totalSpent >= 1000
+                ? `$${(job.client.totalSpent / 1000).toFixed(0)}k+ spent`
+                : `$${job.client.totalSpent.toFixed(0)} spent`}
+            </span>
+          ) : (
+            <span className="text-slate-400 font-medium">$0 spent</span>
+          )}
 
           <div className="hidden sm:flex items-center gap-1 text-slate-500">
             <MapPin className="w-3 h-3 text-slate-400" />
