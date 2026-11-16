@@ -79,11 +79,31 @@ export async function POST(request: NextRequest) {
       role,
     });
 
+    // Fallback to Supabase native email dispatch if custom email service is not configured
+    if (!dispatchResult.success) {
+      try {
+        const { error: nativeErr } = await adminClient.auth.resend({
+          type: 'signup',
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: `${origin}/auth/callback?role=${role}`,
+          },
+        });
+        if (!nativeErr) {
+          dispatchResult.success = true;
+          dispatchResult.provider = 'supabase';
+        } else {
+          console.warn('[ResendVerification] Supabase native email notice:', nativeErr.message);
+        }
+      } catch (nativeExc) {
+        console.warn('[ResendVerification] Exception triggering Supabase email:', nativeExc);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       emailSent: dispatchResult.success,
-      devOtp: otp,
-      message: 'A new 6-digit verification code has been dispatched.',
+      message: 'A new verification code has been dispatched.',
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal Server Error';

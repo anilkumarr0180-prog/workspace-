@@ -32,13 +32,13 @@ export function renderVerificationEmail(data: VerificationEmailData): RenderedEm
       Welcome to <strong>Workspace</strong>! You are just one step away from joining our marketplace to ${roleText}.
     </p>
     <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #334155;">
-      Please use the 6-digit verification code below to verify your email address (<strong>${safeEmail}</strong>) and activate your account:
+      Please use the verification code below to verify your email address (<strong>${safeEmail}</strong>) and activate your account:
     </p>
 
     <!-- Prominent OTP Code Box -->
     <div style="margin: 28px 0; padding: 24px 20px; background-color: #f0fdf4; border: 2px dashed #10b981; border-radius: 12px; text-align: center;">
       <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #047857;">
-        Your 6-Digit Verification Code
+        Your Verification Code
       </p>
       <div style="font-size: 38px; font-weight: 800; letter-spacing: 10px; color: #065f46; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, monospace; margin: 10px 0;">
         ${safeOtp}
@@ -77,7 +77,7 @@ export function renderVerificationEmail(data: VerificationEmailData): RenderedEm
     '',
     `Welcome to Workspace! Please verify your email address (${data.email}) to activate your account.`,
     '',
-    `YOUR 6-DIGIT VERIFICATION CODE:`,
+    `YOUR VERIFICATION CODE:`,
     `${data.otp}`,
     '',
     `Enter this code on the verification screen, or click the direct activation link below:`,

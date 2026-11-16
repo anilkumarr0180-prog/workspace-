@@ -106,13 +106,33 @@ export async function POST(request: NextRequest) {
                 role: assignedRole,
               });
 
+              // Fallback to Supabase native email dispatch if custom email provider was unconfigured
+              if (!dispatchResult.success) {
+                try {
+                  const { error: nativeErr } = await adminClient.auth.resend({
+                    type: 'signup',
+                    email: cleanEmail,
+                    options: {
+                      emailRedirectTo: `${origin}/auth/callback?role=${assignedRole}`,
+                    },
+                  });
+                  if (!nativeErr) {
+                    dispatchResult.success = true;
+                    dispatchResult.provider = 'supabase';
+                  } else {
+                    console.warn('[Signup] Supabase native email notice:', nativeErr.message);
+                  }
+                } catch (nativeExc) {
+                  console.warn('[Signup] Exception triggering Supabase email:', nativeExc);
+                }
+              }
+
               return NextResponse.json(
                 {
                   success: true,
                   requiresVerification: true,
                   email: cleanEmail,
                   emailSent: dispatchResult.success,
-                  devOtp: otp,
                   message: 'A verification code has been sent to your email address.',
                 },
                 { status: 200 }
@@ -166,14 +186,34 @@ export async function POST(request: NextRequest) {
       role: assignedRole,
     });
 
+    // 5. Fallback to Supabase native email dispatch if custom email service is not configured
+    if (!dispatchResult.success) {
+      try {
+        const { error: nativeErr } = await adminClient.auth.resend({
+          type: 'signup',
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: `${origin}/auth/callback?role=${assignedRole}`,
+          },
+        });
+        if (!nativeErr) {
+          dispatchResult.success = true;
+          dispatchResult.provider = 'supabase';
+        } else {
+          console.warn('[Signup] Supabase native email notice:', nativeErr.message);
+        }
+      } catch (nativeExc) {
+        console.warn('[Signup] Exception triggering Supabase email:', nativeExc);
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
         requiresVerification: true,
         email: cleanEmail,
         emailSent: dispatchResult.success,
-        devOtp: otp,
-        message: 'A 6-digit verification code has been dispatched to your email address.',
+        message: 'A verification code has been dispatched to your email address.',
       },
       { status: 200 }
     );

@@ -30,15 +30,20 @@ function runVerification() {
   }
   const apiSignupSource = fs.readFileSync(apiSignupPath, 'utf8');
 
-  if (!/email_confirm:\s*true/.test(apiSignupSource)) {
-    throw new Error('Assertion failed: /api/auth/signup must set email_confirm: true');
+  if (!/generateLink/.test(apiSignupSource) && !/dispatchVerificationEmail/.test(apiSignupSource)) {
+    throw new Error('Assertion failed: /api/auth/signup must implement verification link generation & email dispatch');
   }
-  console.log('✓ /api/auth/signup sets email_confirm: true (bypassing GoTrue email rate limiter)');
+  console.log('✓ /api/auth/signup generates verification credentials and dispatches verification email');
+
+  if (/devOtp:\s*otp/.test(apiSignupSource)) {
+    throw new Error('Assertion failed: /api/auth/signup must not expose devOtp in live production responses');
+  }
+  console.log('✓ /api/auth/signup does not leak devOtp in responses');
 
   if (!/updateUserById/.test(apiSignupSource)) {
-    throw new Error('Assertion failed: /api/auth/signup must handle auto-confirming existing unconfirmed users');
+    throw new Error('Assertion failed: /api/auth/signup must handle updating unconfirmed users');
   }
-  console.log('✓ /api/auth/signup auto-confirms users previously stuck from rate limits');
+  console.log('✓ /api/auth/signup handles unconfirmed accounts cleanly');
 
   // 3. Verify /api/auth/confirm-login/route.ts
   const apiConfirmLoginPath = path.resolve(__dirname, '../app/api/auth/confirm-login/route.ts');

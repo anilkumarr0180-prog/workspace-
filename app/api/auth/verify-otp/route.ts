@@ -64,7 +64,26 @@ export async function POST(request: NextRequest) {
       console.warn('Admin verifyOtp email attempt notice:', adminVerifyErr2);
     }
 
-    // 3. Fallback: Find user and check if already confirmed
+    // 3. Try verifyOtp with type 'magiclink'
+    try {
+      const { data: verifyData3, error: verifyError3 } = await adminClient.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanOtp,
+        type: 'magiclink',
+      });
+
+      if (!verifyError3 && verifyData3.user) {
+        return NextResponse.json({
+          success: true,
+          confirmed: true,
+          user: { id: verifyData3.user.id, email: verifyData3.user.email },
+        });
+      }
+    } catch (adminVerifyErr3) {
+      console.warn('Admin verifyOtp magiclink attempt notice:', adminVerifyErr3);
+    }
+
+    // 4. Fallback: Find user and check if already confirmed
     const { data: listData } = await adminClient.auth.admin.listUsers();
     const existing = listData?.users?.find(
       (u) => u.email?.toLowerCase() === cleanEmail.toLowerCase()
