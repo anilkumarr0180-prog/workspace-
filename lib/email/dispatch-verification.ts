@@ -130,3 +130,4 @@ export async function dispatchVerificationEmail(
     error: 'Live SMTP provider unconfigured or pending domain verification.',
   };
 }
+

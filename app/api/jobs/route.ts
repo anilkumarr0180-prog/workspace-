@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
       duration: body.duration,
       skills: body.skills,
       companyId: body.companyId,
+      clientName: body.clientName,
+      companyName: body.companyName,
     };
 
     const result = await createJob(input);
