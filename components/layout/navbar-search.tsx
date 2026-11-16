@@ -2,13 +2,13 @@
 
 import React, { useState, useRef, useEffect, useId } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, ChevronDown, Check, Users, Briefcase } from 'lucide-react';
+import { Search, ChevronDown, Check } from 'lucide-react';
 
 export type SearchCategory = 'Talent' | 'Jobs';
 
-const SEARCH_OPTIONS: { value: SearchCategory; label: string; icon: typeof Users; description: string }[] = [
-  { value: 'Talent', label: 'Talent', icon: Users, description: 'Hire professionals & agencies' },
-  { value: 'Jobs', label: 'Jobs', icon: Briefcase, description: 'Apply to marketplace contracts' },
+const SEARCH_OPTIONS: { value: SearchCategory; label: string }[] = [
+  { value: 'Talent', label: 'Talent' },
+  { value: 'Jobs', label: 'Jobs' },
 ];
 
 interface NavbarSearchProps {
@@ -140,7 +140,7 @@ export default function NavbarSearch({
           <Search className="w-4 h-4 shrink-0" />
         </button>
 
-        {/* Input */}
+        {/* Search input */}
         <input
           ref={inputRef}
           type="text"
@@ -152,85 +152,72 @@ export default function NavbarSearch({
           className="w-full bg-transparent text-[13px] sm:text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none min-w-0"
         />
 
-        {/* Vertical divider */}
+        {/* Subtle vertical divider between input and category selector */}
         <div className="h-4 w-px bg-slate-200 mx-1 shrink-0" aria-hidden="true" />
 
-        {/* Category selector button */}
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={handleToggleDropdown}
-          onKeyDown={handleButtonKeyDown}
-          aria-haspopup="listbox"
-          aria-expanded={isOpen}
-          aria-controls={dropdownId}
-          aria-label={`Search category, current selection: ${category}`}
-          className="flex items-center gap-1 pl-2 pr-3 h-full text-[12px] sm:text-[13px] font-semibold text-slate-700 hover:text-slate-900 rounded-r-full hover:bg-slate-50 transition-colors focus:outline-none shrink-0 cursor-pointer select-none"
-        >
-          <span>{category}</span>
-          <ChevronDown
-            className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${
-              isOpen ? 'rotate-180 text-slate-700' : ''
-            }`}
-          />
-        </button>
-      </form>
+        {/* Category selector container with anchored dropdown */}
+        <div className="relative h-full flex items-center shrink-0">
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={handleToggleDropdown}
+            onKeyDown={handleButtonKeyDown}
+            aria-haspopup="listbox"
+            aria-expanded={isOpen}
+            aria-controls={dropdownId}
+            aria-label={`Search category, current selection: ${category}`}
+            className="flex items-center gap-1.5 pl-2.5 pr-3.5 h-full text-[12px] sm:text-[13px] font-semibold text-slate-700 hover:text-slate-900 rounded-r-full hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer select-none"
+          >
+            <span>{category}</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-200 ${
+                isOpen ? 'rotate-180 text-slate-700' : ''
+              }`}
+            />
+          </button>
 
-      {/* Dropdown menu */}
-      {isOpen && (
-        <div
-          ref={dropdownRef}
-          id={dropdownId}
-          role="listbox"
-          aria-label="Search categories"
-          tabIndex={-1}
-          onKeyDown={handleDropdownKeyDown}
-          className="absolute top-full right-0 mt-2 w-52 bg-white rounded-2xl border border-slate-200/90 shadow-xl p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-100"
-        >
-          {SEARCH_OPTIONS.map((opt, idx) => {
-            const isSelected = category === opt.value;
-            const isHighlighted = highlightedIndex === idx;
-            const Icon = opt.icon;
+          {/* Dropdown menu anchored directly beneath the selector */}
+          {isOpen && (
+            <div
+              ref={dropdownRef}
+              id={dropdownId}
+              role="listbox"
+              aria-label="Search categories"
+              tabIndex={-1}
+              onKeyDown={handleDropdownKeyDown}
+              className="absolute top-[calc(100%+6px)] right-0 w-36 bg-white rounded-xl border border-slate-200 shadow-xl py-1 z-50 animate-in fade-in-0 zoom-in-95 duration-100"
+            >
+              {SEARCH_OPTIONS.map((opt, idx) => {
+                const isSelected = category === opt.value;
+                const isHighlighted = highlightedIndex === idx;
 
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                onClick={() => handleSelectCategory(opt.value)}
-                onMouseEnter={() => setHighlightedIndex(idx)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-sm transition-colors cursor-pointer group ${
-                  isSelected
-                    ? 'bg-emerald-50 text-emerald-950 font-semibold'
-                    : isHighlighted
-                    ? 'bg-slate-50 text-slate-900 font-medium'
-                    : 'text-slate-700 hover:bg-slate-50 font-medium'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`p-1 rounded-lg shrink-0 ${
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => handleSelectCategory(opt.value)}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2 text-left text-xs sm:text-[13px] transition-colors cursor-pointer select-none ${
                       isSelected
-                        ? 'bg-[#14a800] text-white'
-                        : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                        ? 'bg-emerald-50 text-emerald-950 font-semibold'
+                        : isHighlighted
+                        ? 'bg-slate-50 text-slate-900 font-medium'
+                        : 'text-slate-700 hover:bg-slate-50 font-medium'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="truncate">
-                    <div className="text-xs sm:text-[13px] leading-tight">{opt.label}</div>
-                  </div>
-                </div>
-
-                {isSelected && (
-                  <Check className="w-4 h-4 text-[#14a800] shrink-0 ml-2" aria-hidden="true" />
-                )}
-              </button>
-            );
-          })}
+                    <span>{opt.label}</span>
+                    {isSelected && (
+                      <Check className="w-3.5 h-3.5 text-[#14a800] shrink-0" aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </form>
     </div>
   );
 }

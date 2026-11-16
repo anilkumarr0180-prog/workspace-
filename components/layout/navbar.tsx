@@ -1041,19 +1041,23 @@ export default function Navbar() {
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Unified Upwork Search Component on tablet & desktop */}
-            <NavbarSearch className="hidden sm:block w-48 md:w-56 lg:w-60 xl:w-72" />
+            {/* Unified Upwork Search Component on tablet & desktop (ONLY WHEN AUTHENTICATED) */}
+            {user && (
+              <NavbarSearch className="hidden sm:block w-48 md:w-56 lg:w-60" />
+            )}
 
-            {/* Mobile Search Toggle on screens < sm */}
-            <button
-              type="button"
-              onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
-              aria-label="Toggle search bar"
-              aria-expanded={mobileSearchOpen}
-              className="p-1.5 sm:hidden text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer shrink-0"
-            >
-              <Search className="w-5 h-5" />
-            </button>
+            {/* Mobile Search Toggle on screens < sm (ONLY WHEN AUTHENTICATED) */}
+            {user && (
+              <button
+                type="button"
+                onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
+                aria-label="Toggle search bar"
+                aria-expanded={mobileSearchOpen}
+                className="p-1.5 sm:hidden text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                <Search className="w-5 h-5" />
+              </button>
+            )}
 
             {/* Quick Saved Jobs only on authenticated dashboard routes */}
             {user && (
@@ -1342,8 +1346,8 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* ================= MOBILE EXPANDABLE SEARCH BAR (< sm) ================= */}
-      {mobileSearchOpen && (
+      {/* ================= MOBILE EXPANDABLE SEARCH BAR (< sm) (ONLY WHEN AUTHENTICATED) ================= */}
+      {user && mobileSearchOpen && (
         <div className="sm:hidden px-4 py-2.5 bg-white border-t border-slate-100 shadow-sm animate-in fade-in-0 duration-150">
           <NavbarSearch
             className="w-full"
@@ -1356,13 +1360,15 @@ export default function Navbar() {
       {/* ================= MOBILE DRAWER MENU ================= */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3 shadow-lg">
-          {/* Mobile Search inside Drawer */}
-          <div className="pt-1 pb-1">
-            <NavbarSearch
-              className="w-full"
-              onSearchSubmit={() => setMobileMenuOpen(false)}
-            />
-          </div>
+          {/* Mobile Search inside Drawer (ONLY WHEN AUTHENTICATED) */}
+          {user && (
+            <div className="pt-1 pb-1">
+              <NavbarSearch
+                className="w-full"
+                onSearchSubmit={() => setMobileMenuOpen(false)}
+              />
+            </div>
+          )}
           {/* Authenticated Mobile User Header */}
           {user ? (
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
