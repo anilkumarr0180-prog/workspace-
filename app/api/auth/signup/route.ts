@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
+import { dispatchVerificationEmail } from '@/lib/email/dispatch-verification';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,7 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please enter your first and last name.' }, { status: 400 });
     }
 
-    const assignedRole = role === 'client' ? 'client' : 'freelancer';
+    const cleanEmail = email.trim().toLowerCase();
+    const assignedRole: 'client' | 'freelancer' = role === 'client' ? 'client' : 'freelancer';
 
     // 2. Check if admin client is available
     let adminClient;
@@ -37,36 +39,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Attempt to create user with email_confirm: true (bypassing GoTrue SMTP rate limiter)
-    const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
-      email: email.trim(),
+    // Resolve trusted origin for redirect links
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    const forwardedProto = request.headers.get('x-forwarded-proto');
+    const host = forwardedHost || request.headers.get('host');
+    const protocol = forwardedProto || (host?.includes('localhost') ? 'http' : 'https');
+    const origin = host ? `${protocol}://${host}` : new URL(request.url).origin;
+
+    // 3. Generate link + OTP (This creates the user in GoTrue WITHOUT triggering Supabase's rate-limited GoTrue email sender!)
+    const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+      type: 'signup',
+      email: cleanEmail,
       password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        role: assignedRole,
-        country: country || 'United States',
-        marketing_opt_in: Boolean(sendEmails),
+      options: {
+        data: {
+          full_name: fullName,
+          role: assignedRole,
+          country: country || 'United States',
+          marketing_opt_in: Boolean(sendEmails),
+        },
+        redirectTo: `${origin}/auth/callback?role=${assignedRole}`,
       },
     });
 
-    if (createError) {
-      const errLower = createError.message.toLowerCase();
+    if (linkError) {
+      const errLower = linkError.message.toLowerCase();
 
       // If user already exists:
       if (errLower.includes('already registered') || errLower.includes('already exists')) {
-        // Check if the user is unconfirmed (e.g. from an earlier rate-limited signup attempt)
         try {
           const { data: listData } = await adminClient.auth.admin.listUsers();
           const existing = listData?.users?.find(
-            (u) => u.email?.toLowerCase() === email.trim().toLowerCase()
+            (u) => u.email?.toLowerCase() === cleanEmail
           );
 
           if (existing) {
+            // Case A: User exists but is unconfirmed
             if (!existing.email_confirmed_at) {
-              // Auto-confirm the user and update password so they can log in immediately
+              // Update user password and metadata so they can verify and log in
               await adminClient.auth.admin.updateUserById(existing.id, {
-                email_confirm: true,
                 password,
                 user_metadata: {
                   full_name: fullName || existing.user_metadata?.full_name,
@@ -75,20 +86,41 @@ export async function POST(request: NextRequest) {
                 },
               });
 
-              // Ensure profile active_mode is updated
-              await adminClient
-                .from('profiles')
-                .update({ active_mode: assignedRole, full_name: fullName })
-                .eq('id', existing.id);
+              // Generate new OTP & magiclink for unconfirmed user
+              const { data: regenData } = await adminClient.auth.admin.generateLink({
+                type: 'magiclink',
+                email: cleanEmail,
+                options: {
+                  redirectTo: `${origin}/auth/callback?role=${assignedRole}`,
+                },
+              });
+
+              const otp = regenData?.properties?.email_otp || '123456';
+              const actionLink = regenData?.properties?.action_link || `${origin}/login`;
+
+              const dispatchResult = await dispatchVerificationEmail({
+                recipientName: fullName,
+                email: cleanEmail,
+                otp,
+                actionLink,
+                role: assignedRole,
+              });
 
               return NextResponse.json(
-                { success: true, autoConfirmed: true, message: 'Account confirmed successfully.' },
+                {
+                  success: true,
+                  requiresVerification: true,
+                  email: cleanEmail,
+                  emailSent: dispatchResult.success,
+                  devOtp: otp,
+                  message: 'A verification code has been sent to your email address.',
+                },
                 { status: 200 }
               );
             }
           }
-        } catch (confirmErr) {
-          console.error('Error auto-confirming existing user:', confirmErr);
+        } catch (findErr) {
+          console.error('Error handling existing user in signup:', findErr);
         }
 
         return NextResponse.json(
@@ -100,28 +132,48 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      return NextResponse.json({ error: createError.message }, { status: 400 });
+      return NextResponse.json({ error: linkError.message }, { status: 400 });
     }
 
-    const newUserId = createData.user?.id;
+    const otp = linkData?.properties?.email_otp || '';
+    const actionLink = linkData?.properties?.action_link || `${origin}/login`;
+    const newUserId = linkData?.user?.id;
 
     if (newUserId) {
-      // Ensure profile record active_mode is aligned
+      // Ensure profile record exists with active_mode set
       try {
-        await adminClient
-          .from('profiles')
-          .update({ active_mode: assignedRole, full_name: fullName })
-          .eq('id', newUserId);
+        await adminClient.from('profiles').upsert(
+          {
+            id: newUserId,
+            full_name: fullName,
+            active_mode: assignedRole,
+            can_hire: true,
+            can_work: true,
+          },
+          { onConflict: 'id', ignoreDuplicates: true }
+        );
       } catch (profileErr) {
         console.warn('Profile sync notice:', profileErr);
       }
     }
 
+    // 4. Dispatch the branded verification email via application email service (Resend / SMTP)
+    const dispatchResult = await dispatchVerificationEmail({
+      recipientName: fullName,
+      email: cleanEmail,
+      otp,
+      actionLink,
+      role: assignedRole,
+    });
+
     return NextResponse.json(
       {
         success: true,
-        autoConfirmed: true,
-        user: { id: newUserId, email: createData.user?.email },
+        requiresVerification: true,
+        email: cleanEmail,
+        emailSent: dispatchResult.success,
+        devOtp: otp,
+        message: 'A 6-digit verification code has been dispatched to your email address.',
       },
       { status: 200 }
     );
@@ -130,4 +182,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

@@ -1,11 +1,20 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import SocialAuthButtons from '@/components/auth/social-auth-buttons';
-import { Eye, EyeOff, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Mail,
+  ArrowLeft,
+  RefreshCw,
+} from 'lucide-react';
 
 interface SignupFormProps {
   role: 'client' | 'freelancer';
@@ -14,6 +23,7 @@ interface SignupFormProps {
 export default function SignupForm({ role }: SignupFormProps) {
   const router = useRouter();
 
+  // Form inputs
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -25,16 +35,237 @@ export default function SignupForm({ role }: SignupFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // OTP Verification state
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
+  const [savedPassword, setSavedPassword] = useState<string>('');
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(30);
+
+  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const isClient = role === 'client';
   const headingText = isClient ? 'Sign up to hire talent' : 'Sign up to find work';
 
+  // Countdown timer for Resend Code
+  useEffect(() => {
+    if (!successEmail || countdown <= 0) return;
+    const timer = setInterval(() => {
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [successEmail, countdown]);
+
+  // Handle single digit input and auto-advance
+  const handleDigitChange = (index: number, val: string) => {
+    const rawVal = val.replace(/\D/g, '');
+    const newDigits = [...otpDigits];
+
+    if (!rawVal) {
+      newDigits[index] = '';
+      setOtpDigits(newDigits);
+      return;
+    }
+
+    const single = rawVal.slice(-1);
+    newDigits[index] = single;
+    setOtpDigits(newDigits);
+    setVerifyError(null);
+
+    // Auto-advance to next input
+    if (index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+
+    // Auto-verify if all 6 digits entered
+    const complete = newDigits.join('');
+    if (complete.length === 6 && !newDigits.includes('')) {
+      handleVerifyCode(complete);
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!otpDigits[index] && index > 0) {
+        otpInputRefs.current[index - 1]?.focus();
+        const newDigits = [...otpDigits];
+        newDigits[index - 1] = '';
+        setOtpDigits(newDigits);
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      otpInputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text');
+    const digitsOnly = pasted.replace(/\D/g, '').slice(0, 6);
+    if (!digitsOnly) return;
+
+    const newDigits = ['', '', '', '', '', ''];
+    for (let i = 0; i < digitsOnly.length; i++) {
+      newDigits[i] = digitsOnly[i];
+    }
+    setOtpDigits(newDigits);
+    setVerifyError(null);
+
+    const targetFocus = Math.min(digitsOnly.length, 5);
+    otpInputRefs.current[targetFocus]?.focus();
+
+    if (digitsOnly.length === 6) {
+      handleVerifyCode(digitsOnly);
+    }
+  };
+
+  // Verify OTP submission
+  const handleVerifyCode = async (codeToVerify?: string) => {
+    const code = (codeToVerify || otpDigits.join('')).trim();
+    if (code.length !== 6) {
+      setVerifyError('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setVerifyLoading(true);
+    setVerifyError(null);
+    setResendNotice(null);
+
+    try {
+      const supabase = createClient();
+      let verified = false;
+
+      // 1. Try client-side verifyOtp with type 'signup'
+      try {
+        const { data: vData1, error: vErr1 } = await supabase.auth.verifyOtp({
+          email: successEmail!,
+          token: code,
+          type: 'signup',
+        });
+
+        if (!vErr1 && (vData1.session || vData1.user)) {
+          verified = true;
+        }
+      } catch (err1) {
+        console.warn('Client verifyOtp signup attempt:', err1);
+      }
+
+      // 2. If first attempt failed, try type 'email'
+      if (!verified) {
+        try {
+          const { data: vData2, error: vErr2 } = await supabase.auth.verifyOtp({
+            email: successEmail!,
+            token: code,
+            type: 'email',
+          });
+
+          if (!vErr2 && (vData2.session || vData2.user)) {
+            verified = true;
+          }
+        } catch (err2) {
+          console.warn('Client verifyOtp email attempt:', err2);
+        }
+      }
+
+      // 3. Fallback to server route /api/auth/verify-otp
+      if (!verified) {
+        const verifyRes = await fetch('/api/auth/verify-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: successEmail, otp: code }),
+        });
+        const verifyResult = await verifyRes.json();
+
+        if (verifyRes.ok && verifyResult.success) {
+          verified = true;
+        } else {
+          setVerifyError(
+            verifyResult.error ||
+              'Invalid or expired 6-digit verification code. Please check your email or request a new code.'
+          );
+          setVerifyLoading(false);
+          return;
+        }
+      }
+
+      // 4. Verification successful! Establish active session with password if saved
+      if (savedPassword) {
+        try {
+          await supabase.auth.signInWithPassword({
+            email: successEmail!,
+            password: savedPassword,
+          });
+        } catch (signErr) {
+          console.warn('Auto sign-in notice:', signErr);
+        }
+      }
+
+      // Sync active_mode in profiles
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session?.user?.id) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({ active_mode: role })
+            .eq('id', sessionData.session.user.id);
+        } catch {
+          // non-blocking
+        }
+      }
+
+      // Navigate to authenticated workspace dashboard
+      router.push(isClient ? '/client' : '/freelancer');
+      router.refresh();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to verify code. Please try again.';
+      setVerifyError(msg);
+      setVerifyLoading(false);
+    }
+  };
+
+  // Resend OTP code
+  const handleResendCode = async () => {
+    if (countdown > 0 || resendLoading || !successEmail) return;
+
+    setResendLoading(true);
+    setVerifyError(null);
+    setResendNotice(null);
+
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: successEmail }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setCountdown(30);
+        if (data.devOtp) {
+          setDevOtp(data.devOtp);
+        }
+        setResendNotice('A new 6-digit verification code has been dispatched.');
+      } else {
+        setVerifyError(data.error || 'Failed to resend verification code. Please try again.');
+      }
+    } catch {
+      setVerifyError('Network error while requesting new code. Please try again.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  // Submit main signup form
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
-    // Basic Validation
     if (!firstName.trim() || !lastName.trim()) {
       setErrorMessage('Please enter both your first and last name.');
       return;
@@ -63,7 +294,7 @@ export default function SignupForm({ role }: SignupFormProps) {
       const cleanLastName = lastName.trim();
       const fullName = `${cleanFirstName} ${cleanLastName}`;
 
-      // 1. Attempt server-side signup via /api/auth/signup (provisions user with auto-confirmation to bypass GoTrue SMTP rate limits)
+      // 1. Attempt server-side signup via /api/auth/signup (generates user and sends branded email + OTP without hitting GoTrue SMTP rate limiter)
       let signupSucceeded = false;
       let signupErrorMessage: string | null = null;
 
@@ -86,8 +317,15 @@ export default function SignupForm({ role }: SignupFormProps) {
 
         if (apiRes.ok && apiResult.success) {
           signupSucceeded = true;
+          if (apiResult.requiresVerification) {
+            setSuccessEmail(apiResult.email || cleanEmail);
+            setDevOtp(apiResult.devOtp || null);
+            setSavedPassword(password);
+            setCountdown(30);
+            setLoading(false);
+            return;
+          }
         } else if (apiRes.status === 409) {
-          // Account already exists
           setErrorMessage(
             apiResult.error || 'An account with this email address already exists. Please log in.'
           );
@@ -140,8 +378,9 @@ export default function SignupForm({ role }: SignupFormProps) {
           router.refresh();
           return;
         } else {
-          // Needs email verification confirmation
           setSuccessEmail(cleanEmail);
+          setSavedPassword(password);
+          setCountdown(30);
           setLoading(false);
           return;
         }
@@ -154,7 +393,6 @@ export default function SignupForm({ role }: SignupFormProps) {
       });
 
       if (signInError) {
-        // If signIn had an unexpected issue, redirect to login page pre-filled
         router.push(`/login?email=${encodeURIComponent(cleanEmail)}`);
         return;
       }
@@ -182,37 +420,165 @@ export default function SignupForm({ role }: SignupFormProps) {
     }
   };
 
-  // If email confirmation is needed
+  // =========================================================================
+  // Screen: Interactive 6-Digit OTP Verification Screen
+  // =========================================================================
   if (successEmail) {
     return (
-      <div className="max-w-[520px] w-full mx-auto p-8 sm:p-10 bg-white rounded-2xl border border-slate-200/90 shadow-sm text-center">
-        <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-5">
-          <CheckCircle2 className="w-8 h-8" />
+      <div className="max-w-[520px] w-full mx-auto p-7 sm:p-10 bg-white rounded-2xl border border-slate-200/90 shadow-sm text-center">
+        {/* Animated icon badge */}
+        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-emerald-50/50">
+          <Mail className="w-8 h-8" />
         </div>
+
         <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Verify your email</h2>
-        <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-          We&apos;ve sent a verification link to <strong className="text-slate-900">{successEmail}</strong>. Please check your inbox and confirm your email to activate your account.
+        <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
+          We&apos;ve dispatched a 6-digit verification code to{' '}
+          <strong className="text-slate-900 break-all">{successEmail}</strong>
         </p>
 
-        <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col gap-3">
-          <Link
-            href="/login"
-            className="w-full py-3 rounded-full bg-[#14a800] hover:bg-[#108a00] text-white font-semibold text-sm transition-colors text-center shadow-xs"
+        {/* Success Notice */}
+        {resendNotice && (
+          <div
+            role="status"
+            className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center justify-center gap-2"
           >
-            Go to Login
-          </Link>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{resendNotice}</span>
+          </div>
+        )}
+
+        {/* Error Notice */}
+        {verifyError && (
+          <div
+            role="alert"
+            className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs sm:text-sm flex items-start gap-2 text-left"
+          >
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <span className="flex-1 leading-snug">{verifyError}</span>
+          </div>
+        )}
+
+        {/* 6 Digit Inputs */}
+        <div className="flex justify-center items-center gap-2 sm:gap-3 my-6">
+          {otpDigits.map((digit, idx) => (
+            <input
+              key={idx}
+              ref={(el) => {
+                otpInputRefs.current[idx] = el;
+              }}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={1}
+              value={digit}
+              onChange={(e) => handleDigitChange(idx, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(idx, e)}
+              onPaste={handlePaste}
+              autoFocus={idx === 0}
+              aria-label={`Digit ${idx + 1}`}
+              className="w-11 h-14 sm:w-13 sm:h-16 text-center text-2xl font-bold font-mono text-slate-900 border border-slate-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-[#14a800] focus:ring-2 focus:ring-[#14a800]/20 transition-all"
+            />
+          ))}
+        </div>
+
+        {/* Verify Action Button */}
+        <button
+          type="button"
+          onClick={() => handleVerifyCode()}
+          disabled={verifyLoading || otpDigits.join('').length !== 6}
+          className={`w-full h-12 rounded-full font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs ${
+            otpDigits.join('').length !== 6 || verifyLoading
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-200'
+              : 'bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white cursor-pointer hover:shadow-sm'
+          }`}
+        >
+          {verifyLoading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Verifying code...</span>
+            </>
+          ) : (
+            <span>Verify & Continue</span>
+          )}
+        </button>
+
+        {/* Resend Code Section */}
+        <div className="mt-5 text-center text-xs sm:text-sm text-slate-600">
+          Didn&apos;t receive the email?{' '}
+          {countdown > 0 ? (
+            <span className="text-slate-400 font-medium">
+              Resend in <span className="font-mono text-slate-600 font-semibold">{countdown}s</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={handleResendCode}
+              disabled={resendLoading}
+              className="text-[#14a800] hover:text-[#108a00] font-semibold underline underline-offset-2 ml-1 inline-flex items-center gap-1 cursor-pointer"
+            >
+              {resendLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin inline" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5 inline" />
+              )}
+              Resend verification code
+            </button>
+          )}
+        </div>
+
+        {/* Dev / Testing Helper (Only shown when devOtp is present) */}
+        {devOtp && (
+          <div className="mt-5 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-left text-xs text-amber-900 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-amber-900 flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                Test Environment Code:{' '}
+                <span className="font-mono font-bold text-sm text-amber-950 tracking-widest ml-1">
+                  {devOtp}
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                Provided for instant testing if live email servers are pending DNS/keys.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const digits = devOtp.split('').slice(0, 6);
+                setOtpDigits(digits);
+                handleVerifyCode(devOtp);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs whitespace-nowrap shadow-xs transition-colors cursor-pointer"
+            >
+              Auto-fill & Verify
+            </button>
+          </div>
+        )}
+
+        {/* Back / Change Email Link */}
+        <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center">
           <button
             type="button"
-            onClick={() => setSuccessEmail(null)}
-            className="text-xs text-slate-500 hover:text-slate-800 underline"
+            onClick={() => {
+              setSuccessEmail(null);
+              setDevOtp(null);
+              setVerifyError(null);
+              setOtpDigits(['', '', '', '', '', '']);
+            }}
+            className="text-xs text-slate-500 hover:text-slate-800 underline inline-flex items-center gap-1 transition-colors cursor-pointer"
           >
-            Need to change your email or try again?
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Change email address
           </button>
         </div>
       </div>
     );
   }
 
+  // =========================================================================
+  // Screen: Main Signup Form
+  // =========================================================================
   return (
     <div className="max-w-[560px] w-full mx-auto p-6 sm:p-10 bg-white rounded-2xl border border-slate-200/90 shadow-sm">
       <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 text-center tracking-tight">
@@ -321,7 +687,7 @@ export default function SignupForm({ role }: SignupFormProps) {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -367,7 +733,7 @@ export default function SignupForm({ role }: SignupFormProps) {
           </span>
         </label>
 
-        {/* Checkbox 2: Terms */}
+        {/* Checkbox 2: Terms (MUST be ticked to enable Create Account button) */}
         <label className="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -393,7 +759,7 @@ export default function SignupForm({ role }: SignupFormProps) {
           </span>
         </label>
 
-        {/* Submit Button */}
+        {/* Submit Button - Disabled until Terms is ticked */}
         <div className="pt-2">
           <button
             type="submit"
