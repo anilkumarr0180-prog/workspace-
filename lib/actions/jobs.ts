@@ -18,6 +18,8 @@ export interface CreateJobInput {
   duration: ProjectDuration;
   skills: string[];
   companyId?: string;
+  clientName?: string;
+  companyName?: string;
 }
 
 export interface GetJobsFilters {
@@ -157,6 +159,8 @@ function mapSupabaseJobToFrontend(row: SupabaseJobRow): Job {
       ? formatTimeAgo(new Date(row.created_at))
       : 'Recently',
     proposalCount: Number(row.proposals_count) || 0,
+    interviewingCount: 0,
+    invitesCount: 0,
     isFeatured: Boolean(row.is_featured),
   };
 }
@@ -373,7 +377,7 @@ export async function getJobById(id: string): Promise<{ job: Job | null; source:
         is_featured,
         created_at,
         updated_at,
-        profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at),
+        profiles!client_id (id, full_name, avatar_url, rating, review_count, total_spent, created_at, company_name),
         companies (id, name, location),
         categories (id, name, slug),
         job_skills (skills (id, name, slug))
@@ -383,7 +387,38 @@ export async function getJobById(id: string): Promise<{ job: Job | null; source:
       .maybeSingle();
 
     if (!error && data) {
-      return { job: mapSupabaseJobToFrontend(data as unknown as SupabaseJobRow), source: 'supabase' };
+      let proposalsCount = Number(data.proposals_count) || 0;
+      let interviewingCount = 0;
+
+      try {
+        const [pCountRes, iCountRes] = await Promise.all([
+          supabase
+            .from('proposals')
+            .select('id', { count: 'exact', head: true })
+            .eq('job_id', id),
+          supabase
+            .from('proposals')
+            .select('id', { count: 'exact', head: true })
+            .eq('job_id', id)
+            .eq('status', 'interviewing'),
+        ]);
+
+        if (pCountRes.count !== null && pCountRes.count !== undefined) {
+          proposalsCount = pCountRes.count;
+        }
+        if (iCountRes.count !== null && iCountRes.count !== undefined) {
+          interviewingCount = iCountRes.count;
+        }
+      } catch {
+        // Non-blocking query
+      }
+
+      const mappedJob = mapSupabaseJobToFrontend(data as unknown as SupabaseJobRow);
+      mappedJob.proposalCount = proposalsCount;
+      mappedJob.interviewingCount = interviewingCount;
+      mappedJob.invitesCount = 0;
+
+      return { job: mappedJob, source: 'supabase' };
     }
 
     if (!error && !data) {
@@ -514,6 +549,24 @@ export async function createJob(input: CreateJobInput): Promise<{
         success: false,
         error: `Database error: ${insertError.message}`,
       };
+    }
+
+    // 4b. Sync profile full_name or company_name if provided by client
+    if (input.clientName || input.companyName) {
+      try {
+        const profileUpdates: { full_name?: string; company_name?: string } = {};
+        if (input.clientName && input.clientName.trim()) {
+          profileUpdates.full_name = input.clientName.trim();
+        }
+        if (input.companyName && input.companyName.trim()) {
+          profileUpdates.company_name = input.companyName.trim();
+        }
+        if (Object.keys(profileUpdates).length > 0) {
+          await supabase.from('profiles').update(profileUpdates).eq('id', user.id);
+        }
+      } catch (profileUpdateErr) {
+        console.warn('Notice updating profile name/company from job post:', profileUpdateErr);
+      }
     }
 
     // 5. Associate Skills

@@ -36,6 +36,8 @@ export interface Job {
   client: ClientInfo;
   postedAt: string;
   proposalCount: number;
+  interviewingCount?: number;
+  invitesCount?: number;
   isFeatured?: boolean;
 }
 

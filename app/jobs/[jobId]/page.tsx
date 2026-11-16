@@ -307,16 +307,26 @@ function JobDetailContent() {
               <h4 className="font-bold text-slate-900 text-sm">Activity on this job</h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 py-2">
                 <div>
-                  <span className="text-slate-400">Proposals:</span>{' '}
-                  <strong className="text-slate-800">{job.proposalCount} submitted</strong>
+                  <span className="text-slate-500">Proposals:</span>{' '}
+                  <strong className="text-slate-800 font-semibold">
+                    {job.proposalCount ?? 0} submitted
+                  </strong>
                 </div>
                 <div>
-                  <span className="text-slate-400">Interviewing:</span>{' '}
-                  <strong className="text-slate-800">1 candidate</strong>
+                  <span className="text-slate-500">Interviewing:</span>{' '}
+                  <strong className="text-slate-800 font-semibold">
+                    {(job.interviewingCount ?? 0) === 1
+                      ? '1 candidate'
+                      : `${job.interviewingCount ?? 0} candidates`}
+                  </strong>
                 </div>
                 <div>
-                  <span className="text-slate-400">Invited:</span>{' '}
-                  <strong className="text-slate-800">2 specialists</strong>
+                  <span className="text-slate-500">Invited:</span>{' '}
+                  <strong className="text-slate-800 font-semibold">
+                    {(job.invitesCount ?? 0) === 1
+                      ? '1 specialist'
+                      : `${job.invitesCount ?? 0} specialists`}
+                  </strong>
                 </div>
               </div>
             </div>

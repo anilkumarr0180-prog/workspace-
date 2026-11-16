@@ -6,4 +6,5 @@ export * from './proposal-accepted';
 export * from './milestone-funded';
 export * from './milestone-released';
 export * from './unread-message';
+export * from './verification-email';
 export * from './registry';

@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { CATEGORIES } from '@/lib/mock-data';
 import { ProjectType, ExperienceLevel, ProjectDuration } from '@/lib/types';
+import { createClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
 import {
   CheckCircle2,
   Plus,
@@ -19,25 +21,52 @@ export default function PostJobPage() {
   const [category, setCategory] = useState(CATEGORIES[0].name);
   const [description, setDescription] = useState('');
   const [deliverablesInput, setDeliverablesInput] = useState('');
-  const [deliverables, setDeliverables] = useState<string[]>([
-    'Clean, type-safe implementation documented with Storybook or README',
-    'Lighthouse performance and accessibility audit passing scores'
-  ]);
+  const [deliverables, setDeliverables] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
-  const [skills, setSkills] = useState<string[]>(['React', 'Next.js', 'TypeScript', 'Tailwind CSS']);
+  const [skills, setSkills] = useState<string[]>([]);
   const [projectType, setProjectType] = useState<ProjectType>('fixed');
   const [fixedAmount, setFixedAmount] = useState<number>(3500);
   const [hourlyMin, setHourlyMin] = useState<number>(50);
   const [hourlyMax, setHourlyMax] = useState<number>(90);
   const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('expert');
   const [duration, setDuration] = useState<ProjectDuration>('1_to_3_months');
-  const [clientName, setClientName] = useState('Workspace Innovation Labs');
-  const [companyName, setCompanyName] = useState('Alpha Labs Financial LLC');
+  const [clientName, setClientName] = useState('');
+  const [companyName, setCompanyName] = useState('');
 
   // Validation & UI State
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Pre-populate client and company name from authenticated user profile
+  useEffect(() => {
+    let isMounted = true;
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(async (res: { data: { user: User | null } }) => {
+        const user = res.data?.user;
+        if (!isMounted || !user) return;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, company_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const name = profile?.full_name || user.user_metadata?.full_name || '';
+        if (name && isMounted) {
+          setClientName(name);
+        }
+        if (profile?.company_name && isMounted) {
+          setCompanyName(profile.company_name);
+        }
+      });
+    } catch (profileErr) {
+      console.warn('Profile load notice:', profileErr);
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Add a skill
   const handleAddSkill = (e: React.KeyboardEvent | React.MouseEvent) => {
@@ -118,6 +147,8 @@ export default function PostJobPage() {
         experienceLevel,
         duration,
         skills,
+        clientName: clientName.trim() || undefined,
+        companyName: companyName.trim() || undefined,
       };
 
       const res = await fetch('/api/jobs', {
@@ -175,31 +206,28 @@ export default function PostJobPage() {
             </p>
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions - Two polished, consistent action buttons */}
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href={`/jobs/${submittedJobId}`}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 shadow-sm"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white font-semibold text-sm shadow-xs transition-all"
             >
               <span>View Published Job</span>
               <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/client"
-              className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50"
-            >
-              Go to Client Dashboard
             </Link>
             <button
               onClick={() => {
                 setSubmittedJobId(null);
                 setTitle('');
                 setDescription('');
+                setSkills([]);
+                setDeliverables([]);
               }}
               type="button"
-              className="w-full sm:w-auto px-4 py-3 text-xs text-slate-500 hover:text-slate-800"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 active:scale-[0.99] text-slate-700 font-semibold text-sm shadow-xs transition-all cursor-pointer"
             >
-              Post Another Project
+              <Plus className="w-4 h-4" />
+              <span>Post Another Project</span>
             </button>
           </div>
         </div>
@@ -271,7 +299,7 @@ export default function PostJobPage() {
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="e.g. Acme Tech Labs"
+                  placeholder="e.g. Your Name"
                   className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-900"
                 />
               </div>
@@ -285,7 +313,7 @@ export default function PostJobPage() {
                   type="text"
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="e.g. Acme Corporation Inc."
+                  placeholder="e.g. Acme Corporation Inc. (optional)"
                   className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-900"
                 />
               </div>
