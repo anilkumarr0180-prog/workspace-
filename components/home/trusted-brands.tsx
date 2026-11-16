@@ -36,26 +36,26 @@ export default function TrustedBrands() {
   ];
 
   return (
-    <div className="w-full pt-10 sm:pt-12 pb-6 sm:pb-8 text-center border-b border-slate-100">
-      <p className="text-[11px] sm:text-[12px] font-semibold tracking-[0.22em] text-[#5e6d55] uppercase mb-6 sm:mb-8">
+    <div className="w-full pt-10 sm:pt-12 pb-6 sm:pb-8 text-center border-b border-slate-200/70">
+      <p className="text-[12px] sm:text-[13px] font-semibold tracking-[0.16em] text-slate-500 uppercase mb-6 sm:mb-8">
         Enterprise-Grade Marketplace Assurance & Trust
       </p>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 px-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4 px-1">
         {trustFeatures.map((feature) => {
           const Icon = feature.icon;
           return (
             <div
               key={feature.title}
-              className="group flex flex-col items-center text-center p-3 sm:p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/60 hover:bg-white hover:border-emerald-200 hover:shadow-xs transition-all duration-200"
+              className="group flex flex-col items-center text-center p-3.5 sm:p-4 rounded-xl bg-white border border-slate-200/80 hover:border-emerald-300 hover:shadow-xs transition-all duration-200"
             >
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <Icon className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2.5 group-hover:bg-[#14a800] group-hover:text-white transition-colors">
+                <Icon className="w-4.5 h-4.5" />
               </div>
-              <span className="font-bold text-slate-800 text-xs tracking-tight">
+              <span className="font-semibold text-slate-900 text-[13px] tracking-tight">
                 {feature.title}
               </span>
-              <span className="text-[11px] text-slate-500 mt-0.5 leading-snug line-clamp-2">
+              <span className="text-[12px] text-slate-500 mt-1 leading-snug line-clamp-2">
                 {feature.description}
               </span>
             </div>

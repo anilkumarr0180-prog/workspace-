@@ -403,7 +403,7 @@ export default function Navbar() {
       <div className="w-full max-w-[1440px] mx-auto px-6 sm:px-8 lg:px-10 xl:px-12">
         <div className="flex items-center justify-between h-16">
           {/* ================= LEFT: Brand & Navigation ================= */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 lg:gap-8">
             <NextLink
               href={user ? (isClientMode ? '/client' : '/freelancer') : '/'}
               className="flex items-center shrink-0"
@@ -417,7 +417,7 @@ export default function Navbar() {
               /* Upwork Marketing Navigation matching Screenshot 1 */
               <nav
                 ref={navDropdownRef}
-                className="hidden lg:flex items-center gap-0.5 xl:gap-1 text-[14px] font-medium text-[#001e00]"
+                className="hidden lg:flex items-center gap-1 xl:gap-1.5 text-[14px] font-medium text-[#001e00]"
               >
                 {/* 1. Hire talent Dropdown */}
                 <div
@@ -429,7 +429,7 @@ export default function Navbar() {
                     type="button"
                     onClick={() => setActiveDropdown(activeDropdown === 'hire' ? null : 'hire')}
                     aria-expanded={activeDropdown === 'hire'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                    className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
                   >
                     <span>Hire talent</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
@@ -437,7 +437,7 @@ export default function Navbar() {
 
                   {activeDropdown === 'hire' && (
                     <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                      <div className="bg-white rounded-2xl border border-slate-200/90 p-2 shadow-xl space-y-1">
                         <NextLink
                           href="/client/jobs/new"
                           onClick={() => setActiveDropdown(null)}
@@ -500,7 +500,7 @@ export default function Navbar() {
                     type="button"
                     onClick={() => setActiveDropdown(activeDropdown === 'outcomes' ? null : 'outcomes')}
                     aria-expanded={activeDropdown === 'outcomes'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                    className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
                   >
                     <span>Get outcomes</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
@@ -508,7 +508,7 @@ export default function Navbar() {
 
                   {activeDropdown === 'outcomes' && (
                     <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                      <div className="bg-white rounded-2xl border border-slate-200/90 p-2 shadow-xl space-y-1">
                         <NextLink
                           href="/jobs?category=AI+%26+Machine+Learning"
                           onClick={() => setActiveDropdown(null)}
@@ -571,7 +571,7 @@ export default function Navbar() {
                     type="button"
                     onClick={() => setActiveDropdown(activeDropdown === 'work' ? null : 'work')}
                     aria-expanded={activeDropdown === 'work'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                    className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
                   >
                     <span>Find work</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
@@ -579,7 +579,7 @@ export default function Navbar() {
 
                   {activeDropdown === 'work' && (
                     <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                      <div className="bg-white rounded-2xl border border-slate-200/90 p-2 shadow-xl space-y-1">
                         <NextLink
                           href="/jobs"
                           onClick={() => setActiveDropdown(null)}
@@ -649,7 +649,7 @@ export default function Navbar() {
                     type="button"
                     onClick={() => setActiveDropdown(activeDropdown === 'why_upwork' ? null : 'why_upwork')}
                     aria-expanded={activeDropdown === 'why_upwork'}
-                    className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+                    className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
                   >
                     <span>Why Workspace</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
@@ -657,7 +657,7 @@ export default function Navbar() {
 
                   {activeDropdown === 'why_upwork' && (
                     <div className="absolute top-full left-0 w-64 pt-2 shadow-xl z-50">
-                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                      <div className="bg-white rounded-2xl border border-slate-200/90 p-2 shadow-xl space-y-1">
                         <NextLink
                           href="/freelancers"
                           onClick={() => setActiveDropdown(null)}
@@ -713,7 +713,7 @@ export default function Navbar() {
                 {/* 5. Pricing Direct Link */}
                 <NextLink
                   href="/jobs"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
+                  className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
                 >
                   Pricing
                 </NextLink>
@@ -721,7 +721,7 @@ export default function Navbar() {
                 {/* 6. Enterprise Direct Link */}
                 <NextLink
                   href="/client"
-                  className="px-3 py-2 rounded-lg hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
+                  className="px-3.5 py-2 rounded-full hover:text-[#14a800] hover:bg-slate-50 transition-colors font-medium text-[#001e00]"
                 >
                   Enterprise
                 </NextLink>
@@ -1323,14 +1323,14 @@ export default function Navbar() {
               <>
                 <NextLink
                   href="/login"
-                  className="text-[14px] font-medium text-[#141414] hover:text-[#14a800] transition-colors hidden sm:inline-block px-3 py-2"
+                  className="hidden sm:inline-flex items-center justify-center px-4 h-9 sm:h-[38px] rounded-full text-[14px] font-medium text-[#141414] hover:text-[#14a800] hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   Log in
                 </NextLink>
 
                 <NextLink
                   href="/signup"
-                  className="inline-flex items-center justify-center px-5 py-2 rounded-full text-[14px] font-medium text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0 h-9 sm:h-[38px]"
+                  className="inline-flex items-center justify-center px-5 sm:px-6 h-9 sm:h-[38px] rounded-full text-[14px] font-medium text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0 cursor-pointer"
                 >
                   <span>Sign up</span>
                 </NextLink>
