@@ -120,31 +120,56 @@ export default function AvatarUploader({
       const fileName = `avatar-${Date.now()}.${fileExt}`;
       const filePath = `${userId}/${fileName}`;
 
-      // 3. Direct upload to Supabase Storage
-      const supabase = createClient();
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, processedBlob, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: processedBlob.type || 'image/webp',
+      // 3. Upload through resilient server endpoint (which auto-provisions the avatars bucket if missing)
+      let newPublicUrl: string | null = null;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', processedBlob, fileName);
+
+        const apiRes = await fetch('/api/profile/avatar', {
+          method: 'POST',
+          body: formData,
         });
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
+        const apiData = await apiRes.json();
+        if (apiRes.ok && apiData.success && apiData.avatarUrl) {
+          newPublicUrl = apiData.avatarUrl;
+        } else {
+          throw new Error(apiData.error || 'Server upload failed');
+        }
+      } catch (apiErr) {
+        console.warn('API avatar upload failed, attempting direct Supabase storage upload:', apiErr);
+        // Fallback: direct Supabase storage upload
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, processedBlob, {
+            cacheControl: '3600',
+            upsert: true,
+            contentType: processedBlob.type || 'image/webp',
+          });
+
+        if (uploadError) {
+          throw new Error(uploadError.message);
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        newPublicUrl = publicUrlData?.publicUrl || null;
+        if (!newPublicUrl) {
+          throw new Error('Failed to obtain avatar URL from storage.');
+        }
+        const res = await updateProfileAvatar(newPublicUrl);
+        if (!res.success) {
+          throw new Error(res.error || 'Failed to save avatar URL to profile.');
+        }
       }
 
-      // 4. Retrieve public URL
-      const { data: publicUrlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      const newPublicUrl = publicUrlData.publicUrl;
-
-      // 5. Update database record via Server Action (also cleans old orphaned image)
-      const res = await updateProfileAvatar(newPublicUrl);
-      if (!res.success) {
-        throw new Error(res.error || 'Failed to save avatar URL to profile.');
+      if (!newPublicUrl) {
+        throw new Error('Failed to obtain avatar URL.');
       }
 
       setAvatarUrl(newPublicUrl);
@@ -180,9 +205,16 @@ export default function AvatarUploader({
     setIsRemoving(true);
 
     try {
-      const res = await removeProfileAvatar();
-      if (!res.success) {
-        throw new Error(res.error || 'Failed to remove avatar.');
+      const apiRes = await fetch('/api/profile/avatar', {
+        method: 'DELETE',
+      });
+      const apiData = await apiRes.json().catch(() => null);
+
+      if (!apiRes.ok || !apiData?.success) {
+        const res = await removeProfileAvatar();
+        if (!res.success) {
+          throw new Error(res.error || 'Failed to remove avatar.');
+        }
       }
 
       setAvatarUrl(null);
