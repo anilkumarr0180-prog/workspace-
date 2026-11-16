@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -39,15 +39,12 @@ export default function SignupForm({ role }: SignupFormProps) {
   // OTP Verification state
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const [savedPassword, setSavedPassword] = useState<string>('');
-  const [devOtp, setDevOtp] = useState<string | null>(null);
-  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [verificationCode, setVerificationCode] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(30);
-
-  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const isClient = role === 'client';
   const headingText = isClient ? 'Sign up to hire talent' : 'Sign up to find work';
@@ -61,75 +58,17 @@ export default function SignupForm({ role }: SignupFormProps) {
     return () => clearInterval(timer);
   }, [successEmail, countdown]);
 
-  // Handle single digit input and auto-advance
-  const handleDigitChange = (index: number, val: string) => {
-    const rawVal = val.replace(/\D/g, '');
-    const newDigits = [...otpDigits];
-
-    if (!rawVal) {
-      newDigits[index] = '';
-      setOtpDigits(newDigits);
-      return;
-    }
-
-    const single = rawVal.slice(-1);
-    newDigits[index] = single;
-    setOtpDigits(newDigits);
+  const handleCodeChange = (val: string) => {
+    const clean = val.replace(/[^0-9a-zA-Z]/g, '').slice(0, 10);
+    setVerificationCode(clean);
     setVerifyError(null);
-
-    // Auto-advance to next input
-    if (index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
-    }
-
-    // Auto-verify if all 6 digits entered
-    const complete = newDigits.join('');
-    if (complete.length === 6 && !newDigits.includes('')) {
-      handleVerifyCode(complete);
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      if (!otpDigits[index] && index > 0) {
-        otpInputRefs.current[index - 1]?.focus();
-        const newDigits = [...otpDigits];
-        newDigits[index - 1] = '';
-        setOtpDigits(newDigits);
-      }
-    } else if (e.key === 'ArrowLeft' && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text');
-    const digitsOnly = pasted.replace(/\D/g, '').slice(0, 6);
-    if (!digitsOnly) return;
-
-    const newDigits = ['', '', '', '', '', ''];
-    for (let i = 0; i < digitsOnly.length; i++) {
-      newDigits[i] = digitsOnly[i];
-    }
-    setOtpDigits(newDigits);
-    setVerifyError(null);
-
-    const targetFocus = Math.min(digitsOnly.length, 5);
-    otpInputRefs.current[targetFocus]?.focus();
-
-    if (digitsOnly.length === 6) {
-      handleVerifyCode(digitsOnly);
-    }
   };
 
   // Verify OTP submission
   const handleVerifyCode = async (codeToVerify?: string) => {
-    const code = (codeToVerify || otpDigits.join('')).trim();
-    if (code.length !== 6) {
-      setVerifyError('Please enter the complete 6-digit verification code.');
+    const code = (codeToVerify || verificationCode).trim();
+    if (code.length < 6 || code.length > 10) {
+      setVerifyError('Please enter the verification code sent to your email.');
       return;
     }
 
@@ -173,7 +112,24 @@ export default function SignupForm({ role }: SignupFormProps) {
         }
       }
 
-      // 3. Fallback to server route /api/auth/verify-otp
+      // 3. If still not verified, try type 'magiclink'
+      if (!verified) {
+        try {
+          const { data: vData3, error: vErr3 } = await supabase.auth.verifyOtp({
+            email: successEmail!,
+            token: code,
+            type: 'magiclink',
+          });
+
+          if (!vErr3 && (vData3.session || vData3.user)) {
+            verified = true;
+          }
+        } catch (err3) {
+          console.warn('Client verifyOtp magiclink attempt:', err3);
+        }
+      }
+
+      // 4. Fallback to server route /api/auth/verify-otp
       if (!verified) {
         const verifyRes = await fetch('/api/auth/verify-otp', {
           method: 'POST',
@@ -187,14 +143,14 @@ export default function SignupForm({ role }: SignupFormProps) {
         } else {
           setVerifyError(
             verifyResult.error ||
-              'Invalid or expired 6-digit verification code. Please check your email or request a new code.'
+              'Invalid or expired verification code. Please check your email or request a new code.'
           );
           setVerifyLoading(false);
           return;
         }
       }
 
-      // 4. Verification successful! Establish active session with password if saved
+      // 5. Verification successful! Establish active session with password if saved
       if (savedPassword) {
         try {
           await supabase.auth.signInWithPassword({
@@ -247,12 +203,9 @@ export default function SignupForm({ role }: SignupFormProps) {
 
       if (res.ok && data.success) {
         setCountdown(30);
-        if (data.devOtp) {
-          setDevOtp(data.devOtp);
-        }
-        setResendNotice('A new 6-digit verification code has been dispatched.');
+        setResendNotice('A new verification code has been dispatched to your email.');
       } else {
-        setVerifyError(data.error || 'Failed to resend verification code. Please try again.');
+        setVerifyError(data.error || 'Failed to resend verification code. Please try again in a few moments.');
       }
     } catch {
       setVerifyError('Network error while requesting new code. Please try again.');
@@ -319,7 +272,6 @@ export default function SignupForm({ role }: SignupFormProps) {
           signupSucceeded = true;
           if (apiResult.requiresVerification) {
             setSuccessEmail(apiResult.email || cleanEmail);
-            setDevOtp(apiResult.devOtp || null);
             setSavedPassword(password);
             setCountdown(30);
             setLoading(false);
@@ -427,13 +379,13 @@ export default function SignupForm({ role }: SignupFormProps) {
     return (
       <div className="max-w-[520px] w-full mx-auto p-7 sm:p-10 bg-white rounded-2xl border border-slate-200/90 shadow-sm text-center">
         {/* Animated icon badge */}
-        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-emerald-50/50">
+        <div className="w-16 h-16 bg-emerald-50 text-[#14a800] rounded-full flex items-center justify-center mx-auto mb-4 ring-8 ring-emerald-50/60">
           <Mail className="w-8 h-8" />
         </div>
 
         <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Verify your email</h2>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
-          We&apos;ve dispatched a 6-digit verification code to{' '}
+          We&apos;ve sent a verification code and activation link to{' '}
           <strong className="text-slate-900 break-all">{successEmail}</strong>
         </p>
 
@@ -459,49 +411,60 @@ export default function SignupForm({ role }: SignupFormProps) {
           </div>
         )}
 
-        {/* 6 Digit Inputs */}
-        <div className="flex justify-center items-center gap-2 sm:gap-3 my-6">
-          {otpDigits.map((digit, idx) => (
-            <input
-              key={idx}
-              ref={(el) => {
-                otpInputRefs.current[idx] = el;
-              }}
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={1}
-              value={digit}
-              onChange={(e) => handleDigitChange(idx, e.target.value)}
-              onKeyDown={(e) => handleKeyDown(idx, e)}
-              onPaste={handlePaste}
-              autoFocus={idx === 0}
-              aria-label={`Digit ${idx + 1}`}
-              className="w-11 h-14 sm:w-13 sm:h-16 text-center text-2xl font-bold font-mono text-slate-900 border border-slate-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-[#14a800] focus:ring-2 focus:ring-[#14a800]/20 transition-all"
-            />
-          ))}
-        </div>
-
-        {/* Verify Action Button */}
-        <button
-          type="button"
-          onClick={() => handleVerifyCode()}
-          disabled={verifyLoading || otpDigits.join('').length !== 6}
-          className={`w-full h-12 rounded-full font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs ${
-            otpDigits.join('').length !== 6 || verifyLoading
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-200'
-              : 'bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white cursor-pointer hover:shadow-sm'
-          }`}
+        {/* Verification Code Form */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (verificationCode.trim().length >= 6) {
+              handleVerifyCode();
+            }
+          }}
+          className="my-6 space-y-4"
         >
-          {verifyLoading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Verifying code...</span>
-            </>
-          ) : (
-            <span>Verify & Continue</span>
-          )}
-        </button>
+          <div className="max-w-xs mx-auto text-left">
+            <label
+              htmlFor="verificationCode"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 text-center"
+            >
+              Enter Verification Code
+            </label>
+            <input
+              id="verificationCode"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              maxLength={10}
+              placeholder="e.g. 62998023"
+              value={verificationCode}
+              onChange={(e) => handleCodeChange(e.target.value)}
+              autoFocus
+              className="w-full h-14 sm:h-16 text-center text-2xl font-bold font-mono tracking-[0.25em] text-slate-900 border border-slate-300 rounded-xl bg-white shadow-xs focus:outline-none focus:border-[#14a800] focus:ring-2 focus:ring-[#14a800]/20 transition-all placeholder:tracking-normal placeholder:font-normal placeholder:text-base placeholder:text-slate-300"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={verifyLoading || verificationCode.trim().length < 6}
+            className={`w-full max-w-xs mx-auto h-12 rounded-full font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs ${
+              verificationCode.trim().length < 6 || verifyLoading
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-200'
+                : 'bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white cursor-pointer hover:shadow-sm'
+            }`}
+          >
+            {verifyLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Verifying code...</span>
+              </>
+            ) : (
+              <span>Verify & Continue</span>
+            )}
+          </button>
+        </form>
+
+        <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+          Please check your inbox (and spam folder) for the email. You can enter the code above or click the direct activation button in the email.
+        </p>
 
         {/* Resend Code Section */}
         <div className="mt-5 text-center text-xs sm:text-sm text-slate-600">
@@ -522,39 +485,10 @@ export default function SignupForm({ role }: SignupFormProps) {
               ) : (
                 <RefreshCw className="w-3.5 h-3.5 inline" />
               )}
-              Resend verification code
+              Resend verification email
             </button>
           )}
         </div>
-
-        {/* Dev / Testing Helper (Only shown when devOtp is present) */}
-        {devOtp && (
-          <div className="mt-5 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-left text-xs text-amber-900 flex items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold text-amber-900 flex items-center gap-1.5">
-                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                Test Environment Code:{' '}
-                <span className="font-mono font-bold text-sm text-amber-950 tracking-widest ml-1">
-                  {devOtp}
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-700 mt-0.5">
-                Provided for instant testing if live email servers are pending DNS/keys.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const digits = devOtp.split('').slice(0, 6);
-                setOtpDigits(digits);
-                handleVerifyCode(devOtp);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs whitespace-nowrap shadow-xs transition-colors cursor-pointer"
-            >
-              Auto-fill & Verify
-            </button>
-          </div>
-        )}
 
         {/* Back / Change Email Link */}
         <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center">
@@ -562,9 +496,8 @@ export default function SignupForm({ role }: SignupFormProps) {
             type="button"
             onClick={() => {
               setSuccessEmail(null);
-              setDevOtp(null);
               setVerifyError(null);
-              setOtpDigits(['', '', '', '', '', '']);
+              setVerificationCode('');
             }}
             className="text-xs text-slate-500 hover:text-slate-800 underline inline-flex items-center gap-1 transition-colors cursor-pointer"
           >

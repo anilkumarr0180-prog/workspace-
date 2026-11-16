@@ -90,7 +90,53 @@ export async function dispatchVerificationEmail(
     }
   }
 
-  // 2. In non-production or when local SMTP is configured, try Nodemailer (Mailpit)
+  // 2. Try standard SMTP if SMTP_HOST is configured (works in any environment: SendGrid, Brevo, AWS SES, Gmail, etc.)
+  const smtpHost = process.env.SMTP_HOST;
+  if (smtpHost && !smtpHost.includes('your_smtp_host')) {
+    try {
+      const nodemailer = await import('nodemailer');
+      const port = parseInt(process.env.SMTP_PORT || '587', 10);
+      const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+      const user = process.env.SMTP_USER;
+      const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
+
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure,
+        auth: user && pass ? { user, pass } : undefined,
+      });
+
+      const smtpFrom =
+        process.env.SMTP_FROM ||
+        process.env.RESEND_FROM_EMAIL ||
+        'Workspace <notifications@workspace.com>';
+
+      const info = await transporter.sendMail({
+        from: smtpFrom,
+        to: recipient,
+        subject: 'Verify your Workspace account',
+        html: rendered.html,
+        text: rendered.text,
+      });
+
+      if (info?.messageId) {
+        console.log(
+          `[VerificationEmail] Verification email dispatched successfully via SMTP (${smtpHost}) to ${recipient}`
+        );
+        return {
+          success: true,
+          provider: 'smtp',
+          id: info.messageId,
+        };
+      }
+    } catch (smtpErr: unknown) {
+      const msg = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
+      console.warn(`[VerificationEmail] SMTP exception: ${msg}`);
+    }
+  }
+
+  // 3. In non-production or when local SMTP is configured, try Nodemailer (Mailpit)
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) {
     try {
