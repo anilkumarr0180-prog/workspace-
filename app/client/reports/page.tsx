@@ -11,6 +11,7 @@ import {
   Calendar,
   FileText,
   ShieldAlert,
+  ArrowRight,
 } from 'lucide-react';
 import { getClientReportsData, ClientReportsData } from '@/lib/actions/client-reports';
 
@@ -370,7 +371,8 @@ export default function ClientReportsPage() {
                         <th className="pb-3 pr-4">Freelancer</th>
                         <th className="pb-3 pr-4 text-right">Logged Time</th>
                         <th className="pb-3 pr-4 text-right">Accrued Amount</th>
-                        <th className="pb-3 text-right">Status</th>
+                        <th className="pb-3 pr-4 text-right">Status</th>
+                        <th className="pb-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -380,7 +382,12 @@ export default function ClientReportsPage() {
                             {formatDate(ts.weekStartDate)}
                           </td>
                           <td className="py-3.5 pr-4 text-slate-800 font-medium">
-                            {ts.contractTitle}
+                            <Link
+                              href={`/contracts/${ts.contractId}`}
+                              className="font-bold text-slate-900 hover:text-emerald-700 hover:underline"
+                            >
+                              {ts.contractTitle}
+                            </Link>
                           </td>
                           <td className="py-3.5 pr-4 text-slate-700 whitespace-nowrap">
                             <span className="font-semibold text-slate-900">{ts.freelancerName}</span>
@@ -394,7 +401,7 @@ export default function ClientReportsPage() {
                           <td className="py-3.5 pr-4 text-right font-semibold text-emerald-700 whitespace-nowrap">
                             ${ts.totalAmount.toFixed(2)}
                           </td>
-                          <td className="py-3.5 text-right whitespace-nowrap">
+                          <td className="py-3.5 pr-4 text-right whitespace-nowrap">
                             <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               ts.status === 'approved'
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -404,6 +411,15 @@ export default function ClientReportsPage() {
                             }`}>
                               {ts.status.toUpperCase()}
                             </span>
+                          </td>
+                          <td className="py-3.5 text-right whitespace-nowrap">
+                            <Link
+                              href={`/contracts/${ts.contractId}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+                            >
+                              <span>Contract &amp; Pay</span>
+                              <ArrowRight className="w-3 h-3 text-slate-300" />
+                            </Link>
                           </td>
                         </tr>
                       ))}
@@ -448,7 +464,12 @@ export default function ClientReportsPage() {
                             {entry.memo}
                           </td>
                           <td className="py-3.5 pr-4 text-slate-700 whitespace-nowrap">
-                            {entry.contractTitle}
+                            <Link
+                              href={`/contracts/${entry.contractId}`}
+                              className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline"
+                            >
+                              {entry.contractTitle}
+                            </Link>
                           </td>
                           <td className="py-3.5 pr-4 text-slate-700 whitespace-nowrap font-medium">
                             {entry.freelancerName}

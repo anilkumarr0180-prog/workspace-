@@ -1065,6 +1065,16 @@ export async function uploadMilestoneAttachment(
 
   try {
     const admin = getAdminSupabaseClient();
+
+    // Ensure milestone-deliveries bucket exists
+    const { data: buckets } = await admin.storage.listBuckets();
+    if (!buckets?.some((b) => b.name === 'milestone-deliveries')) {
+      await admin.storage.createBucket('milestone-deliveries', {
+        public: true,
+        fileSizeLimit: 25 * 1024 * 1024,
+      });
+    }
+
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storagePath = `${milestoneId.trim()}/${Date.now()}_${cleanFileName}`;
 

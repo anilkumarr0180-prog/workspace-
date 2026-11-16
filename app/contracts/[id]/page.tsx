@@ -26,6 +26,7 @@ import {
 } from '@/lib/actions/payments';
 import {
   getContractTimesheets,
+  submitTimesheet,
   approveTimesheet,
   disputeTimesheet,
   createTimesheetRazorpayOrder,
@@ -162,6 +163,7 @@ function ContractDetailsContent() {
   // Hourly Timesheet state
   const [contractTimesheets, setContractTimesheets] = useState<TimesheetWithDetails[]>([]);
   const [isApprovingTimesheetId, setIsApprovingTimesheetId] = useState<string | null>(null);
+  const [isSubmittingTimesheetId, setIsSubmittingTimesheetId] = useState<string | null>(null);
   const [isPayingTimesheetId, setIsPayingTimesheetId] = useState<string | null>(null);
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [selectedTimesheetForDispute, setSelectedTimesheetForDispute] = useState<TimesheetWithDetails | null>(null);
@@ -538,6 +540,22 @@ function ContractDetailsContent() {
       loadData(true);
     } else {
       setActionErrorMessage(res.error || 'Failed to approve timesheet.');
+    }
+  };
+
+  const handleSubmitTimesheet = async (timesheetId: string) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsSubmittingTimesheetId(timesheetId);
+
+    const res = await submitTimesheet(timesheetId);
+    setIsSubmittingTimesheetId(null);
+
+    if (res.success) {
+      setActionSuccessMessage('Timesheet submitted for client review and approval!');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to submit timesheet.');
     }
   };
 
@@ -1344,10 +1362,11 @@ function ContractDetailsContent() {
                       const getTimesheetBadge = (status: string) => {
                         switch (status) {
                           case 'draft':
+                          case 'open':
                             return (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                                 <Clock className="w-3 h-3 text-slate-500" />
-                                Draft
+                                {status === 'open' ? 'Active / Open' : 'Draft'}
                               </span>
                             );
                           case 'submitted':
@@ -1438,7 +1457,52 @@ function ContractDetailsContent() {
                               </button>
 
                               <div className="flex items-center gap-2">
-                                {/* Client Review Controls */}
+                                {/* Freelancer Submit Timesheet Action */}
+                                {isFreelancer && ts.status === 'open' && ts.totalMinutes > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSubmitTimesheet(ts.id)}
+                                    disabled={isSubmittingTimesheetId === ts.id}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
+                                  >
+                                    {isSubmittingTimesheetId === ts.id ? (
+                                      <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Submitting...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Send className="w-3.5 h-3.5" />
+                                        <span>Submit for Client Review</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+
+                                {/* Client Early Approval (when Open) */}
+                                {isClient && ts.status === 'open' && ts.totalMinutes > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveTimesheet(ts.id)}
+                                    disabled={isApprovingTimesheetId === ts.id}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
+                                    title="Approve accumulated hours early and enable payment"
+                                  >
+                                    {isApprovingTimesheetId === ts.id ? (
+                                      <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Approving...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Approve &amp; Ready to Pay</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+
+                                {/* Client Review Controls (when Submitted) */}
                                 {isClient && ts.status === 'submitted' && (
                                   <>
                                     <button

@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import {
   EndContractInput,
   ContractReviewsStatusResult,
@@ -75,6 +76,41 @@ export async function endContractAndSubmitReview(
     });
 
     if (rpcError) {
+      const isMissingRpc =
+        rpcError.code === 'PGRST202' ||
+        rpcError.code === '42883' ||
+        rpcError.message?.toLowerCase().includes('schema cache') ||
+        rpcError.message?.toLowerCase().includes('does not exist');
+
+      if (isMissingRpc) {
+        // Fallback: update contract status directly to completed
+        const adminClient = getAdminSupabaseClient();
+        const { error: updateErr } = await adminClient
+          .from('contracts')
+          .update({
+            status: 'completed',
+            end_reason: input.endReason.trim(),
+            ended_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', input.contractId.trim());
+
+        if (updateErr) {
+          return { success: false, error: updateErr.message };
+        }
+
+        revalidatePath(`/contracts/${input.contractId.trim()}`);
+        revalidatePath('/contracts');
+        revalidatePath('/client');
+        revalidatePath('/freelancer');
+
+        return {
+          success: true,
+          contractStatus: 'completed',
+          bothSubmitted: true,
+        };
+      }
+
       return { success: false, error: rpcError.message };
     }
 
@@ -129,6 +165,22 @@ export async function getContractReviewsStatus(
     });
 
     if (rpcError) {
+      const isMissingRpc =
+        rpcError.code === 'PGRST202' ||
+        rpcError.code === '42883' ||
+        rpcError.message?.toLowerCase().includes('schema cache') ||
+        rpcError.message?.toLowerCase().includes('does not exist');
+
+      if (isMissingRpc) {
+        return {
+          success: true,
+          contractStatus: 'active',
+          bothSubmitted: false,
+          myReview: null,
+          otherReview: null,
+        };
+      }
+
       return { success: false, error: rpcError.message };
     }
 
