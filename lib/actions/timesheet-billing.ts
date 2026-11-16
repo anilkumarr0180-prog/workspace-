@@ -7,6 +7,7 @@ import { payoutEngine } from '@/lib/services/payout-engine';
 import { createNotification } from '@/lib/actions/notifications';
 import { Timesheet, TimesheetStatus, TimeEntry } from '@/lib/types';
 import { extractPaymentErrorMessage } from '@/lib/razorpay';
+import { revalidatePath } from 'next/cache';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -174,6 +175,50 @@ export async function approveTimesheet(timesheetId: string): Promise<TimesheetAc
     }
 
     if (timesheet.status !== 'submitted' && timesheet.status !== 'under_review') {
+      // Early client approval: if client approves an open or draft timesheet with logged time
+      if ((timesheet.status === 'open' || timesheet.status === 'draft') && Number(timesheet.total_minutes) > 0) {
+        const adminClient = getAdminSupabaseClient();
+        const { data: earlyUpdated, error: earlyErr } = await adminClient
+          .from('timesheets')
+          .update({ status: 'approved', updated_at: new Date().toISOString() })
+          .eq('id', timesheetId.trim())
+          .select()
+          .single();
+
+        if (earlyErr || !earlyUpdated) {
+          return { success: false, error: 'Failed to approve timesheet.', code: 'DB_ERROR' };
+        }
+
+        createNotification({
+          userId: timesheet.freelancer_id,
+          type: 'milestone_approved',
+          title: 'Timesheet Approved',
+          message: `Your timesheet for week of ${timesheet.week_start_date} ($${timesheet.total_amount}) has been approved. Payment initiated.`,
+          link: `/contracts/${timesheet.contract_id}`,
+          metadata: { timesheetId: timesheet.id, contractId: timesheet.contract_id },
+        }).catch(() => {});
+
+        revalidatePath(`/contracts/${timesheet.contract_id}`);
+        revalidatePath('/contracts');
+        revalidatePath('/client/reports');
+
+        return {
+          success: true,
+          timesheet: {
+            id: earlyUpdated.id,
+            contractId: earlyUpdated.contract_id,
+            clientId: earlyUpdated.client_id,
+            freelancerId: earlyUpdated.freelancer_id,
+            weekStartDate: earlyUpdated.week_start_date,
+            totalMinutes: earlyUpdated.total_minutes,
+            totalAmount: Number(earlyUpdated.total_amount),
+            status: 'approved',
+            createdAt: earlyUpdated.created_at,
+            updatedAt: earlyUpdated.updated_at,
+          },
+        };
+      }
+
       return { success: false, error: `Timesheet in status "${timesheet.status}" cannot be approved.`, code: 'INVALID_STATE' };
     }
 
