@@ -86,17 +86,17 @@ export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
   return (
     <section
       aria-labelledby="featured-jobs-heading"
-      className={`max-w-[1140px] mx-auto px-4 sm:px-6 ${className}`}
+      className={`w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0 ${className}`}
     >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 sm:mb-10">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 block mb-1">
+          <span className="text-[12px] sm:text-[13px] font-semibold uppercase tracking-wider text-emerald-700 block mb-1.5">
             Verified Opportunities
           </span>
           <h2
             id="featured-jobs-heading"
-            className="text-2xl sm:text-3xl lg:text-[34px] font-bold text-slate-900 tracking-tight"
+            className="text-2xl sm:text-3xl lg:text-[34px] font-semibold text-slate-900 tracking-tight leading-tight"
           >
             Featured Client Projects
           </h2>
@@ -104,12 +104,12 @@ export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
 
         <Link
           href="/jobs"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#14a800] hover:text-[#108a00] group transition-colors"
+          className="inline-flex items-center gap-1.5 text-[14px] sm:text-[15px] font-semibold text-[#14a800] hover:text-[#108a00] group transition-colors shrink-0"
         >
           <span>
             {totalJobs > 0 ? `Browse all ${totalJobs} jobs` : 'Browse all jobs'}
           </span>
-          <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
+          <ArrowRight className="w-4 h-4 transform group-hover:translate-x-0.5 transition-transform" />
         </Link>
       </div>
 
@@ -119,7 +119,7 @@ export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="bg-white rounded-2xl border border-slate-200/90 p-6 space-y-4"
+              className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4"
             >
               <div className="flex justify-between items-center">
                 <div className="h-4 bg-slate-200 rounded w-24" />

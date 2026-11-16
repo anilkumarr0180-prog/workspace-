@@ -831,7 +831,7 @@ export default function FreelancerDashboardPage() {
                         <span>•</span>
                         <span className="flex items-center gap-1 text-slate-600">
                           <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                          <span>{recJob.client.rating.toFixed(1)}</span>
+                          <span>{recJob.client.rating !== null ? recJob.client.rating.toFixed(1) : 'New'}</span>
                         </span>
                         <span>•</span>
                         <span>{recJob.client.location}</span>

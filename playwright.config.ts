@@ -1,4 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertSafeTestEnvironment } from './e2e/safety';
+
+/**
+ * E2E Environment Pre-flight Safety Guard.
+ * Prohibits running E2E suites against hosted or production Supabase instances.
+ * Rejects production and Vercel environments, malformed URLs, and non-allowlisted hostnames.
+ */
+assertSafeTestEnvironment();
 
 export default defineConfig({
   testDir: './e2e',

@@ -11,6 +11,7 @@ import type { User } from '@supabase/supabase-js';
 import {
   Bookmark,
   CheckCircle2,
+  AlertCircle,
   MapPin,
   Star,
   Clock,
@@ -407,20 +408,31 @@ function JobDetailContent() {
             </div>
 
             <div className="space-y-3 text-xs text-slate-600">
-              {job.client.paymentVerified && (
+              {job.client.paymentVerified ? (
                 <div className="flex items-center gap-2 text-emerald-700 font-semibold bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200/50">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span>Payment Method Verified</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-500 font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-200/60">
+                  <AlertCircle className="w-4 h-4 text-slate-400" />
+                  <span>Payment Method Unverified</span>
                 </div>
               )}
 
               <div className="flex items-start gap-2.5">
                 <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold text-slate-900">
-                    {job.client.rating.toFixed(2)} of 5 stars
-                  </span>
-                  <span className="text-slate-400 ml-1">({job.client.reviewCount} reviews)</span>
+                  {job.client.rating !== null && job.client.reviewCount > 0 ? (
+                    <>
+                      <span className="font-bold text-slate-900">
+                        {job.client.rating.toFixed(2)} of 5 stars
+                      </span>
+                      <span className="text-slate-400 ml-1">({job.client.reviewCount} reviews)</span>
+                    </>
+                  ) : (
+                    <span className="font-medium text-slate-500">No reviews yet</span>
+                  )}
                 </div>
               </div>
 
@@ -437,7 +449,9 @@ function JobDetailContent() {
                   <span className="font-bold text-slate-900">
                     ${job.client.totalSpent.toLocaleString()} total spent
                   </span>
-                  <p className="text-[11px] text-slate-400">Consistent client history</p>
+                  <p className="text-[11px] text-slate-400">
+                    {job.client.totalSpent > 0 ? 'Verified marketplace spend' : 'No prior spend recorded'}
+                  </p>
                 </div>
               </div>
 
@@ -451,11 +465,17 @@ function JobDetailContent() {
 
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
                 <span className="text-slate-500">Hire rate:</span>
-                <span className="font-bold text-slate-900">{job.client.hireRate}% hire rate</span>
+                <span className="font-medium text-slate-900">
+                  {job.client.hireRate !== null ? `${job.client.hireRate}% hire rate` : 'Unavailable'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Open jobs:</span>
-                <span className="font-semibold text-slate-900">{job.client.openJobsCount} open</span>
+                <span className="font-medium text-slate-900">
+                  {job.client.openJobsCount !== null && job.client.openJobsCount !== undefined
+                    ? `${job.client.openJobsCount} open`
+                    : 'Unavailable'}
+                </span>
               </div>
             </div>
           </div>

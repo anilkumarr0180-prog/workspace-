@@ -192,12 +192,12 @@ export default function FreelancerPayoutSettingsPage() {
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
               <span>Freelancer Payout & Linked Account</span>
-              <span className="px-2.5 py-0.5 rounded-full text-2xs font-semibold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Direct Deposit Payouts
+              <span className="px-2.5 py-0.5 rounded-full text-2xs font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+                Simulated Payout Mode
               </span>
             </h1>
             <p className="text-xs text-slate-600">
-              Manage your linked bank account for automatic fixed-price milestone and weekly timesheet payouts.
+              Manage your linked bank account for simulated fixed-price milestone and weekly timesheet payouts.
             </p>
           </div>
 
@@ -220,15 +220,39 @@ export default function FreelancerPayoutSettingsPage() {
           </div>
         </div>
 
+        {/* Critical Payout Disclosure Banner */}
+        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex items-start gap-3.5 shadow-xs">
+          <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1.5 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-amber-900 text-sm">
+                Simulated Payout Provider Disclosure
+              </span>
+              <span className="px-2 py-0.5 text-3xs font-bold uppercase bg-amber-200/70 text-amber-900 rounded">
+                Test Environment
+              </span>
+            </div>
+            <p className="text-amber-800 leading-relaxed">
+              This marketplace is currently operating with a <strong>simulated payout provider</strong>. When clients approve fixed-price milestones or weekly timesheets, funds are transferred as simulated ledger credits for testing and verification purposes. <strong>No real-world bank transfers or actual payout disbursements take place.</strong>
+            </p>
+            <div className="pt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs font-medium text-amber-900">
+              <span>• <strong>Simulated Payment:</strong> Test escrow deposits</span>
+              <span>• <strong>Payment Confirmation:</strong> Razorpay Gateway test receipt</span>
+              <span>• <strong>Simulated Transfer:</strong> Internal ledger mock dispatch</span>
+              <span>• <strong>Actual Payout Completion:</strong> Disabled (no live bank transfers)</span>
+            </div>
+          </div>
+        </div>
+
         {/* Security & Escrow Guarantee Banner */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 text-slate-800 flex items-start gap-3.5 shadow-xs">
           <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
           <div className="space-y-1 text-xs">
             <p className="font-semibold text-slate-900">
-              Verified Marketplace Escrow & Direct Payouts
+              Marketplace Escrow & Simulated Transfer Lifecycle
             </p>
             <p className="text-slate-600 leading-relaxed">
-              When clients approve your fixed-price milestones or weekly timesheets, funds are transferred securely to your registered payout account with automated escrow protection.
+              When clients approve your fixed-price milestones or weekly timesheets, funds are routed safely through the marketplace ledger to your registered simulated payout account with automated escrow protection.
             </p>
           </div>
         </div>
@@ -469,12 +493,12 @@ export default function FreelancerPayoutSettingsPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50/75 border-b border-slate-100 text-2xs text-slate-500 font-semibold uppercase tracking-wider">
                         <tr>
-                          <th className="py-3 px-4">Transfer / Reference</th>
+                          <th className="py-3 px-4">Transfer / Reference (Simulated)</th>
                           <th className="py-3 px-4">Contract Engagement</th>
                           <th className="py-3 px-4">Gross</th>
                           <th className="py-3 px-4">Platform Fee (10%)</th>
                           <th className="py-3 px-4">Net Payout</th>
-                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4">Transfer Status</th>
                           <th className="py-3 px-4">Settled At</th>
                         </tr>
                       </thead>
@@ -482,7 +506,10 @@ export default function FreelancerPayoutSettingsPage() {
                         {transfers.map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-3.5 px-4 font-mono text-2xs text-slate-900">
-                              <div className="font-semibold">{t.providerTransferId}</div>
+                              <div className="flex items-center gap-1.5 font-semibold">
+                                <span>{t.providerTransferId}</span>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-mono font-medium">SIMULATED</span>
+                              </div>
                               <span className="text-3xs text-slate-400">ID: {t.id.slice(0, 8)}</span>
                             </td>
                             <td className="py-3.5 px-4">
@@ -510,7 +537,11 @@ export default function FreelancerPayoutSettingsPage() {
                                     : 'bg-amber-50 text-amber-700 border border-amber-200'
                                 }`}
                               >
-                                {t.status}
+                                {t.status === 'completed'
+                                  ? 'Simulated (Settled)'
+                                  : t.status === 'processing'
+                                  ? 'Simulated (Processing)'
+                                  : t.status}
                               </span>
                             </td>
                             <td className="py-3.5 px-4 text-slate-500 text-3xs">
@@ -561,7 +592,7 @@ export default function FreelancerPayoutSettingsPage() {
                 </div>
               </div>
 
-              {/* How Payouts Work */}
+              {/* How Payouts Work & Simulation Notice */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-indigo-600" />
@@ -586,6 +617,18 @@ export default function FreelancerPayoutSettingsPage() {
                     <span><strong>Delayed Settlement:</strong> Freelancer profile earnings update only after provider transfer confirmation, eliminating ledger drift.</span>
                   </li>
                 </ul>
+
+                <div className="pt-3 border-t border-slate-100 space-y-2">
+                  <span className="text-2xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Financial Lifecycle Disclosures
+                  </span>
+                  <div className="space-y-1.5 text-2xs text-slate-500 leading-snug">
+                    <p>• <strong>Simulated Payment:</strong> Client escrow deposits generated in test mode without external charges.</p>
+                    <p>• <strong>Actual Payment Confirmation:</strong> Real or test-mode checkout confirmed by Razorpay gateway.</p>
+                    <p>• <strong>Simulated Transfer:</strong> Internal marketplace transfer dispatched to mock account (acc_sim_*).</p>
+                    <p>• <strong>Actual Payout Completion:</strong> Live external bank clearing (disabled in test/simulation mode).</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

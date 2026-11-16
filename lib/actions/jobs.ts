@@ -1,8 +1,8 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { Job, ProjectType, ExperienceLevel, ProjectDuration, ClientInfo } from '@/lib/types';
-import { INITIAL_JOBS } from '@/lib/mock-data';
+import { createClient } from '../supabase/server';
+import { Job, ProjectType, ExperienceLevel, ProjectDuration, ClientInfo } from '../types';
+import { INITIAL_JOBS } from '../mock-data';
 
 export interface CreateJobInput {
   title: string;
@@ -113,20 +113,24 @@ function mapSupabaseJobToFrontend(row: SupabaseJobRow): Job {
         .filter((name): name is string => Boolean(name))
     : [];
 
+  const reviewCount = Number(profile.review_count) || 0;
+  const ratingVal = profile.rating !== null && profile.rating !== undefined ? Number(profile.rating) : null;
+  const totalSpentVal = Number(profile.total_spent) || 0;
+
   const clientInfo: ClientInfo = {
     id: row.client_id,
-    name: profile.full_name || 'Verified Client',
+    name: profile.full_name || 'Client',
     companyName: company?.name || profile.company_name || undefined,
     location: company?.location || 'Remote / Worldwide',
-    rating: Number(profile.rating) || 5.0,
-    reviewCount: Number(profile.review_count) || 0,
-    totalSpent: Number(profile.total_spent) || 0,
-    paymentVerified: true,
+    rating: reviewCount > 0 && ratingVal !== null ? ratingVal : null,
+    reviewCount,
+    totalSpent: totalSpentVal,
+    paymentVerified: totalSpentVal > 0,
     memberSince: profile.created_at
       ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
       : 'Recent Member',
-    hireRate: 90,
-    openJobsCount: 1,
+    hireRate: null,
+    openJobsCount: null,
   };
 
   const projectType = row.project_type as ProjectType;
@@ -155,6 +159,13 @@ function mapSupabaseJobToFrontend(row: SupabaseJobRow): Job {
     proposalCount: Number(row.proposals_count) || 0,
     isFeatured: Boolean(row.is_featured),
   };
+}
+
+/**
+ * Server action to format a Supabase job row into the frontend Job interface.
+ */
+export async function formatJobForFrontend(row: SupabaseJobRow): Promise<Job> {
+  return mapSupabaseJobToFrontend(row);
 }
 
 function formatTimeAgo(date: Date): string {

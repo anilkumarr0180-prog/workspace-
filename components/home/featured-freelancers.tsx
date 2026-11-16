@@ -94,23 +94,23 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
   };
 
   return (
-    <section className={`max-w-[1140px] mx-auto px-4 sm:px-6 ${className}`}>
+    <section className={`w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0 ${className}`}>
       {/* Header matching Upwork visual hierarchy */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 sm:mb-10">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 block mb-1">
+          <span className="text-[12px] sm:text-[13px] font-semibold uppercase tracking-wider text-emerald-700 block mb-1.5">
             Top Rated Talent
           </span>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+          <h2 className="text-2xl sm:text-3xl lg:text-[34px] font-semibold text-slate-900 tracking-tight leading-tight">
             Hire Elite Independent Specialists
           </h2>
         </div>
         <Link
           href="/freelancers"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+          className="inline-flex items-center gap-1.5 text-[14px] sm:text-[15px] font-semibold text-[#14a800] hover:text-[#108a00] group transition-colors shrink-0"
         >
           <span>Explore all freelancers</span>
-          <ArrowRight className="w-4 h-4" />
+          <ArrowRight className="w-4 h-4 transform group-hover:translate-x-0.5 transition-transform" />
         </Link>
       </div>
 
@@ -120,7 +120,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
           {[...Array(3)].map((_, i) => (
             <div
               key={i}
-              className="animate-pulse bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 flex flex-col justify-between min-h-[250px]"
+              className="animate-pulse bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between min-h-[250px]"
             >
               <div>
                 <div className="flex items-start gap-4 mb-4">
@@ -184,15 +184,15 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
       {/* Real Supabase Database Freelancers */}
       {!loading && !error && freelancers.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {freelancers.map((freelancer) => {
+          {freelancers.map((freelancer, fIdx) => {
             const hasHourlyRate = typeof freelancer.hourlyRate === 'number' && freelancer.hourlyRate > 0;
             const hasReviews = typeof freelancer.reviewCount === 'number' && freelancer.reviewCount > 0;
             const isTopRated = hasReviews && freelancer.rating >= 4.8;
 
             return (
               <div
-                key={freelancer.id}
-                className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 transition-all duration-200 hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-950/5 flex flex-col justify-between"
+                key={freelancer.id || `freelancer-card-${fIdx}`}
+                className="bg-white rounded-2xl border border-slate-200 p-6 transition-all duration-200 hover:border-[#14a800]/70 shadow-xs hover:shadow-md hover:shadow-slate-200/50 flex flex-col justify-between"
               >
                 <div>
                   {/* Top Row: Avatar, Name, Title, Rate */}
@@ -204,10 +204,10 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                           <img
                             src={freelancer.avatarUrl}
                             alt={freelancer.fullName}
-                            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white shadow-xs"
+                            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-slate-100 shadow-2xs"
                           />
                         ) : (
-                          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold flex items-center justify-center text-lg sm:text-xl border-2 border-white shadow-xs select-none">
+                          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold flex items-center justify-center text-lg sm:text-xl border-2 border-slate-100 shadow-2xs select-none">
                             {getInitials(freelancer.fullName, freelancer.username)}
                           </div>
                         )}
@@ -221,7 +221,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                         <div className="flex items-center gap-1.5">
                           <Link
                             href={`/freelancers/${freelancer.username}`}
-                            className="font-bold text-base sm:text-lg text-slate-900 hover:text-emerald-700 transition-colors truncate block"
+                            className="font-semibold text-[18px] sm:text-[19px] text-slate-900 hover:text-[#14a800] transition-colors truncate block"
                           >
                             {freelancer.fullName}
                           </Link>
@@ -236,11 +236,11 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                           )}
                         </div>
 
-                        <p className="text-xs font-medium text-slate-600 mt-0.5 line-clamp-1">
+                        <p className="text-[13px] font-normal text-slate-600 mt-0.5 line-clamp-1">
                           {freelancer.title || 'Independent Professional'}
                         </p>
 
-                        <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                        <p className="text-[12px] text-slate-400 mt-0.5 font-mono">
                           @{freelancer.username}
                         </p>
                       </div>
@@ -249,7 +249,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                     {/* Hourly Rate (Only displayed if genuinely defined in database) */}
                     {hasHourlyRate && (
                       <div className="text-right shrink-0">
-                        <span className="text-lg sm:text-xl font-bold text-slate-900">
+                        <span className="text-[17px] sm:text-[18px] font-bold text-slate-900">
                           ${freelancer.hourlyRate}
                         </span>
                         <span className="text-xs text-slate-500 font-medium">/hr</span>
@@ -258,7 +258,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                   </div>
 
                   {/* Rating & Reviews Bar */}
-                  <div className="flex items-center gap-3 py-1.5 px-3 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-600 mb-3.5">
+                  <div className="flex items-center gap-3 py-1.5 px-3 rounded-lg bg-slate-50 border border-slate-100 text-[12px] text-slate-600 mb-3.5">
                     {hasReviews ? (
                       <div className="flex items-center gap-1">
                         <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
@@ -270,18 +270,18 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                     )}
 
                     {freelancer.totalEarnings > 0 && (
-                      <>
+                      <span className="inline-flex items-center gap-2 text-slate-600">
                         <span>•</span>
-                        <span className="text-slate-600">
+                        <span>
                           Earned: <strong className="text-slate-900">${freelancer.totalEarnings.toLocaleString()}</strong>
                         </span>
-                      </>
+                      </span>
                     )}
                   </div>
 
                   {/* Bio snippet (Only displayed if present in database) */}
                   {freelancer.bio && (
-                    <p className="text-xs text-slate-600 line-clamp-2 mb-3 leading-relaxed">
+                    <p className="text-[13px] sm:text-[14px] text-slate-600 line-clamp-2 mb-3.5 leading-relaxed">
                       {freelancer.bio}
                     </p>
                   )}
@@ -289,10 +289,10 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                   {/* Skills Badges (Only genuine skills from database) */}
                   {freelancer.skills && freelancer.skills.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
-                      {freelancer.skills.slice(0, 4).map((skill) => (
+                      {freelancer.skills.slice(0, 4).map((skill, sIdx) => (
                         <span
-                          key={skill.id}
-                          className="px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700"
+                          key={skill.id ? `${freelancer.id}-skill-${skill.id}` : `${freelancer.id}-skill-${sIdx}`}
+                          className="px-2.5 py-1 rounded-md text-[12px] font-medium bg-slate-100 text-slate-700"
                         >
                           {skill.name}
                         </span>
@@ -305,7 +305,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
                 <div className="pt-4 border-t border-slate-100 mt-4">
                   <Link
                     href={`/freelancers/${freelancer.username}`}
-                    className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-xs"
+                    className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-full text-[13px] sm:text-[14px] font-medium text-slate-800 border border-slate-300 hover:border-[#14a800] hover:text-[#14a800] hover:bg-slate-50 transition-all cursor-pointer"
                   >
                     <span>View Profile</span>
                     <ArrowRight className="w-3.5 h-3.5" />

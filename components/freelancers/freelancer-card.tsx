@@ -77,7 +77,7 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-slate-200/90 p-5 sm:p-6 transition-all duration-200 hover:border-emerald-500/60 hover:shadow-md flex flex-col justify-between">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 transition-all duration-200 hover:border-[#14a800]/70 shadow-xs hover:shadow-md hover:shadow-slate-200/50 flex flex-col justify-between">
         <div>
           {/* Top Row: Avatar, Name, Title, Rate */}
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
@@ -89,13 +89,13 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
                     src={freelancer.avatarUrl}
                     alt={freelancer.name}
                     onError={() => setAvatarError(true)}
-                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white shadow-xs"
+                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-slate-100 shadow-2xs"
                   />
                 ) : (
                   <div
                     className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full ${getAvatarColor(
                       freelancer.name
-                    )} text-white font-bold flex items-center justify-center text-lg sm:text-xl border-2 border-white shadow-xs select-none`}
+                    )} text-white font-bold flex items-center justify-center text-lg sm:text-xl border-2 border-slate-100 shadow-2xs select-none`}
                   >
                     {getInitials(freelancer.name)}
                   </div>
@@ -110,25 +110,25 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     href={`/freelancers/${freelancer.username}`}
-                    className="font-bold text-lg text-slate-900 hover:text-emerald-700 transition-colors"
+                    className="font-semibold text-[18px] sm:text-[19px] text-slate-900 hover:text-[#14a800] transition-colors"
                   >
                     {freelancer.name}
                   </Link>
                   {getBadgeDisplay(freelancer.badge)}
                 </div>
 
-                <p className="text-sm font-medium text-slate-700 mt-0.5 line-clamp-1">
+                <p className="text-[13px] font-normal text-slate-600 mt-0.5 line-clamp-1">
                   {freelancer.title}
                 </p>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-500 mt-1.5">
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-slate-400" />
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
                     {freelancer.location}
                   </span>
                   <span>•</span>
                   <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-slate-400" />
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
                     {freelancer.localTime}
                   </span>
                 </div>
@@ -140,7 +140,7 @@ export default function FreelancerCard({ freelancer }: FreelancerCardProps) {
               <div className="text-right">
                 {freelancer.hourlyRate > 0 ? (
                   <>
-                    <span className="text-xl font-bold text-slate-900">${freelancer.hourlyRate}</span>
+                    <span className="text-[17px] sm:text-[18px] font-bold text-slate-900">${freelancer.hourlyRate}</span>
                     <span className="text-xs text-slate-500 font-medium">/hr</span>
                   </>
                 ) : (

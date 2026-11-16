@@ -6,11 +6,18 @@ if (typeof window !== 'undefined') {
 }
 
 /**
+ * Unique symbol brand confirming adapter authenticity.
+ * Prevents arbitrary object literals or mock classes from impersonating Resend.
+ */
+export const TRUSTED_RESEND_BRAND = Symbol.for('workspace.email.trusted_resend_adapter.v1');
+
+/**
  * Production Resend adapter communicating with Resend REST API.
  * Strictly used in production environments with verified API keys.
  */
 export class ResendEmailAdapter implements EmailAdapter {
   readonly name = 'resend' as const;
+  readonly [TRUSTED_RESEND_BRAND] = true;
   private client: Resend;
   private defaultFrom: string;
 
@@ -113,4 +120,18 @@ export class ResendEmailAdapter implements EmailAdapter {
       };
     }
   }
+}
+
+/**
+ * Validates whether an object is genuinely the application's trusted ResendEmailAdapter.
+ * Cannot be impersonated by arbitrary objects or mock classes claiming name="resend".
+ */
+export function isTrustedResendAdapter(adapter: unknown): adapter is ResendEmailAdapter {
+  if (!adapter || typeof adapter !== 'object') {
+    return false;
+  }
+  return (
+    adapter instanceof ResendEmailAdapter &&
+    (adapter as unknown as Record<symbol, unknown>)[TRUSTED_RESEND_BRAND] === true
+  );
 }

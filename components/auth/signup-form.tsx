@@ -58,41 +58,119 @@ export default function SignupForm({ role }: SignupFormProps) {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-      const fullName = `${firstName.trim()} ${lastName.trim()}`;
+      const cleanEmail = email.trim();
+      const cleanFirstName = firstName.trim();
+      const cleanLastName = lastName.trim();
+      const fullName = `${cleanFirstName} ${cleanLastName}`;
 
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: fullName,
+      // 1. Attempt server-side signup via /api/auth/signup (provisions user with auto-confirmation to bypass GoTrue SMTP rate limits)
+      let signupSucceeded = false;
+      let signupErrorMessage: string | null = null;
+
+      try {
+        const apiRes = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            firstName: cleanFirstName,
+            lastName: cleanLastName,
             role,
             country,
-            marketing_opt_in: sendEmails,
+            sendEmails,
+          }),
+        });
+
+        const apiResult = await apiRes.json();
+
+        if (apiRes.ok && apiResult.success) {
+          signupSucceeded = true;
+        } else if (apiRes.status === 409) {
+          // Account already exists
+          setErrorMessage(
+            apiResult.error || 'An account with this email address already exists. Please log in.'
+          );
+          setLoading(false);
+          return;
+        } else if (!apiResult.fallback) {
+          signupErrorMessage = apiResult.error;
+        }
+      } catch (apiErr) {
+        console.warn('Server signup API unreachable, falling back to direct auth:', apiErr);
+      }
+
+      const supabase = createClient();
+
+      // 2. If server-side signup was not able to handle it, fallback to client-side supabase.auth.signUp
+      if (!signupSucceeded) {
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+              role,
+              country,
+              marketing_opt_in: sendEmails,
+            },
           },
-        },
+        });
+
+        if (error) {
+          const errLower = error.message.toLowerCase();
+          if (errLower.includes('rate limit')) {
+            setErrorMessage(
+              'Email confirmation rate limit exceeded by authentication provider. If your account was already created, please click "Log In" below, or try again in a few moments.'
+            );
+          } else {
+            setErrorMessage(signupErrorMessage || error.message);
+          }
+          setLoading(false);
+          return;
+        }
+
+        if (data.session) {
+          await supabase
+            .from('profiles')
+            .update({ active_mode: role })
+            .eq('id', data.session.user.id);
+
+          router.push(isClient ? '/client' : '/freelancer');
+          router.refresh();
+          return;
+        } else {
+          // Needs email verification confirmation
+          setSuccessEmail(cleanEmail);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3. User created and confirmed! Immediately establish client session with signInWithPassword
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
       });
 
-      if (error) {
-        setErrorMessage(error.message);
-        setLoading(false);
+      if (signInError) {
+        // If signIn had an unexpected issue, redirect to login page pre-filled
+        router.push(`/login?email=${encodeURIComponent(cleanEmail)}`);
         return;
       }
 
-      if (data.session) {
-        // Guarantee database profile active_mode aligns with the chosen signup role
-        await supabase
-          .from('profiles')
-          .update({ active_mode: role })
-          .eq('id', data.session.user.id);
+      if (signInData.session) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({ active_mode: role })
+            .eq('id', signInData.session.user.id);
+        } catch {
+          // Non-blocking profile check
+        }
 
         router.push(isClient ? '/client' : '/freelancer');
         router.refresh();
-      } else {
-        // Needs email verification confirmation
-        setSuccessEmail(email.trim());
-        setLoading(false);
       }
     } catch (err: unknown) {
       const message =
@@ -319,8 +397,12 @@ export default function SignupForm({ role }: SignupFormProps) {
         <div className="pt-2">
           <button
             type="submit"
-            disabled={loading}
-            className="w-full h-12 rounded-full bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            disabled={loading || !agreeTerms}
+            className={`w-full h-12 rounded-full font-semibold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs ${
+              !agreeTerms || loading
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-200'
+                : 'bg-[#14a800] hover:bg-[#108a00] active:scale-[0.99] text-white cursor-pointer hover:shadow-sm'
+            }`}
           >
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Create my account</span>}
           </button>
