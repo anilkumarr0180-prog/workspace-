@@ -46,6 +46,8 @@ export function useRealtimeChat({
     setMessages(initialMessages);
     setPrevLastRead(conversation?.otherParticipant?.lastReadAt || null);
     setOtherParticipantLastRead(conversation?.otherParticipant?.lastReadAt || null);
+    setIsTyping(false);
+    setTypingUser(null);
   } else if (prevInitialMessages !== initialMessages) {
     setPrevInitialMessages(initialMessages);
     if (initialMessages.length > 0) {
@@ -70,11 +72,12 @@ export function useRealtimeChat({
     }
   }, [messages]);
 
-  // Fetch missed messages after reconnect
+  // Fetch missed messages after reconnect or background interval
   const fetchMissedMessages = useCallback(async (sinceTimestamp: string) => {
     try {
       const res = await fetch(
-        `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(sinceTimestamp)}`
+        `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(sinceTimestamp)}`,
+        { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
       );
       if (res.ok) {
         const data = await res.json();
@@ -83,10 +86,17 @@ export function useRealtimeChat({
             const existingIds = new Set(prev.map((m) => m.id));
             const newOnes = data.messages.filter((m: Message) => !existingIds.has(m.id));
             if (newOnes.length === 0) return prev;
-            return [...prev, ...newOnes].sort(
+            const updated = [...prev, ...newOnes].sort(
               (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
             );
+            if (updated.length > 0) {
+              latestMessageTimestampRef.current = updated[updated.length - 1].createdAt;
+            }
+            return updated;
           });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+          }
         }
       }
     } catch (err) {
@@ -101,11 +111,52 @@ export function useRealtimeChat({
     const supabase = createClient();
     const channelName = `conversation-${conversationId}`;
 
+    // Ensure Realtime WebSocket connection is authenticated
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await supabase.realtime.setAuth(session.access_token);
+        }
+      } catch {
+        // non-blocking
+      }
+    })();
+
     const channel = supabase.channel(channelName, {
       config: {
         broadcast: { self: false },
         presence: { key: currentUserId },
       },
+    });
+
+    // 0. Realtime Broadcast: Instant message receipt (<100ms)
+    channel.on('broadcast', { event: 'new_message' }, (payload: { payload: Message }) => {
+      const newMsg = payload?.payload;
+      if (!newMsg || !newMsg.id) return;
+      latestMessageTimestampRef.current = newMsg.createdAt || new Date().toISOString();
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        const filtered = prev.filter(
+          (m) =>
+            m.id !== newMsg.id &&
+            !(
+              m.id.startsWith('temp-') &&
+              (m.senderId === newMsg.senderId || m.senderId === 'me' || m.senderId === currentUserId) &&
+              m.content.trim() === newMsg.content.trim()
+            )
+        );
+        return [...filtered, newMsg];
+      });
+
+      if (onMessageReceived) {
+        onMessageReceived(newMsg);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+      }
     });
 
     // 1. Postgres Changes: New message inserted
@@ -245,23 +296,25 @@ export function useRealtimeChat({
 
     // 4. Realtime Broadcast: Typing indicator
     channel.on('broadcast', { event: 'typing' }, (payload: { payload: TypingPayload }) => {
-      const data = payload.payload as TypingPayload;
-      if (data.userId !== currentUserId) {
-        if (data.isTyping) {
-          setIsTyping(true);
-          setTypingUser(data.userName || 'Participant');
+      const data = payload?.payload;
+      if (!data) return;
+      // Strictly ignore if typing event belongs to self
+      if (data.userId === currentUserId || (currentUserName && data.userName === currentUserName)) {
+        return;
+      }
+      if (data.isTyping) {
+        setIsTyping(true);
+        setTypingUser(data.userName || 'Participant');
 
-          // Auto-clear after 3 seconds of inactivity
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-          typingTimeoutRef.current = setTimeout(() => {
-            setIsTyping(false);
-            setTypingUser(null);
-          }, 3000);
-        } else {
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
           setIsTyping(false);
           setTypingUser(null);
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        }
+        }, 2000);
+      } else {
+        setIsTyping(false);
+        setTypingUser(null);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       }
     });
 
@@ -372,7 +425,27 @@ export function useRealtimeChat({
 
     channelRef.current = channel;
 
+    // Active conversation poll fallback: re-sync every 3 seconds to guarantee real-time delivery
+    const pollInterval = setInterval(() => {
+      if (latestMessageTimestampRef.current) {
+        fetchMissedMessages(latestMessageTimestampRef.current);
+      }
+    }, 3000);
+
+    const onWindowFocus = () => {
+      if (latestMessageTimestampRef.current) {
+        fetchMissedMessages(latestMessageTimestampRef.current);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onWindowFocus);
+    }
+
     return () => {
+      clearInterval(pollInterval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onWindowFocus);
+      }
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (channelRef.current) {
         channelRef.current.untrack();
@@ -387,6 +460,19 @@ export function useRealtimeChat({
       setIsConnected(false);
     };
   }, [conversationId, currentUserId, currentUserName, conversation, fetchMissedMessages, onMessageReceived]);
+
+  // Broadcast a confirmed message instantly over WebSocket to other participants
+  const broadcastMessage = useCallback(
+    (msg: Message) => {
+      if (!channelRef.current) return;
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'new_message',
+        payload: msg,
+      });
+    },
+    []
+  );
 
   // Send broadcast typing event with debounce
   const sendTypingStatus = useCallback(
@@ -489,6 +575,7 @@ export function useRealtimeChat({
     isUserOnline,
     otherParticipantLastRead,
     sendTypingStatus,
+    broadcastMessage,
     addOptimisticMessage,
     replaceOptimisticMessage,
     removeOptimisticMessage,

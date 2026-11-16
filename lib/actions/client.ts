@@ -303,9 +303,31 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
         const jobsMap = new Map<string, ClientJobSummary>();
         clientJobs.forEach((j) => jobsMap.set(j.id, j));
 
+        const proposalIds = rows.map((p) => p.id);
+        const contractsMap = new Map<string, { id: string; status: 'pending_offer' | 'active' | 'completed' | 'declined' }>();
+        if (proposalIds.length > 0) {
+          try {
+            const { data: cRows } = await supabase
+              .from('contracts')
+              .select('id, proposal_id, status')
+              .in('proposal_id', proposalIds);
+            if (cRows) {
+              cRows.forEach((c) => {
+                contractsMap.set(c.proposal_id, {
+                  id: c.id,
+                  status: c.status as 'pending_offer' | 'active' | 'completed' | 'declined',
+                });
+              });
+            }
+          } catch {
+            // Non-blocking
+          }
+        }
+
         proposals = rows.map((row) => {
           const jobObj = jobsMap.get(row.job_id);
           const profileObj = profilesMap.get(row.freelancer_id);
+          const contractObj = contractsMap.get(row.id);
 
           return {
             id: row.id,
@@ -321,6 +343,8 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
             deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
             coverLetter: row.cover_letter,
             status: row.status,
+            contractId: contractObj?.id || null,
+            contractStatus: contractObj?.status || null,
             isShortlisted: Boolean(row.is_shortlisted),
             shortlistedAt: row.shortlisted_at || null,
             declinedReason: row.declined_reason || null,

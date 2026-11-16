@@ -310,8 +310,31 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       };
     }
 
+    const contractsMap = new Map<string, { id: string; status: 'pending_offer' | 'active' | 'completed' | 'declined' }>();
+    let totalDirectActiveContracts = 0;
+    try {
+      const { data: fContracts } = await supabase
+        .from('contracts')
+        .select('id, proposal_id, status')
+        .eq('freelancer_id', user.id);
+      if (fContracts) {
+        fContracts.forEach((c) => {
+          if (c.status === 'active') totalDirectActiveContracts++;
+          if (c.proposal_id) {
+            contractsMap.set(c.proposal_id, {
+              id: c.id,
+              status: c.status as 'pending_offer' | 'active' | 'completed' | 'declined',
+            });
+          }
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
     const proposals: ProposalRecord[] = ((rawProposals as unknown as ProposalRawRow[]) || []).map((row) => {
       const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
+      const contractObj = contractsMap.get(row.id);
 
       return {
         id: row.id,
@@ -327,6 +350,8 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
         deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
         coverLetter: row.cover_letter,
         status: row.status,
+        contractId: contractObj?.id || null,
+        contractStatus: contractObj?.status || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -424,13 +449,16 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
     const submittedProposals = proposals.length;
     const pendingProposals = proposals.filter((p) => p.status === 'submitted' || p.status === 'under_review').length;
     const interviewingProposals = proposals.filter((p) => p.status === 'interviewing').length;
-    const acceptedProposals = proposals.filter((p) => p.status === 'accepted').length;
+    const acceptedProposals = proposals.filter((p) => p.status === 'accepted' || p.contractStatus === 'active').length;
     const activeProposals = proposals.filter((p) => !['withdrawn', 'rejected'].includes(p.status)).length;
     
-    // Active contracts: genuine accepted bids on currently active or in-progress jobs
-    const activeContracts = proposals.filter(
-      (p) => p.status === 'accepted' && (p.jobStatus === 'in_progress' || p.jobStatus === 'published')
-    ).length;
+    // Active contracts: genuine accepted bids or active contracts
+    const activeContracts = Math.max(
+      totalDirectActiveContracts,
+      proposals.filter(
+        (p) => (p.status === 'accepted' || p.contractStatus === 'active')
+      ).length
+    );
 
     // Actual verified earnings strictly from database billing engine records (profiles.total_earnings)
     // We never treat accepted bids as completed earnings without verified payment records

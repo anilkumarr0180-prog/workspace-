@@ -13,11 +13,12 @@ export async function GET(
     const { conversationId } = await context.params;
     const { searchParams } = new URL(request.url);
     const before = searchParams.get('before') || undefined;
+    const after = searchParams.get('after') || undefined;
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 40;
 
     const [detailsRes, messagesRes] = await Promise.all([
       getConversationDetails(conversationId),
-      getMessages(conversationId, { before, limit }),
+      getMessages(conversationId, { before, after, limit }),
     ]);
 
     if (!detailsRes.success) {
