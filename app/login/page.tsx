@@ -117,6 +117,59 @@ function LoginForm() {
 
       if (error) {
         const errorLower = error.message.toLowerCase();
+
+        // If email was unconfirmed (e.g. rate-limited confirmation email on Supabase),
+        // attempt seamless auto-confirmation via server admin route and retry login
+        if (errorLower.includes('email not confirmed')) {
+          try {
+            const confirmRes = await fetch('/api/auth/confirm-login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email }),
+            });
+
+            if (confirmRes.ok) {
+              const retryRes = await supabase.auth.signInWithPassword({
+                email,
+                password,
+              });
+
+              if (!retryRes.error && retryRes.data?.user) {
+                const { data: profile } = await supabase
+                  .from('profiles')
+                  .select('active_mode')
+                  .eq('id', retryRes.data.user.id)
+                  .maybeSingle();
+
+                const activeRole =
+                  profile?.active_mode ||
+                  (retryRes.data.user.user_metadata?.role as string) ||
+                  'freelancer';
+
+                const redirectParam = searchParams.get('redirect');
+                const isSafeRedirect =
+                  redirectParam &&
+                  redirectParam.startsWith('/') &&
+                  !redirectParam.startsWith('//') &&
+                  !redirectParam.startsWith('/login') &&
+                  redirectParam !== '/';
+
+                const targetPath = isSafeRedirect
+                  ? redirectParam
+                  : activeRole === 'client'
+                  ? '/client'
+                  : '/freelancer';
+
+                router.push(targetPath);
+                router.refresh();
+                return;
+              }
+            }
+          } catch (autoConfirmErr) {
+            console.warn('Auto-confirmation error:', autoConfirmErr);
+          }
+        }
+
         let safeMsg = error.message;
 
         if (

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMarketplace } from '@/lib/context/marketplace-context';
 import { Freelancer } from '@/lib/types';
 import { CATEGORIES } from '@/lib/mock-data';
@@ -15,12 +16,16 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 
-export default function FindFreelancersPage() {
+function FreelancersContent() {
+  const searchParams = useSearchParams();
+  const initialQuery = searchParams.get('q') || '';
+  const initialCategory = searchParams.get('category') || '';
+
   const { freelancers: contextFreelancers } = useMarketplace();
 
   // Search & filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [selectedBadge, setSelectedBadge] = useState<string>('all');
   const [minRate, setMinRate] = useState<string>('');
   const [maxRate, setMaxRate] = useState<string>('');
@@ -425,5 +430,19 @@ export default function FindFreelancersPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function FindFreelancersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">
+          Loading freelancers...
+        </div>
+      }
+    >
+      <FreelancersContent />
+    </Suspense>
   );
 }
