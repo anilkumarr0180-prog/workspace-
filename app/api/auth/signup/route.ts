@@ -96,7 +96,9 @@ export async function POST(request: NextRequest) {
               });
 
               const otp = regenData?.properties?.email_otp || '123456';
-              const actionLink = regenData?.properties?.action_link || `${origin}/login`;
+              const actionLink = regenData?.properties?.hashed_token
+                ? `${origin}/auth/callback?token_hash=${encodeURIComponent(regenData.properties.hashed_token)}&type=magiclink&role=${assignedRole}`
+                : (regenData?.properties?.action_link || `${origin}/login`);
 
               const dispatchResult = await dispatchVerificationEmail({
                 recipientName: fullName,
@@ -156,7 +158,9 @@ export async function POST(request: NextRequest) {
     }
 
     const otp = linkData?.properties?.email_otp || '';
-    const actionLink = linkData?.properties?.action_link || `${origin}/login`;
+    const actionLink = linkData?.properties?.hashed_token
+      ? `${origin}/auth/callback?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=signup&role=${assignedRole}`
+      : (linkData?.properties?.action_link || `${origin}/login`);
     const newUserId = linkData?.user?.id;
 
     if (newUserId) {
