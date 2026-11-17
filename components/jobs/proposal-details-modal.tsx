@@ -7,6 +7,7 @@ import { ProposalRecord } from '@/lib/actions/proposals';
 import { getContractOfferForProposal } from '@/lib/actions/contracts';
 import { Contract } from '@/lib/types';
 import HireOfferModal from '@/components/jobs/hire-offer-modal';
+import ScheduleMeetingModal from '@/components/jobs/schedule-meeting-modal';
 import {
   X,
   Briefcase,
@@ -19,7 +20,6 @@ import {
   MessageSquare,
   XCircle,
   ArrowRight,
-  ThumbsUp,
   FileEdit,
   Save
 } from 'lucide-react';
@@ -30,7 +30,6 @@ interface ProposalDetailsModalProps {
   onClose: () => void;
   mode: 'client' | 'freelancer';
   onUpdateStatus?: (proposalId: string, status: string) => Promise<void>;
-  onToggleShortlist?: (proposalId: string, isShortlisted: boolean) => Promise<void>;
   onDecline?: (proposalId: string, reason?: string) => Promise<void>;
   onWithdraw?: (proposalId: string) => Promise<void>;
   isUpdating?: boolean;
@@ -51,7 +50,6 @@ export default function ProposalDetailsModal({
   onClose,
   mode,
   onUpdateStatus,
-  onToggleShortlist,
   onDecline,
   onWithdraw,
   isUpdating = false,
@@ -60,11 +58,10 @@ export default function ProposalDetailsModal({
   const router = useRouter();
   const [isOpeningChat, setIsOpeningChat] = useState(false);
   const [isHireModalOpen, setIsHireModalOpen] = useState(false);
+  const [isScheduleMeetingModalOpen, setIsScheduleMeetingModalOpen] = useState(false);
   const [existingContract, setExistingContract] = useState<Contract | null>(null);
 
-  // Shortlist and evaluation state
-  const [isShortlisted, setIsShortlisted] = useState<boolean>(proposal?.isShortlisted ?? false);
-  const [isShortlisting, setIsShortlisting] = useState(false);
+  // Evaluation notes state
   const [notesText, setNotesText] = useState<string>(proposal?.clientNotes ?? '');
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -78,7 +75,6 @@ export default function ProposalDetailsModal({
   const [prevProposalId, setPrevProposalId] = useState<string | null>(proposal?.id ?? null);
   if (proposal && proposal.id !== prevProposalId) {
     setPrevProposalId(proposal.id);
-    setIsShortlisted(proposal.isShortlisted ?? false);
     setNotesText(proposal.clientNotes ?? '');
   }
 
@@ -96,26 +92,6 @@ export default function ProposalDetailsModal({
       isMounted = false;
     };
   }, [isOpen, proposal?.id]);
-
-  const handleToggleShortlist = async () => {
-    if (!proposal?.id || isShortlisting) return;
-    setIsShortlisting(true);
-    const nextState = !isShortlisted;
-    try {
-      if (onToggleShortlist) {
-        await onToggleShortlist(proposal.id, nextState);
-      } else {
-        await fetch(`/api/proposals/${proposal.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'toggle_shortlist', isShortlisted: nextState }),
-        });
-      }
-      setIsShortlisted(nextState);
-    } finally {
-      setIsShortlisting(false);
-    }
-  };
 
   const handleSaveNotes = async () => {
     if (!proposal?.id || isSavingNotes) return;
@@ -219,9 +195,9 @@ export default function ProposalDetailsModal({
         );
       case 'interviewing':
         return (
-          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-            Interviewing
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+            <Calendar className="w-3.5 h-3.5 text-blue-600" />
+            <span>In Discussions</span>
           </span>
         );
       case 'accepted':
@@ -341,20 +317,6 @@ export default function ProposalDetailsModal({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleToggleShortlist}
-                  disabled={isShortlisting}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                    isShortlisted
-                      ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                  }`}
-                  title={isShortlisted ? 'Candidate is shortlisted. Click to remove from shortlist.' : 'Shortlist candidate (Thumbs Up)'}
-                >
-                  <ThumbsUp className={`w-3.5 h-3.5 ${isShortlisted ? 'fill-amber-500 text-amber-600' : 'text-slate-400'}`} />
-                  <span>{isShortlisted ? 'Shortlisted' : 'Shortlist'}</span>
-                </button>
                 {proposal.freelancerUsername && (
                   <Link
                     href={`/freelancers/${proposal.freelancerUsername}`}
@@ -535,76 +497,33 @@ export default function ProposalDetailsModal({
                 </Link>
               ) : onUpdateStatus ? (
                 <>
-                  {proposal.status === 'submitted' && (
+                  {!['accepted', 'rejected', 'withdrawn'].includes(proposal.status) && (
                     <>
+                      {/* Schedule a Meeting / Consultation */}
                       <button
                         type="button"
                         disabled={isUpdating}
-                        onClick={() => onUpdateStatus(proposal.id, 'under_review')}
-                        className="px-3.5 py-2 rounded-xl bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                        onClick={() => setIsScheduleMeetingModalOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                        title="Schedule a consultation or video/audio meeting with this candidate"
                       >
-                        {isUpdating ? 'Updating...' : 'Mark as Under Review'}
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Schedule a Meeting</span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => onUpdateStatus(proposal.id, 'interviewing')}
-                        className="px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs cursor-pointer"
-                      >
-                        {isUpdating ? 'Updating...' : 'Start Interview'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => setIsHireModalOpen(true)}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Briefcase className="w-3.5 h-3.5" />
-                        <span>Hire / Make Offer</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => setIsDeclineModalOpen(true)}
-                        className="px-3 py-2 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        Decline
-                      </button>
-                    </>
-                  )}
 
-                  {proposal.status === 'under_review' && (
-                    <>
+                      {/* Direct Message */}
                       <button
                         type="button"
-                        disabled={isUpdating}
-                        onClick={() => onUpdateStatus(proposal.id, 'interviewing')}
-                        className="px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs cursor-pointer"
+                        disabled={isOpeningChat}
+                        onClick={handleOpenConversation}
+                        className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="Send a direct message to this candidate"
                       >
-                        {isUpdating ? 'Updating...' : 'Start Interview'}
+                        <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{isOpeningChat ? 'Opening...' : 'Message'}</span>
                       </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => setIsHireModalOpen(true)}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Briefcase className="w-3.5 h-3.5" />
-                        <span>Hire / Make Offer</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isUpdating}
-                        onClick={() => setIsDeclineModalOpen(true)}
-                        className="px-3 py-2 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        Decline
-                      </button>
-                    </>
-                  )}
 
-                  {proposal.status === 'interviewing' && (
-                    <>
+                      {/* Hire / Make Offer */}
                       <button
                         type="button"
                         disabled={isUpdating}
@@ -614,6 +533,8 @@ export default function ProposalDetailsModal({
                         <Briefcase className="w-3.5 h-3.5" />
                         <span>Hire / Make Offer</span>
                       </button>
+
+                      {/* Decline */}
                       <button
                         type="button"
                         disabled={isUpdating}
@@ -743,6 +664,18 @@ export default function ProposalDetailsModal({
           setIsHireModalOpen(false);
           onClose();
           router.push(`/contracts/${contractId}`);
+        }}
+      />
+
+      {/* Upwork-Style Project Consultation Meeting Modal */}
+      <ScheduleMeetingModal
+        proposal={proposal}
+        isOpen={isScheduleMeetingModalOpen}
+        onClose={() => setIsScheduleMeetingModalOpen(false)}
+        onMeetingScheduled={(conversationId) => {
+          setIsScheduleMeetingModalOpen(false);
+          onClose();
+          router.push(`/messages/${conversationId}`);
         }}
       />
     </div>

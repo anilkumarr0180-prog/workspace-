@@ -362,7 +362,7 @@ function JobDetailContent() {
                   href="/client"
                   className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
                 >
-                  Manage in Client Dashboard
+                  Manage Client Dashboard
                 </Link>
               </div>
             ) : (
