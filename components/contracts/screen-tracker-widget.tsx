@@ -26,6 +26,7 @@ interface ScreenTrackerWidgetProps {
   contractId: string;
   isTimerRunning: boolean;
   workMemo: string;
+  compact?: boolean;
   onSlotRecorded?: (slot: WorkDiarySlot) => void;
   onToast?: (message: string) => void;
   onError?: (message: string) => void;
@@ -35,6 +36,7 @@ export default function ScreenTrackerWidget({
   contractId,
   isTimerRunning,
   workMemo,
+  compact = false,
   onSlotRecorded,
   onToast,
   onError,
@@ -260,6 +262,17 @@ export default function ScreenTrackerWidget({
 
         onSlotRecorded?.(slotRes.slot);
 
+        // Notify other windows/tabs (e.g. Popout window or Main dashboard)
+        try {
+          if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+            const ch = new BroadcastChannel('workspace_time_tracker_sync');
+            ch.postMessage({ type: 'SLOT_RECORDED', contractId });
+            ch.close();
+          }
+        } catch {
+          // Non-fatal
+        }
+
         // Reset activity accumulators for next interval
         keystrokesRef.current = 0;
         mouseClicksRef.current = 0;
@@ -422,21 +435,23 @@ export default function ScreenTrackerWidget({
   };
 
   return (
-    <div className={`bg-white rounded-3xl border transition-all overflow-hidden ${
+    <div className={`bg-white transition-all overflow-hidden ${
+      compact ? 'rounded-2xl border' : 'rounded-3xl border'
+    } ${
       isCapturing ? 'border-emerald-300 shadow-md ring-1 ring-emerald-400/20' : 'border-slate-200 shadow-sm'
     }`}>
-      {/* Hidden persistent video element for reliable frame capture */}
+      {/* Offscreen persistent video element for continuous frame capture without display:none freeze */}
       <video
         ref={hiddenVideoRef}
         playsInline
         muted
         autoPlay
-        className="hidden"
+        className="absolute -top-[9999px] -left-[9999px] w-1 h-1 opacity-0 pointer-events-none"
         aria-hidden="true"
       />
 
       {/* Header */}
-      <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
+      <div className={`${compact ? 'p-3.5' : 'p-5'} border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white`}>
         <div className="flex items-center gap-2.5">
           <div
             className={`w-3 h-3 rounded-full transition-all ${
@@ -444,16 +459,16 @@ export default function ScreenTrackerWidget({
             }`}
           />
           <div>
-            <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+            <h3 className={`${compact ? 'text-xs' : 'text-sm'} font-extrabold text-slate-900 flex items-center gap-1.5`}>
               <Camera className={`w-4 h-4 ${isCapturing ? 'text-emerald-600' : 'text-slate-400'}`} />
               <span>Upwork Automated Screen Tracker</span>
             </h3>
-            <p className="text-[11px] text-slate-400">Randomized 10-minute work diary verification</p>
+            <p className="text-[10px] text-slate-400">Randomized 10-minute work diary verification</p>
           </div>
         </div>
 
         <span
-          className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+          className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1.5 ${
             isCapturing
               ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
               : 'bg-slate-100 text-slate-600 border-slate-200'
@@ -465,7 +480,7 @@ export default function ScreenTrackerWidget({
       </div>
 
       {/* Main Content Area */}
-      <div className="p-5 space-y-4">
+      <div className={`${compact ? 'p-3.5 space-y-3' : 'p-5 space-y-4'}`}>
         {isCapturing ? (
           /* ACTIVE CAPTURE STATE */
           <div className="space-y-4">

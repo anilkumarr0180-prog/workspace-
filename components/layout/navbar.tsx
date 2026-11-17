@@ -400,7 +400,7 @@ export default function Navbar() {
   };
 
   // Hide Navbar completely on auth flows (after all hooks)
-  if (pathname === '/login' || pathname.startsWith('/signup')) {
+  if (pathname === '/login' || pathname.startsWith('/signup') || pathname.includes('/popout')) {
     return null;
   }
 

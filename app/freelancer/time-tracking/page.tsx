@@ -33,6 +33,7 @@ import {
   Send,
   FileText,
   Monitor,
+  ExternalLink,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
 import ScreenTrackerWidget from '@/components/contracts/screen-tracker-widget';
@@ -78,6 +79,30 @@ export default function FreelancerTimeTrackingPage() {
     setErrorMessage(msg);
     setTimeout(() => setErrorMessage(null), 5000);
   }, []);
+
+  const broadcastTrackerSync = useCallback((type: string) => {
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const ch = new BroadcastChannel('workspace_time_tracker_sync');
+        ch.postMessage({ type });
+        ch.close();
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  const handleOpenPopout = useCallback(() => {
+    const contractParam = selectedContractId ? `?contractId=${encodeURIComponent(selectedContractId)}` : '';
+    const popout = window.open(
+      `/freelancer/time-tracking/popout${contractParam}`,
+      'WorkspaceTrackerWidget',
+      'width=380,height=680,menubar=no,toolbar=no,location=no,status=no,resizable=no'
+    );
+    if (popout) {
+      popout.focus();
+    }
+  }, [selectedContractId]);
 
   // 1. Initial Data Fetch
   const loadDashboardData = useCallback(async (isRefresh = false) => {
@@ -172,6 +197,25 @@ export default function FreelancerTimeTrackingPage() {
     };
   }, [showError]);
 
+  // Real-time synchronization across browser tabs and popout tracker window
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+    const channel = new BroadcastChannel('workspace_time_tracker_sync');
+    channel.onmessage = (event) => {
+      if (
+        event.data?.type === 'SYNC_STATE' ||
+        event.data?.type === 'TIMER_STARTED' ||
+        event.data?.type === 'TIMER_STOPPED' ||
+        event.data?.type === 'SLOT_RECORDED'
+      ) {
+        loadDashboardData(true);
+      }
+    };
+    return () => {
+      channel.close();
+    };
+  }, [loadDashboardData]);
+
   // 2. Authoritative Live Elapsed-Time Clock
   // Calculates strictly from server-persisted startTime and current client time
   useEffect(() => {
@@ -248,6 +292,7 @@ export default function FreelancerTimeTrackingPage() {
       const res = await startTimerSession(selectedContractId, trimmedMemo);
       if (res.success && res.session) {
         showToast('Timer started successfully. Elapsed time is being recorded.');
+        broadcastTrackerSync('TIMER_STARTED');
         await loadDashboardData(true);
       } else {
         showError(res.error || 'Failed to start timer session.');
@@ -271,6 +316,7 @@ export default function FreelancerTimeTrackingPage() {
           showToast('Timer session was under 1 minute and was discarded without billing.');
         }
         setWorkMemo('');
+        broadcastTrackerSync('TIMER_STOPPED');
         await loadDashboardData(true);
       } else {
         // If error suggests session already ended, refresh state cleanly
@@ -301,6 +347,7 @@ export default function FreelancerTimeTrackingPage() {
       if (res.success) {
         showToast('Active timer session cancelled and discarded.');
         setWorkMemo('');
+        broadcastTrackerSync('TIMER_STOPPED');
         await loadDashboardData(true);
       } else {
         showError(res.error || 'Failed to discard session.');
@@ -533,7 +580,7 @@ export default function FreelancerTimeTrackingPage() {
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm overflow-hidden relative">
             {/* Active Status Banner */}
-            <div className="flex items-center justify-between pb-6 border-b border-slate-100">
+            <div className="flex items-center justify-between pb-6 border-b border-slate-100 flex-wrap gap-3">
               <div className="flex items-center gap-2.5">
                 <div
                   className={`w-3.5 h-3.5 rounded-full ${
@@ -545,14 +592,26 @@ export default function FreelancerTimeTrackingPage() {
                 </span>
               </div>
 
-              {isTimerRunning && data?.activeSession && (
-                <div className="text-right">
-                  <span className="text-xs text-slate-400">Started at: </span>
-                  <span className="text-xs font-bold text-slate-800">
-                    {new Date(data.activeSession.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleOpenPopout}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                  title="Open standalone floating tracker window (Upwork Desktop App style)"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Pop Out Floating Tracker</span>
+                </button>
+
+                {isTimerRunning && data?.activeSession && (
+                  <div className="text-right border-l border-slate-200 pl-3">
+                    <span className="text-xs text-slate-400">Started at: </span>
+                    <span className="text-xs font-bold text-slate-800">
+                      {new Date(data.activeSession.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Stopwatch Hero Display - Upwork Executive Console */}

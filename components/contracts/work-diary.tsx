@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { WorkDiarySlot } from '@/lib/types';
 import {
   getContractWorkDiary,
@@ -22,6 +23,7 @@ import {
   CheckCircle2,
   X,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 
 interface WorkDiaryProps {
@@ -138,6 +140,32 @@ export default function WorkDiary({
       isCancelled = true;
     };
   }, [contractId, selectedDate, reloadTrigger]);
+
+  // Real-time listener: Auto-refresh Work Diary when new snapshots or manual slots are inserted
+  useEffect(() => {
+    if (!contractId) return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`work-diary-realtime-${contractId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'work_diary_slots',
+          filter: `contract_id=eq.${contractId}`,
+        },
+        () => {
+          setReloadTrigger((prev) => prev + 1);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [contractId]);
 
   // Navigate to previous or next day
   const handlePrevDay = () => {
@@ -277,6 +305,17 @@ export default function WorkDiary({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setReloadTrigger((prev) => prev + 1)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+              title="Refresh Work Diary records"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-600' : 'text-slate-500'}`} />
+              <span>{loading ? 'Syncing...' : 'Refresh'}</span>
+            </button>
+
             {isFreelancer && allowManualTime && (
               <button
                 type="button"
