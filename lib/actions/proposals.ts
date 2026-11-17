@@ -678,6 +678,26 @@ export async function updateProposalStatus(
       };
     }
 
+    // 0. Idempotent no-op: proposal is already in the requested state
+    if (currentStatus === newStatus) {
+      return {
+        success: true,
+        proposal: {
+          id: proposal.id,
+          jobId: proposal.job_id,
+          jobTitle: job?.title,
+          freelancerId: proposal.freelancer_id,
+          bidAmount: Number(proposal.bid_amount),
+          rateType: proposal.rate_type as ProjectType,
+          deliveryDays: proposal.delivery_days ? Number(proposal.delivery_days) : null,
+          coverLetter: proposal.cover_letter,
+          status: proposal.status,
+          createdAt: proposal.created_at,
+          updatedAt: proposal.updated_at,
+        },
+      };
+    }
+
     // Validate State Transition Matrix
     const rules = VALID_TRANSITIONS[currentStatus];
     const allowedForActor = isFreelancer ? rules?.freelancer || [] : rules?.client || [];
@@ -708,11 +728,24 @@ export async function updateProposalStatus(
     }
 
     if (!isFreelancer && proposal.freelancer_id) {
+      const isUnderReview = newStatus === 'under_review';
+      const isInterviewing = newStatus === 'interviewing';
+      const notifTitle = isUnderReview
+        ? 'Proposal Under Review'
+        : isInterviewing
+        ? 'Discussion Started'
+        : 'Proposal Status Updated';
+      const notifMessage = isUnderReview
+        ? `A client is now reviewing your proposal for "${job?.title || 'the job'}".`
+        : isInterviewing
+        ? `A client wants to discuss your proposal for "${job?.title || 'the job'}".`
+        : `Your proposal for "${job?.title || 'the job'}" is now ${newStatus.replace('_', ' ')}.`;
+
       await createNotification({
         userId: proposal.freelancer_id,
         type: 'proposal_status_updated',
-        title: 'Proposal Status Updated',
-        message: `Your proposal for "${job?.title || 'the job'}" is now ${newStatus.replace('_', ' ')}.`,
+        title: notifTitle,
+        message: notifMessage,
         link: `/freelancer`,
         metadata: { proposalId: proposal.id, jobId: proposal.job_id, status: newStatus },
       }).catch((notifErr) => {

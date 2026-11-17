@@ -21,6 +21,7 @@ interface ScheduleMeetingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMeetingScheduled?: (conversationId: string) => void;
+  onUpdateStatus?: (proposalId: string, status: string) => Promise<void>;
 }
 
 export default function ScheduleMeetingModal({
@@ -28,6 +29,7 @@ export default function ScheduleMeetingModal({
   isOpen,
   onClose,
   onMeetingScheduled,
+  onUpdateStatus,
 }: ScheduleMeetingModalProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,14 +75,18 @@ export default function ScheduleMeetingModal({
 
     try {
       // 1. Update proposal status to 'interviewing' (In Discussions)
-      const patchRes = await fetch(`/api/proposals/${proposal.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'interviewing' }),
-      });
+      if (onUpdateStatus) {
+        await onUpdateStatus(proposal.id, 'interviewing');
+      } else {
+        const patchRes = await fetch(`/api/proposals/${proposal.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'interviewing' }),
+        });
 
-      if (!patchRes.ok) {
-        console.warn('[MEETING SCHEDULE] Proposal status patch notice, proceeding with message dispatch.');
+        if (!patchRes.ok) {
+          console.warn('[MEETING SCHEDULE] Proposal status patch notice, proceeding with message dispatch.');
+        }
       }
 
       // 2. Format a structured meeting invitation message

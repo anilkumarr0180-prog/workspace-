@@ -16,6 +16,7 @@ function ConversationContent() {
   const [userName, setUserName] = useState<string>('User');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
+  const [initialConversation, setInitialConversation] = useState<Conversation | undefined>(undefined);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -33,37 +34,44 @@ function ConversationContent() {
         return;
       }
 
-      if (isCancelled) return;
-      setUserId(user.id);
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .single();
-
       if (!isCancelled) {
-        setUserName(profile?.full_name || user.user_metadata?.full_name || 'User');
+        setUserId(user.id);
+        setUserName(user.user_metadata?.full_name || 'User');
       }
 
       try {
-        const [convsRes, msgsRes] = await Promise.all([
+        const [convsRes, msgsRes, profileRes] = await Promise.all([
           fetch('/api/messages'),
           fetch(`/api/messages/${conversationId}?limit=40`),
+          supabase.from('profiles').select('full_name').eq('id', user.id).single(),
         ]);
 
         if (!isCancelled) {
-          if (convsRes.ok) {
-            const convData = await convsRes.json();
-            if (Array.isArray(convData.conversations)) {
-              setConversations(convData.conversations);
-            }
+          if (profileRes?.data?.full_name) {
+            setUserName(profileRes.data.full_name);
           }
+
+          let currentConv: Conversation | undefined = undefined;
           if (msgsRes.ok) {
             const msgData = await msgsRes.json();
+            if (msgData.conversation) {
+              currentConv = msgData.conversation;
+              setInitialConversation(msgData.conversation);
+            }
             if (Array.isArray(msgData.messages)) {
               setInitialMessages(msgData.messages);
             }
+          }
+
+          if (convsRes.ok) {
+            const convData = await convsRes.json();
+            let allConvs: Conversation[] = Array.isArray(convData.conversations) ? convData.conversations : [];
+            if (currentConv && !allConvs.some((c) => c.id === currentConv?.id)) {
+              allConvs = [currentConv, ...allConvs];
+            }
+            setConversations(allConvs);
+          } else if (currentConv) {
+            setConversations([currentConv]);
           }
         }
       } catch (err) {
@@ -95,6 +103,7 @@ function ConversationContent() {
       initialConversations={conversations}
       selectedConversationId={conversationId}
       initialMessages={initialMessages}
+      initialConversation={initialConversation}
       currentUserId={userId}
       currentUserName={userName}
     />

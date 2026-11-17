@@ -672,6 +672,7 @@ export default function ProposalDetailsModal({
         proposal={proposal}
         isOpen={isScheduleMeetingModalOpen}
         onClose={() => setIsScheduleMeetingModalOpen(false)}
+        onUpdateStatus={onUpdateStatus}
         onMeetingScheduled={(conversationId) => {
           setIsScheduleMeetingModalOpen(false);
           onClose();

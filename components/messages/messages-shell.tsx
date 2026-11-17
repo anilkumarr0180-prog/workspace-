@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Conversation, Message } from '@/lib/types';
 import MessagesInbox from './messages-inbox';
@@ -11,6 +11,7 @@ interface MessagesShellProps {
   initialConversations: Conversation[];
   selectedConversationId?: string;
   initialMessages?: Message[];
+  initialConversation?: Conversation;
   currentUserId: string;
   currentUserName: string;
 }
@@ -19,25 +20,35 @@ export default function MessagesShell({
   initialConversations,
   selectedConversationId,
   initialMessages: initialMessagesProp = [],
+  initialConversation,
   currentUserId,
   currentUserName,
 }: MessagesShellProps) {
   const router = useRouter();
-  const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    if (initialConversation && !initialConversations.some((c) => c.id === initialConversation.id)) {
+      return [initialConversation, ...initialConversations];
+    }
+    return initialConversations;
+  });
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
     selectedConversationId
   );
   const [activeConversation, setActiveConversation] = useState<Conversation | undefined>(
-    initialConversations.find((c) => c.id === selectedConversationId)
+    initialConversation || initialConversations.find((c) => c.id === selectedConversationId)
   );
 
   const [initialMessages, setInitialMessages] = useState<Message[]>(initialMessagesProp);
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(
-    Boolean(selectedConversationId && initialMessagesProp.length === 0)
+    Boolean(selectedConversationId && initialMessagesProp.length === 0 && !initialConversation)
   );
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
+
+  const initialLoadHandledRef = useRef<boolean>(
+    Boolean(initialConversation && initialConversation.id === selectedConversationId && initialMessagesProp.length > 0)
+  );
 
   // Sync active conversation during render when prop changes
   const [prevSelectedId, setPrevSelectedId] = useState(selectedConversationId);
@@ -74,12 +85,21 @@ export default function MessagesShell({
 
     async function loadConversationData() {
       try {
-        const [messagesRes, readRes] = await Promise.all([
-          fetch(`/api/messages/${activeConversationId}?limit=40`),
-          fetch(`/api/messages/${activeConversationId}/read`, { method: 'POST' }),
-        ]);
+        const isAlreadyLoaded = initialLoadHandledRef.current && activeConversationId === selectedConversationId;
+        initialLoadHandledRef.current = false;
 
-        if (messagesRes.ok && !isCancelled) {
+        const promises: Promise<Response>[] = [
+          fetch(`/api/messages/${activeConversationId}/read`, { method: 'POST' }),
+        ];
+        if (!isAlreadyLoaded) {
+          promises.unshift(fetch(`/api/messages/${activeConversationId}?limit=40`));
+        }
+
+        const responses = await Promise.all(promises);
+        const messagesRes = !isAlreadyLoaded ? responses[0] : null;
+        const readRes = !isAlreadyLoaded ? responses[1] : responses[0];
+
+        if (messagesRes && messagesRes.ok && !isCancelled) {
           const data = await messagesRes.json();
           if (data.conversation) {
             setActiveConversation(data.conversation);
@@ -92,7 +112,7 @@ export default function MessagesShell({
         }
 
         // Reset unread count locally for this conversation
-        if (readRes.ok && !isCancelled) {
+        if (readRes && readRes.ok && !isCancelled) {
           setConversations((prev) =>
             prev.map((c) =>
               c.id === activeConversationId ? { ...c, unreadCount: 0 } : c
@@ -113,7 +133,7 @@ export default function MessagesShell({
     return () => {
       isCancelled = true;
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, selectedConversationId]);
 
   // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
   const {
