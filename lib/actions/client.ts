@@ -329,6 +329,9 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
           const profileObj = profilesMap.get(row.freelancer_id);
           const contractObj = contractsMap.get(row.id);
 
+          const isHired = contractObj?.status === 'active' || contractObj?.status === 'completed' || row.status === 'accepted';
+          const effectiveStatus = isHired ? 'accepted' : row.status;
+
           return {
             id: row.id,
             jobId: row.job_id,
@@ -342,7 +345,7 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
             rateType: row.rate_type as ProjectType,
             deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
             coverLetter: row.cover_letter,
-            status: row.status,
+            status: effectiveStatus,
             contractId: contractObj?.id || null,
             contractStatus: contractObj?.status || null,
             isShortlisted: Boolean(row.is_shortlisted),
@@ -365,14 +368,37 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
     // 6. Compute Real Statistics
     const activeJobsCount = clientJobs.filter((j) => j.status === 'published').length;
     const proposalsReceivedCount = proposals.length;
-    const hiredCount = proposals.filter((p) => p.status === 'accepted').length;
 
-    // Calculate real spend: profile total_spent or sum of accepted bids
+    // Direct check on contracts table for active or completed contracts owned by this client
+    let directHiredCount = 0;
+    let directContractsTotalSpend = 0;
+    try {
+      const { data: clientContracts } = await supabase
+        .from('contracts')
+        .select('id, freelancer_id, status, total_amount')
+        .eq('client_id', user.id)
+        .in('status', ['active', 'completed']);
+
+      if (clientContracts && clientContracts.length > 0) {
+        directHiredCount = new Set(clientContracts.map((c) => c.freelancer_id).filter(Boolean)).size || clientContracts.length;
+        directContractsTotalSpend = clientContracts.reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+
+    const proposalHiredCount = proposals.filter(
+      (p) => p.status === 'accepted' || p.contractStatus === 'active' || p.contractStatus === 'completed'
+    ).length;
+
+    const hiredCount = Math.max(directHiredCount, proposalHiredCount);
+
+    // Calculate real spend: profile total_spent or sum of accepted bids or direct contracts
     const acceptedBidsSum = proposals
-      .filter((p) => p.status === 'accepted')
+      .filter((p) => p.status === 'accepted' || p.contractStatus === 'active' || p.contractStatus === 'completed')
       .reduce((sum, p) => sum + (p.bidAmount || 0), 0);
     const profileSpent = Number(profile?.total_spent) || 0;
-    const totalSpend = Math.max(profileSpent, acceptedBidsSum);
+    const totalSpend = Math.max(profileSpent, acceptedBidsSum, directContractsTotalSpend);
 
     // 7. Dynamic Activity Feed from genuine events
     interface ActivitySortItem extends ClientDashboardActivity {
@@ -404,7 +430,7 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
           timestamp: formatTimeAgo(new Date(prop.updatedAt || prop.createdAt)),
           rawDate: new Date(prop.updatedAt || prop.createdAt),
           type: 'proposal_accepted',
-          link: `/jobs/${prop.jobId}`,
+          link: prop.contractId ? `/contracts/${prop.contractId}` : `/jobs/${prop.jobId}`,
         });
       } else {
         activityList.push({
