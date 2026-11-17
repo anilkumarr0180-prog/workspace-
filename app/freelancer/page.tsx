@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { FreelancerDashboardResult } from '@/lib/actions/freelancer-dashboard';
 import {
@@ -181,6 +182,54 @@ export default function FreelancerDashboardPage() {
       window.removeEventListener('refresh-freelancer-proposals', handleRefreshEvent);
     };
   }, [handleRefresh]);
+
+  // Real-time listener: Auto-update freelancer dashboard when client updates a proposal or schedules a meeting
+  useEffect(() => {
+    // 1. Listen for cross-component notification events dispatched by NotificationPopover
+    const onNotificationReceived = (e: Event) => {
+      const customEvent = e as CustomEvent<{ type?: string; message?: string }>;
+      const item = customEvent.detail;
+      if (item?.type === 'proposal_status_updated') {
+        setRefreshIndex((prev) => prev + 1);
+        try {
+          sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+        } catch {
+          // Safe fallback
+        }
+        setToastMessage(item.message || 'Proposal status updated by client!');
+        setTimeout(() => setToastMessage(''), 4000);
+      }
+    };
+
+    window.addEventListener('workspace-notification-received', onNotificationReceived);
+
+    // 2. Direct Supabase Realtime subscription on proposals table (UPDATE and INSERT)
+    const supabase = createClient();
+    const channel = supabase
+      .channel('freelancer-dashboard-realtime-proposals')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'proposals',
+        },
+        () => {
+          setRefreshIndex((prev) => prev + 1);
+          try {
+            sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+          } catch {
+            // Safe fallback
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('workspace-notification-received', onNotificationReceived);
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Withdraw proposal using genuine PATCH endpoint
   const handleWithdraw = async (proposalId: string) => {

@@ -253,21 +253,28 @@ export default function ClientDashboardPage() {
 
     window.addEventListener('workspace-notification-received', onNotificationReceived);
 
-    // 2. Direct Supabase Realtime subscription on proposals table
+    // 2. Direct Supabase Realtime subscription on proposals table (INSERT and UPDATE)
     const supabase = createClient();
     const channel = supabase
       .channel('client-dashboard-realtime-proposals')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'proposals',
         },
-        () => {
+        (payload: { eventType?: string }) => {
           setRefreshIndex((prev) => prev + 1);
-          setToastMessage('New proposal submitted by freelancer!');
-          setTimeout(() => setToastMessage(''), 4000);
+          try {
+            sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+          } catch {
+            // Safe fallback
+          }
+          if (payload.eventType === 'INSERT') {
+            setToastMessage('New proposal submitted by freelancer!');
+            setTimeout(() => setToastMessage(''), 4000);
+          }
         }
       )
       .subscribe();
@@ -366,6 +373,12 @@ export default function ClientDashboardPage() {
         setSelectedProposalForReview((prev) =>
           prev && prev.id === proposalId ? { ...prev, status: newStatus as ProposalRecord['status'] } : prev
         );
+
+        try {
+          sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+        } catch {
+          // Safe fallback
+        }
 
         showToast(`Proposal updated to "${newStatus.replace('_', ' ')}".`);
       } else {
