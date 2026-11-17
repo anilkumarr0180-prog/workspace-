@@ -66,10 +66,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: linkError.message }, { status: 400 });
     }
 
-    const otp = linkData.properties?.email_otp || '';
-    const actionLink = linkData.properties?.action_link || `${origin}/login`;
     const fullName = existing.user_metadata?.full_name || 'there';
     const role = (existing.user_metadata?.role as 'client' | 'freelancer') || 'freelancer';
+    const otp = linkData.properties?.email_otp || '';
+    const actionLink = linkData.properties?.hashed_token
+      ? `${origin}/auth/callback?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=magiclink&role=${role}`
+      : (linkData.properties?.action_link || `${origin}/login`);
 
     const dispatchResult = await dispatchVerificationEmail({
       recipientName: fullName,

@@ -86,8 +86,14 @@ export async function proxy(request: NextRequest) {
       return redirectResponse;
     }
 
-    // If authenticated user visits login page or root homepage, redirect to their role dashboard
-    if (pathname === '/login' || pathname === '/') {
+    // If authenticated user visits login page or root homepage, redirect to their role dashboard.
+    // Exception: If visiting /login with an error or error_description parameter, do NOT redirect to dashboard
+    // so the user can see the error message rather than being trapped in a stale/colliding session.
+    const hasAuthError =
+      request.nextUrl.searchParams.has('error') ||
+      request.nextUrl.searchParams.has('error_description');
+
+    if ((pathname === '/login' && !hasAuthError) || pathname === '/') {
       const targetDashboard = role === 'client' ? '/client' : '/freelancer';
       const redirectResponse = NextResponse.redirect(new URL(targetDashboard, request.url));
       copyCookies(supabaseResponse, redirectResponse);

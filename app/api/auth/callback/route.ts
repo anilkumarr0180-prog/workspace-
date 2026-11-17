@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import type { EmailOtpType } from '@supabase/supabase-js';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const searchParams = requestUrl.searchParams;
   const code = searchParams.get('code');
+  const tokenHash = searchParams.get('token_hash');
+  const typeParam = searchParams.get('type') as EmailOtpType | null;
   const next = searchParams.get('next');
   const roleParam = searchParams.get('role');
   const oauthError = searchParams.get('error');
@@ -27,16 +30,33 @@ export async function GET(request: Request) {
     return NextResponse.redirect(errorUrl.toString());
   }
 
-  if (code) {
+  if (tokenHash || code) {
     try {
       const supabase = await createClient();
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-      if (error) {
-        console.error('OAuth code exchange failed:', error.message);
+      let authResult;
+      if (tokenHash) {
+        // Direct email confirmation via token_hash (PKCE-independent, cross-browser/tab safe)
+        authResult = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: typeParam || 'signup',
+        });
+      } else if (code) {
+        // OAuth / PKCE code exchange
+        authResult = await supabase.auth.exchangeCodeForSession(code);
       }
 
-      if (!error && data?.user) {
+      const { data, error } = authResult || {};
+
+      if (error) {
+        console.error('Auth verification failed:', error.message);
+        const errorUrl = new URL('/login', origin);
+        errorUrl.searchParams.set('error', 'auth_callback_failed');
+        errorUrl.searchParams.set('error_description', error.message);
+        return NextResponse.redirect(errorUrl.toString());
+      }
+
+      if (data?.user) {
         const user = data.user;
         const requestedRole =
           roleParam === 'client' || roleParam === 'freelancer' ? roleParam : null;
@@ -134,7 +154,10 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}${destination}`);
       }
     } catch (err: unknown) {
-      console.error('OAuth callback error:', err instanceof Error ? err.message : err);
+      console.error('Auth callback exception:', err instanceof Error ? err.message : err);
+      const errorUrl = new URL('/login', origin);
+      errorUrl.searchParams.set('error', 'auth_callback_failed');
+      return NextResponse.redirect(errorUrl.toString());
     }
   }
 

@@ -490,8 +490,8 @@ export default function SignupForm({ role }: SignupFormProps) {
           )}
         </div>
 
-        {/* Back / Change Email Link / Direct Password Login */}
-        <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        {/* Back / Change Email Link */}
+        <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center text-xs">
           <button
             type="button"
             onClick={() => {
@@ -504,13 +504,6 @@ export default function SignupForm({ role }: SignupFormProps) {
             <ArrowLeft className="w-3.5 h-3.5" />
             Change email address
           </button>
-
-          <Link
-            href={`/login?email=${encodeURIComponent(successEmail)}`}
-            className="text-[#14a800] hover:text-[#108a00] font-semibold underline underline-offset-2"
-          >
-            Sign in with password &rarr;
-          </Link>
         </div>
       </div>
     );
