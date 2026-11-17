@@ -185,6 +185,22 @@ export default function ProposalDetailsModal({
   const isClient = mode === 'client';
 
   const getStatusBadge = (status: ProposalRecord['status']) => {
+    if (existingContract?.status === 'active') {
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          Hired (Active Contract)
+        </span>
+      );
+    }
+    if (existingContract?.status === 'pending_offer') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+          <Clock className="w-3.5 h-3.5 text-amber-600" />
+          Offer Sent
+        </span>
+      );
+    }
     switch (status) {
       case 'under_review':
         return (
@@ -332,10 +348,20 @@ export default function ProposalDetailsModal({
                     id="proposal-message-btn"
                     onClick={handleOpenConversation}
                     disabled={isOpeningChat}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50 ${
+                      proposal.status === 'interviewing'
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    }`}
                   >
                     <MessageSquare className="w-3 h-3" />
-                    <span>{isOpeningChat ? 'Opening...' : 'Message'}</span>
+                    <span>
+                      {isOpeningChat
+                        ? 'Opening...'
+                        : proposal.status === 'interviewing'
+                        ? 'Open Conversation'
+                        : 'Message'}
+                    </span>
                   </button>
                 )}
               </div>
@@ -380,6 +406,31 @@ export default function ProposalDetailsModal({
               <div>{getStatusBadge(proposal.status)}</div>
             </div>
           </div>
+
+          {/* Active Discussion / Meeting Scheduled Notice */}
+          {proposal.status === 'interviewing' && existingContract?.status !== 'active' && (
+            <div className="p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+                <div>
+                  <strong className="text-blue-950 block">Active Discussion in Progress</strong>
+                  <span className="text-blue-700">
+                    A consultation meeting or message thread is open with this candidate.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenConversation}
+                disabled={isOpeningChat}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold shrink-0 cursor-pointer flex items-center gap-1 transition-colors self-start sm:self-auto"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>{isOpeningChat ? 'Opening...' : 'Open Conversation'}</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          )}
 
           {/* Full Cover Letter */}
           <div className="space-y-2">
@@ -499,28 +550,46 @@ export default function ProposalDetailsModal({
                 <>
                   {!['accepted', 'rejected', 'withdrawn'].includes(proposal.status) && (
                     <>
-                      {/* Schedule a Meeting / Consultation */}
+                      {/* Schedule or Reschedule a Meeting */}
                       <button
                         type="button"
                         disabled={isUpdating}
                         onClick={() => setIsScheduleMeetingModalOpen(true)}
-                        className="px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-semibold transition-colors disabled:opacity-50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                        title="Schedule a consultation or video/audio meeting with this candidate"
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer ${
+                          proposal.status === 'interviewing'
+                            ? 'bg-blue-50 border border-blue-300 text-blue-700 hover:bg-blue-100'
+                            : 'bg-blue-600 text-white hover:bg-blue-700 shadow-2xs'
+                        }`}
+                        title={
+                          proposal.status === 'interviewing'
+                            ? 'Reschedule or set up another consultation meeting with this candidate'
+                            : 'Schedule a consultation or video/audio meeting with this candidate'
+                        }
                       >
                         <Calendar className="w-3.5 h-3.5" />
-                        <span>Schedule a Meeting</span>
+                        <span>{proposal.status === 'interviewing' ? 'Reschedule Meeting' : 'Schedule a Meeting'}</span>
                       </button>
 
-                      {/* Direct Message */}
+                      {/* Direct Message / Open Conversation */}
                       <button
                         type="button"
                         disabled={isOpeningChat}
                         onClick={handleOpenConversation}
-                        className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        title="Send a direct message to this candidate"
+                        className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                          proposal.status === 'interviewing'
+                            ? 'border-blue-300 bg-white text-blue-700 hover:bg-blue-50'
+                            : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                        title="Send a direct message or open conversation with this candidate"
                       >
-                        <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{isOpeningChat ? 'Opening...' : 'Message'}</span>
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>
+                          {isOpeningChat
+                            ? 'Opening...'
+                            : proposal.status === 'interviewing'
+                            ? 'Open Conversation'
+                            : 'Message'}
+                        </span>
                       </button>
 
                       {/* Hire / Make Offer */}

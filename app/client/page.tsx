@@ -66,7 +66,7 @@ export default function ClientDashboardPage() {
   const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
 
   // Upwork Candidate Pipeline state
-  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'under_review' | 'interviewing' | 'archived'>('all');
+  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'under_review' | 'interviewing' | 'hired' | 'archived'>('all');
 
   // Hire offer modal state
   const [proposalForHire, setProposalForHire] = useState<ProposalRecord | null>(null);
@@ -238,25 +238,30 @@ export default function ClientDashboardPage() {
     setRefreshIndex((prev) => prev + 1);
   }, []);
 
-  // Real-time listener: Auto-update client dashboard when freelancer submits a proposal
+  // Real-time listener: Auto-update client dashboard when freelancer submits proposal or accepts contract offer
   useEffect(() => {
     // 1. Listen for cross-component notification events dispatched by NotificationPopover
     const onNotificationReceived = (e: Event) => {
       const customEvent = e as CustomEvent<{ type?: string; message?: string }>;
       const item = customEvent.detail;
-      if (item?.type === 'proposal_received') {
+      if (item?.type === 'proposal_received' || item?.type === 'contract_offer_accepted') {
         setRefreshIndex((prev) => prev + 1);
-        setToastMessage('New proposal received!');
+        try {
+          sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+        } catch {
+          // Safe fallback
+        }
+        setToastMessage(item.type === 'contract_offer_accepted' ? 'Contract offer accepted! Talent hired.' : 'New proposal received!');
         setTimeout(() => setToastMessage(''), 4000);
       }
     };
 
     window.addEventListener('workspace-notification-received', onNotificationReceived);
 
-    // 2. Direct Supabase Realtime subscription on proposals table (INSERT and UPDATE)
+    // 2. Direct Supabase Realtime subscription on proposals & contracts tables
     const supabase = createClient();
     const channel = supabase
-      .channel('client-dashboard-realtime-proposals')
+      .channel('client-dashboard-realtime-events')
       .on(
         'postgres_changes',
         {
@@ -273,6 +278,26 @@ export default function ClientDashboardPage() {
           }
           if (payload.eventType === 'INSERT') {
             setToastMessage('New proposal submitted by freelancer!');
+            setTimeout(() => setToastMessage(''), 4000);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contracts',
+        },
+        (payload: { eventType?: string; new?: Record<string, unknown> }) => {
+          setRefreshIndex((prev) => prev + 1);
+          try {
+            sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+          } catch {
+            // Safe fallback
+          }
+          if (payload.new && (payload.new.status === 'active' || payload.new.status === 'completed')) {
+            setToastMessage('Contract offer accepted! Talent hired.');
             setTimeout(() => setToastMessage(''), 4000);
           }
         }
@@ -355,7 +380,9 @@ export default function ClientDashboardPage() {
           const updatedProposals = prev.proposals.map((p) =>
             p.id === proposalId ? { ...p, status: newStatus as ProposalRecord['status'] } : p
           );
-          const hiredCount = updatedProposals.filter((p) => p.status === 'accepted').length;
+          const hiredCount = updatedProposals.filter(
+            (p) => p.status === 'accepted' || p.contractStatus === 'active' || p.contractStatus === 'completed'
+          ).length;
 
           return {
             ...prev,
@@ -523,28 +550,39 @@ export default function ClientDashboardPage() {
     ? (jobSpecificProposals ?? proposals.filter((p) => p.jobId === selectedJobFilter.id))
     : proposals;
 
+  const isCandidateHired = (p: ProposalRecord) =>
+    p.status === 'accepted' || p.contractStatus === 'active' || p.contractStatus === 'completed';
+
   const countAll = rawDisplayedProposals.filter((p) => p.status !== 'rejected' && p.status !== 'withdrawn').length;
-  const countUnderReview = rawDisplayedProposals.filter((p) => p.status === 'under_review').length;
-  const countInterviewing = rawDisplayedProposals.filter((p) => p.status === 'interviewing').length;
+  const countUnderReview = rawDisplayedProposals.filter((p) => p.status === 'under_review' && !isCandidateHired(p)).length;
+  const countInterviewing = rawDisplayedProposals.filter(
+    (p) => p.status === 'interviewing' && !isCandidateHired(p)
+  ).length;
+  const countHired = rawDisplayedProposals.filter((p) => isCandidateHired(p)).length;
   const countArchived = rawDisplayedProposals.filter((p) => p.status === 'rejected' || p.status === 'withdrawn').length;
 
   const displayedProposals = rawDisplayedProposals.filter((p) => {
     if (pipelineFilter === 'under_review') {
-      return p.status === 'under_review';
+      return p.status === 'under_review' && !isCandidateHired(p);
     }
     if (pipelineFilter === 'interviewing') {
-      return p.status === 'interviewing';
+      return p.status === 'interviewing' && !isCandidateHired(p);
+    }
+    if (pipelineFilter === 'hired') {
+      return isCandidateHired(p);
     }
     if (pipelineFilter === 'archived') {
       return p.status === 'rejected' || p.status === 'withdrawn';
     }
     return p.status !== 'rejected' && p.status !== 'withdrawn';
   });
-  const stats = dashboardData?.stats || {
-    activeJobs: 0,
-    proposalsReceived: 0,
-    hiredTalent: 0,
-    totalSpend: 0,
+
+  const dynamicHiredCount = Math.max(dashboardData?.stats?.hiredTalent || 0, countHired);
+  const stats = {
+    activeJobs: dashboardData?.stats?.activeJobs || 0,
+    proposalsReceived: dashboardData?.stats?.proposalsReceived || 0,
+    hiredTalent: dynamicHiredCount,
+    totalSpend: dashboardData?.stats?.totalSpend || 0,
   };
   const recentActivity: ClientDashboardActivity[] = dashboardData?.recentActivity || [];
 
@@ -1012,6 +1050,25 @@ export default function ClientDashboardPage() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setPipelineFilter('hired')}
+                        className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          pipelineFilter === 'hired'
+                            ? 'bg-emerald-700 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span>Hired</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            pipelineFilter === 'hired' ? 'bg-emerald-800 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {countHired}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setPipelineFilter('archived')}
                         className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
                           pipelineFilter === 'archived'
@@ -1082,6 +1139,8 @@ export default function ClientDashboardPage() {
                             ? 'No Proposals Under Review'
                             : pipelineFilter === 'interviewing'
                             ? 'No Candidates In Discussions'
+                            : pipelineFilter === 'hired'
+                            ? 'No Hired Candidates Yet'
                             : pipelineFilter === 'archived'
                             ? 'No Archived or Declined Proposals'
                             : selectedJobFilter
@@ -1093,6 +1152,8 @@ export default function ClientDashboardPage() {
                             ? 'Proposals you open and review will automatically appear in this stage.'
                             : pipelineFilter === 'interviewing'
                             ? 'Candidates you message or schedule consultation meetings with will automatically appear here.'
+                            : pipelineFilter === 'hired'
+                            ? 'Candidates who have accepted contract offers and are working on your projects will appear here.'
                             : pipelineFilter === 'archived'
                             ? 'Proposals that you decline or candidates who withdraw will appear in this archive.'
                             : 'When talent applies to your active project listings, their bids and qualifications will appear here for review.'}

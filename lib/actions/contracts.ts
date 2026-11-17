@@ -682,6 +682,25 @@ export async function acceptContractOffer(
       if (!fallbackResult.success) {
         return { success: false, error: fallbackResult.error || rpcError.message };
       }
+    } else {
+      // If RPC succeeded, ensure the associated proposal status is also synchronized to 'accepted'
+      try {
+        const admin = getAdminSupabaseClient();
+        const { data: cRow } = await admin
+          .from('contracts')
+          .select('proposal_id')
+          .eq('id', contractId.trim())
+          .maybeSingle();
+
+        if (cRow?.proposal_id) {
+          await admin
+            .from('proposals')
+            .update({ status: 'accepted', updated_at: new Date().toISOString() })
+            .eq('id', cRow.proposal_id);
+        }
+      } catch (e) {
+        console.warn('Syncing proposal status to accepted notice:', e);
+      }
     }
 
     revalidatePath(`/contracts/${contractId.trim()}`);
