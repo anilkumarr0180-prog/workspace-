@@ -1,5 +1,6 @@
 import { NodemailerEmailAdapter } from './adapters/nodemailer-adapter';
 import { ResendEmailAdapter, isTrustedResendAdapter } from './adapters/resend-adapter';
+import { SmtpEmailAdapter, isTrustedSmtpAdapter } from './adapters/smtp-adapter';
 import type { EmailAdapter, SendEmailOptions, SendEmailResult, SupportedEmailProvider } from './types';
 
 if (typeof window !== 'undefined') {
@@ -11,8 +12,9 @@ if (typeof window !== 'undefined') {
  *
  * Production Security Rules:
  * 1. In production (NODE_ENV === 'production'):
- *    - MUST explicitly require EMAIL_PROVIDER=resend.
- *    - MUST require a valid RESEND_API_KEY.
+ *    - Defaults to Nodemailer SMTP (EMAIL_PROVIDER=smtp or unset).
+ *    - Validates SMTP environment credentials (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).
+ *    - Supports legacy EMAIL_PROVIDER=resend if explicitly configured with RESEND_API_KEY.
  *    - Missing or invalid configuration fails closed immediately.
  *    - EMAIL_PROVIDER=test is strictly prohibited in production.
  *    - EMAIL_PROVIDER=mailpit is strictly prohibited in production.
@@ -22,6 +24,7 @@ if (typeof window !== 'undefined') {
  * Non-Production Rules:
  * 2. In non-production (development / test):
  *    - Defaults to 'mailpit' (Nodemailer -> Mailpit local SMTP).
+ *    - Allows explicit 'smtp' (Nodemailer SMTP).
  *    - Allows explicit 'resend' if configured with valid keys.
  *    - Allows explicit 'test' adapter only in permitted non-production environments (test/development).
  */
@@ -52,22 +55,28 @@ export function getEmailAdapter(): EmailAdapter {
       );
     }
 
-    if (configuredProvider !== 'resend') {
-      throw new Error(
-        `Configuration Violation: EMAIL_PROVIDER must be explicitly set to "resend" in production. ` +
-        `Received: "${configuredProvider || 'undefined'}".`
-      );
+    // Default production provider is 'smtp'
+    const effectiveProvider = configuredProvider || 'smtp';
+
+    if (effectiveProvider === 'smtp') {
+      return new SmtpEmailAdapter();
     }
 
-    const resendKey = process.env.RESEND_API_KEY;
-    if (!resendKey || !resendKey.trim() || resendKey.includes('your_resend_api_key')) {
-      throw new Error(
-        'Configuration Violation: Missing or invalid RESEND_API_KEY in production. ' +
-        'Resend is mandatory for production email dispatch.'
-      );
+    if (effectiveProvider === 'resend') {
+      const resendKey = process.env.RESEND_API_KEY;
+      if (!resendKey || !resendKey.trim() || resendKey.includes('your_resend_api_key')) {
+        throw new Error(
+          'Configuration Violation: Missing or invalid RESEND_API_KEY in production. ' +
+          'Resend is mandatory for production email dispatch.'
+        );
+      }
+      return new ResendEmailAdapter(resendKey.trim());
     }
 
-    return new ResendEmailAdapter(resendKey.trim());
+    throw new Error(
+      `Configuration Violation: EMAIL_PROVIDER must be set to "smtp" (or "resend") in production. ` +
+      `Received: "${configuredProvider}".`
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -78,6 +87,9 @@ export function getEmailAdapter(): EmailAdapter {
   switch (provider) {
     case 'mailpit':
       return new NodemailerEmailAdapter();
+
+    case 'smtp':
+      return new SmtpEmailAdapter();
 
     case 'resend':
       return new ResendEmailAdapter();
@@ -114,7 +126,7 @@ export function getEmailAdapter(): EmailAdapter {
 
     default:
       throw new Error(
-        `Unsupported EMAIL_PROVIDER="${provider}". Supported providers are: "mailpit", "resend", "test".`
+        `Unsupported EMAIL_PROVIDER="${provider}". Supported providers are: "mailpit", "smtp", "resend", "test".`
       );
   }
 }
@@ -140,10 +152,20 @@ export async function sendEmail(
     // 1. Prevent arbitrary custom email adapters from being injected in production.
     // Do NOT trust adapter.name or result.provider as proof of provider authenticity.
     if (customAdapter) {
-      if (!isTrustedResendAdapter(customAdapter)) {
+      const activeProvider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+      const isTrustedSmtp = isTrustedSmtpAdapter(customAdapter);
+      const isTrustedResend = isTrustedResendAdapter(customAdapter);
+
+      if (!isTrustedSmtp && !isTrustedResend) {
+        if (activeProvider === 'resend') {
+          throw new Error(
+            'Security Violation: Cannot inject arbitrary email adapter in production. ' +
+            'Only genuine ResendEmailAdapter instances are permitted.'
+          );
+        }
         throw new Error(
           'Security Violation: Cannot inject arbitrary email adapter in production. ' +
-          'Only genuine ResendEmailAdapter instances are permitted.'
+          'Only genuine SmtpEmailAdapter instances are permitted.'
         );
       }
       adapter = customAdapter;
@@ -152,14 +174,14 @@ export async function sendEmail(
     }
 
     // Double-check resolved adapter authenticity in production
-    if (!isTrustedResendAdapter(adapter)) {
+    if (!isTrustedSmtpAdapter(adapter) && !isTrustedResendAdapter(adapter)) {
       throw new Error(
-        'Security Violation: Production email delivery requires trusted ResendEmailAdapter instance.'
+        'Security Violation: Production email delivery requires trusted SmtpEmailAdapter or ResendEmailAdapter instance.'
       );
     }
   } else {
     // In non-production environments (development / test):
-    // Preserve local Mailpit and test adapter functionality
+    // Preserve local Mailpit, SMTP, and test adapter functionality
     adapter = customAdapter || getEmailAdapter();
   }
 
@@ -170,9 +192,9 @@ export async function sendEmail(
     if (!result.success) {
       return result;
     }
-    if (result.provider !== 'resend') {
+    if (result.provider !== 'smtp' && result.provider !== 'resend') {
       throw new Error(
-        `Security Violation: Production reported email delivery via non-resend provider "${result.provider}". Failing closed.`
+        `Security Violation: Production reported email delivery via unauthorized provider "${result.provider}". Failing closed.`
       );
     }
   }

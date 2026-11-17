@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Message, Conversation, UserPresence, TypingPayload } from '@/lib/types';
+import { encodeCursor } from '@/lib/messages-cursor';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface UseRealtimeChatProps {
@@ -13,6 +14,12 @@ interface UseRealtimeChatProps {
   currentUserName?: string;
   onMessageReceived?: (message: Message) => void;
 }
+
+const sortChronological = (a: Message, b: Message) => {
+  const tDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  if (tDiff !== 0) return tDiff;
+  return a.id.localeCompare(b.id);
+};
 
 export function useRealtimeChat({
   conversationId,
@@ -32,8 +39,12 @@ export function useRealtimeChat({
   );
 
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const isConnectedRef = useRef<boolean>(false);
+  const isRecoveringRef = useRef<boolean>(false);
+  const fallbackPollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const latestMessageTimestampRef = useRef<string | null>(null);
+  const latestMessageCursorRef = useRef<string | null>(null);
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
   // Adjust messages and read state during render when conversationId or initialMessages change
   const [prevConversationId, setPrevConversationId] = useState(conversationId);
@@ -55,9 +66,8 @@ export function useRealtimeChat({
         const initialIds = new Set(initialMessages.map((m) => m.id));
         const newlyAdded = prev.filter((m) => !initialIds.has(m.id));
         if (newlyAdded.length === 0) return initialMessages;
-        return [...initialMessages, ...newlyAdded].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
+        const merged = [...initialMessages, ...newlyAdded].sort(sortChronological);
+        return merged;
       });
     }
   } else if (prevLastRead !== (conversation?.otherParticipant?.lastReadAt || null)) {
@@ -65,35 +75,70 @@ export function useRealtimeChat({
     setOtherParticipantLastRead(conversation?.otherParticipant?.lastReadAt || null);
   }
 
-  // Keep latest message timestamp ref updated outside of render
+  // Keep latest message cursor ref and processed message IDs updated outside of render
   useEffect(() => {
     if (messages.length > 0) {
-      latestMessageTimestampRef.current = messages[messages.length - 1].createdAt;
+      const last = messages[messages.length - 1];
+      latestMessageCursorRef.current = encodeCursor(last.createdAt, last.id);
+    } else {
+      latestMessageCursorRef.current = null;
     }
+    const ids = new Set<string>();
+    for (const m of messages) {
+      ids.add(m.id);
+    }
+    processedMessageIdsRef.current = ids;
   }, [messages]);
 
-  // Fetch missed messages after reconnect or background interval
-  const fetchMissedMessages = useCallback(async (sinceTimestamp: string) => {
+  // Fetch missed messages using safe cursor pagination (prevents overlapping requests)
+  const fetchMissedMessages = useCallback(async () => {
+    const cursor = latestMessageCursorRef.current;
+    if (!cursor || !conversationId || isRecoveringRef.current) return;
+
+    isRecoveringRef.current = true;
     try {
       const res = await fetch(
-        `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(sinceTimestamp)}`,
+        `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(cursor)}`,
         { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
       );
       if (res.ok) {
         const data = await res.json();
-        if (data.messages && data.messages.length > 0) {
+        if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages((prev) => {
-            const existingIds = new Set(prev.map((m) => m.id));
-            const newOnes = data.messages.filter((m: Message) => !existingIds.has(m.id));
-            if (newOnes.length === 0) return prev;
-            const updated = [...prev, ...newOnes].sort(
-              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            const existingMap = new Map(prev.map((m) => [m.id, m]));
+            let hasNewOrChanged = false;
+
+            for (const m of data.messages as Message[]) {
+              processedMessageIdsRef.current.add(m.id);
+              const existing = existingMap.get(m.id);
+              if (!existing) {
+                // Drop any temporary optimistic message that matches this confirmed message
+                for (const [key, val] of existingMap.entries()) {
+                  if (
+                    key.startsWith('temp-') &&
+                    (val.senderId === m.senderId || val.senderId === 'me' || val.senderId === currentUserId) &&
+                    val.content.trim() === m.content.trim()
+                  ) {
+                    existingMap.delete(key);
+                  }
+                }
+                existingMap.set(m.id, m);
+                hasNewOrChanged = true;
+              } else if (existing.content !== m.content || existing.deletedAt !== m.deletedAt) {
+                existingMap.set(m.id, m);
+                hasNewOrChanged = true;
+              }
+            }
+
+            if (!hasNewOrChanged) return prev;
+            const updated = Array.from(existingMap.values()).sort(sortChronological);
             if (updated.length > 0) {
-              latestMessageTimestampRef.current = updated[updated.length - 1].createdAt;
+              const last = updated[updated.length - 1];
+              latestMessageCursorRef.current = encodeCursor(last.createdAt, last.id);
             }
             return updated;
           });
+
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
           }
@@ -101,8 +146,10 @@ export function useRealtimeChat({
       }
     } catch (err) {
       console.warn('Failed to recover missed messages:', err);
+    } finally {
+      isRecoveringRef.current = false;
     }
-  }, [conversationId]);
+  }, [conversationId, currentUserId]);
 
   // Setup Supabase Realtime channel
   useEffect(() => {
@@ -114,7 +161,9 @@ export function useRealtimeChat({
     // Ensure Realtime WebSocket connection is authenticated
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (session?.access_token) {
           await supabase.realtime.setAuth(session.access_token);
         }
@@ -130,11 +179,38 @@ export function useRealtimeChat({
       },
     });
 
+    // Fallback polling helper: only active when disconnected
+    const stopFallbackPolling = () => {
+      if (fallbackPollTimerRef.current) {
+        clearInterval(fallbackPollTimerRef.current);
+        fallbackPollTimerRef.current = null;
+      }
+    };
+
+    const startFallbackPolling = () => {
+      if (fallbackPollTimerRef.current) return;
+      fallbackPollTimerRef.current = setInterval(() => {
+        if (!isConnectedRef.current) {
+          fetchMissedMessages();
+        }
+      }, 6000);
+    };
+
     // 0. Realtime Broadcast: Instant message receipt (<100ms)
     channel.on('broadcast', { event: 'new_message' }, (payload: { payload: Message }) => {
       const newMsg = payload?.payload;
       if (!newMsg || !newMsg.id) return;
-      latestMessageTimestampRef.current = newMsg.createdAt || new Date().toISOString();
+
+      // Prevent duplicate processing if already processed
+      if (processedMessageIdsRef.current.has(newMsg.id)) {
+        return;
+      }
+      processedMessageIdsRef.current.add(newMsg.id);
+
+      latestMessageCursorRef.current = encodeCursor(
+        newMsg.createdAt || new Date().toISOString(),
+        newMsg.id
+      );
 
       setMessages((prev) => {
         if (prev.some((m) => m.id === newMsg.id)) return prev;
@@ -147,7 +223,7 @@ export function useRealtimeChat({
               m.content.trim() === newMsg.content.trim()
             )
         );
-        return [...filtered, newMsg];
+        return [...filtered, newMsg].sort(sortChronological);
       });
 
       if (onMessageReceived) {
@@ -173,7 +249,16 @@ export function useRealtimeChat({
         const messageId = row.id as string;
         const senderId = row.sender_id as string;
 
-        latestMessageTimestampRef.current = (row.created_at as string) || new Date().toISOString();
+        // Prevent duplicate processing
+        if (processedMessageIdsRef.current.has(messageId)) {
+          return;
+        }
+        processedMessageIdsRef.current.add(messageId);
+
+        latestMessageCursorRef.current = encodeCursor(
+          (row.created_at as string) || new Date().toISOString(),
+          messageId
+        );
 
         // Resolve sender profile name
         let senderName = 'Participant';
@@ -187,7 +272,7 @@ export function useRealtimeChat({
 
         // If attachment present, fetch signed URL
         let attachmentUrl: string | null = null;
-        if (row.attachment_path) {
+        if (row.attachment_path && !row.deleted_at) {
           try {
             const { data: signed } = await supabase.storage
               .from('workspace-message-attachments')
@@ -218,12 +303,10 @@ export function useRealtimeChat({
         };
 
         setMessages((prev) => {
-          // If message already exists in state, do not duplicate
           if (prev.some((m) => m.id === newMsg.id)) {
             return prev;
           }
 
-          // Reconcile optimistic message if temporary id matches sender and content
           const filtered = prev.filter(
             (m) =>
               m.id !== newMsg.id &&
@@ -233,7 +316,7 @@ export function useRealtimeChat({
                 m.content.trim() === newMsg.content.trim()
               )
           );
-          return [...filtered, newMsg];
+          return [...filtered, newMsg].sort(sortChronological);
         });
 
         if (onMessageReceived) {
@@ -298,7 +381,6 @@ export function useRealtimeChat({
     channel.on('broadcast', { event: 'typing' }, (payload: { payload: TypingPayload }) => {
       const data = payload?.payload;
       if (!data) return;
-      // Strictly ignore if typing event belongs to self
       if (data.userId === currentUserId || (currentUserName && data.userName === currentUserName)) {
         return;
       }
@@ -318,7 +400,7 @@ export function useRealtimeChat({
       }
     });
 
-    // 5. Realtime Presence: Track conversation channel presence and global window presence
+    // 5. Realtime Presence: Track conversation channel presence
     const updatePresenceFromState = (state: Record<string, UserPresence[]>) => {
       setOnlineUsers((prev) => {
         const next = new Set(prev);
@@ -358,7 +440,7 @@ export function useRealtimeChat({
       });
     });
 
-    // Listen to global presence events dispatched by the application navbar
+    // Global presence event listeners
     const handleGlobalPresenceSync = (e: Event) => {
       const customEvent = e as CustomEvent<string[]>;
       if (Array.isArray(customEvent.detail)) {
@@ -404,47 +486,55 @@ export function useRealtimeChat({
       window.addEventListener('workspace:presence-leave', handleGlobalPresenceLeave);
     }
 
-    // Subscribe and track presence on conversation channel
+    // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
     channel.subscribe(async (status: string) => {
       if (status === 'SUBSCRIBED') {
+        isConnectedRef.current = true;
         setIsConnected(true);
+        stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
         await channel.track({
           userId: currentUserId,
           userName: currentUserName,
           onlineAt: new Date().toISOString(),
         });
 
-        // If reconnecting, recover any missed messages
-        if (latestMessageTimestampRef.current) {
-          fetchMissedMessages(latestMessageTimestampRef.current);
-        }
-      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        // Immediate recovery after connect or reconnect
+        fetchMissedMessages();
+      } else if (
+        status === 'CHANNEL_ERROR' ||
+        status === 'TIMED_OUT' ||
+        status === 'CLOSED'
+      ) {
+        isConnectedRef.current = false;
         setIsConnected(false);
+        // Start fallback recovery polling only when disconnected or recovering
+        startFallbackPolling();
       }
     });
 
     channelRef.current = channel;
 
-    // Active conversation poll fallback: re-sync every 3 seconds to guarantee real-time delivery
-    const pollInterval = setInterval(() => {
-      if (latestMessageTimestampRef.current) {
-        fetchMissedMessages(latestMessageTimestampRef.current);
-      }
-    }, 3000);
+    // Window focus and visibility recovery
+    const onWindowFocusOrVisible = () => {
+      fetchMissedMessages();
+    };
 
-    const onWindowFocus = () => {
-      if (latestMessageTimestampRef.current) {
-        fetchMissedMessages(latestMessageTimestampRef.current);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        onWindowFocusOrVisible();
       }
     };
+
     if (typeof window !== 'undefined') {
-      window.addEventListener('focus', onWindowFocus);
+      window.addEventListener('focus', onWindowFocusOrVisible);
+      document.addEventListener('visibilitychange', onVisibilityChange);
     }
 
     return () => {
-      clearInterval(pollInterval);
+      stopFallbackPolling();
       if (typeof window !== 'undefined') {
-        window.removeEventListener('focus', onWindowFocus);
+        window.removeEventListener('focus', onWindowFocusOrVisible);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
       }
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (channelRef.current) {
@@ -457,22 +547,21 @@ export function useRealtimeChat({
         window.removeEventListener('workspace:presence-join', handleGlobalPresenceJoin);
         window.removeEventListener('workspace:presence-leave', handleGlobalPresenceLeave);
       }
+      isConnectedRef.current = false;
       setIsConnected(false);
     };
   }, [conversationId, currentUserId, currentUserName, conversation, fetchMissedMessages, onMessageReceived]);
 
   // Broadcast a confirmed message instantly over WebSocket to other participants
-  const broadcastMessage = useCallback(
-    (msg: Message) => {
-      if (!channelRef.current) return;
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'new_message',
-        payload: msg,
-      });
-    },
-    []
-  );
+  const broadcastMessage = useCallback((msg: Message) => {
+    if (!channelRef.current) return;
+    processedMessageIdsRef.current.add(msg.id);
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'new_message',
+      payload: msg,
+    });
+  }, []);
 
   // Send broadcast typing event with debounce
   const sendTypingStatus = useCallback(
@@ -523,14 +612,14 @@ export function useRealtimeChat({
 
   // Replace temporary optimistic message with confirmed server message
   const replaceOptimisticMessage = useCallback((tempId: string, confirmed: Message) => {
+    processedMessageIdsRef.current.add(confirmed.id);
     setMessages((prev) => {
-      // If Realtime already inserted the confirmed message by id, drop the temporary message cleanly
       if (prev.some((m) => m.id === confirmed.id)) {
         return prev.filter((m) => m.id !== tempId);
       }
       return prev.map((m) => (m.id === tempId ? confirmed : m));
     });
-    latestMessageTimestampRef.current = confirmed.createdAt;
+    latestMessageCursorRef.current = encodeCursor(confirmed.createdAt, confirmed.id);
   }, []);
 
   // Remove optimistic message on error

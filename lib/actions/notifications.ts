@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
-import { NotificationItem, NotificationType } from '@/lib/types';
+import type { NotificationItem, NotificationType } from '@/lib/types';
 
 export interface GetNotificationsParams {
   limit?: number;

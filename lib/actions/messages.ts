@@ -3,14 +3,14 @@
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createNotification } from '@/lib/actions/notifications';
-import {
+import type {
   Message,
   MessageType,
   Conversation,
   ConversationParticipant,
 } from '@/lib/types';
+import { encodeCursor, parseCursor, UUID_REGEX } from '@/lib/messages-cursor';
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_MESSAGE_LENGTH = 10000;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_MIME_TYPES = new Set([
@@ -43,8 +43,8 @@ export interface SendMessageResult {
 
 export interface GetMessagesOptions {
   limit?: number;
-  before?: string; // cursor (ISO timestamp or message ID)
-  after?: string;  // fetch messages created after this timestamp
+  before?: string; // cursor (<ISO timestamp>_<UUID> or ISO timestamp)
+  after?: string;  // cursor (<ISO timestamp>_<UUID> or ISO timestamp)
 }
 
 export interface GetMessagesResult {
@@ -55,9 +55,17 @@ export interface GetMessagesResult {
   error?: string;
 }
 
+export interface GetConversationsOptions {
+  search?: string;
+  limit?: number;
+  cursor?: string; // cursor (<ISO timestamp>_<UUID> or ISO timestamp)
+}
+
 export interface GetConversationsResult {
   success: boolean;
   conversations: Conversation[];
+  hasMore?: boolean;
+  nextCursor?: string | null;
   error?: string;
 }
 
@@ -138,7 +146,8 @@ interface DbMessageRow {
 
 /**
  * Creates or retrieves an existing conversation anchored to a proposal or contract.
- * Strictly verifies participant authorization.
+ * Strictly verifies participant authorization using secured database RPCs.
+ * Never allows service-role access to bypass participant authorization.
  */
 export async function createOrGetConversation(params: {
   proposalId?: string;
@@ -157,18 +166,12 @@ export async function createOrGetConversation(params: {
       return { success: false, error: 'Authentication required' };
     }
 
-    let dbClient: ReturnType<typeof getAdminSupabaseClient>;
-    try {
-      dbClient = getAdminSupabaseClient();
-    } catch {
-      dbClient = supabase as unknown as ReturnType<typeof getAdminSupabaseClient>;
-    }
-
     if (params.proposalId) {
       if (!UUID_REGEX.test(params.proposalId)) {
         return { success: false, error: 'Invalid proposal identifier format' };
       }
 
+      // Authoritative database RPC enforcing proposal participant authorization and atomicity
       const { data: convId, error: rpcError } = await supabase.rpc(
         'create_or_get_proposal_conversation',
         { p_proposal_id: params.proposalId }
@@ -178,55 +181,8 @@ export async function createOrGetConversation(params: {
         return { success: true, conversationId: convId as string };
       }
 
-      // Resilient fallback: direct conversation resolution
-      try {
-        const { data: existing } = await dbClient
-          .from('conversations')
-          .select('id')
-          .eq('proposal_id', params.proposalId)
-          .maybeSingle();
-
-        if (existing?.id) {
-          return { success: true, conversationId: existing.id };
-        }
-
-        const { data: prop } = await dbClient
-          .from('proposals')
-          .select('id, job_id, freelancer_id, jobs ( id, client_id, title )')
-          .eq('id', params.proposalId)
-          .single();
-
-        if (prop) {
-          const clientUserId = (prop.jobs as { client_id?: string } | null)?.client_id || user.id;
-          const freelancerUserId = prop.freelancer_id;
-
-          const { data: newConv } = await dbClient
-            .from('conversations')
-            .insert({
-              created_by: user.id,
-              job_id: prop.job_id,
-              proposal_id: prop.id,
-              title: (prop.jobs as { title?: string } | null)?.title || 'Proposal Discussion',
-              last_message_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single();
-
-          if (newConv?.id) {
-            await dbClient.from('conversation_participants').insert([
-              { conversation_id: newConv.id, user_id: freelancerUserId },
-              { conversation_id: newConv.id, user_id: clientUserId },
-            ]);
-            return { success: true, conversationId: newConv.id };
-          }
-        }
-      } catch (fbErr) {
-        console.warn('Proposal conversation fallback notice:', fbErr);
-      }
-
-      if (rpcError) {
-        return { success: false, error: rpcError.message };
-      }
+      const errorMsg = rpcError?.message || 'Failed to initialize conversation for proposal';
+      return { success: false, error: errorMsg };
     }
 
     if (params.contractId) {
@@ -234,6 +190,7 @@ export async function createOrGetConversation(params: {
         return { success: false, error: 'Invalid contract identifier format' };
       }
 
+      // Authoritative database RPC enforcing contract participant authorization and atomicity
       const { data: convId, error: rpcError } = await supabase.rpc(
         'create_or_get_contract_conversation',
         { p_contract_id: params.contractId }
@@ -243,69 +200,8 @@ export async function createOrGetConversation(params: {
         return { success: true, conversationId: convId as string };
       }
 
-      // Resilient fallback for contracts
-      try {
-        const { data: existing } = await dbClient
-          .from('conversations')
-          .select('id')
-          .eq('contract_id', params.contractId)
-          .maybeSingle();
-
-        if (existing?.id) {
-          return { success: true, conversationId: existing.id };
-        }
-
-        const { data: contract } = await dbClient
-          .from('contracts')
-          .select('id, proposal_id, job_id, client_id, freelancer_id, title')
-          .eq('id', params.contractId)
-          .single();
-
-        if (contract) {
-          // If a conversation already exists for the proposal or job, attach this contract to it
-          if (contract.proposal_id) {
-            const { data: propConv } = await dbClient
-              .from('conversations')
-              .select('id')
-              .eq('proposal_id', contract.proposal_id)
-              .maybeSingle();
-
-            if (propConv?.id) {
-              await dbClient
-                .from('conversations')
-                .update({ contract_id: contract.id })
-                .eq('id', propConv.id);
-              return { success: true, conversationId: propConv.id };
-            }
-          }
-
-          const { data: newConv } = await dbClient
-            .from('conversations')
-            .insert({
-              created_by: user.id,
-              job_id: contract.job_id,
-              contract_id: contract.id,
-              title: contract.title || 'Contract Chat',
-              last_message_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single();
-
-          if (newConv?.id) {
-            await dbClient.from('conversation_participants').insert([
-              { conversation_id: newConv.id, user_id: contract.freelancer_id },
-              { conversation_id: newConv.id, user_id: contract.client_id },
-            ]);
-            return { success: true, conversationId: newConv.id };
-          }
-        }
-      } catch (fbErr) {
-        console.warn('Contract conversation fallback notice:', fbErr);
-      }
-
-      if (rpcError) {
-        return { success: false, error: rpcError.message };
-      }
+      const errorMsg = rpcError?.message || 'Failed to initialize conversation for contract';
+      return { success: false, error: errorMsg };
     }
 
     if (params.recipientId) {
@@ -313,6 +209,11 @@ export async function createOrGetConversation(params: {
         return { success: false, error: 'Invalid recipient identifier format' };
       }
 
+      if (params.recipientId === user.id) {
+        return { success: false, error: 'Cannot start a conversation with yourself' };
+      }
+
+      // Authoritative database RPC enforcing direct inquiry eligibility, deduplication, and atomicity
       const { data: convId, error: rpcError } = await supabase.rpc(
         'create_or_get_direct_conversation',
         {
@@ -325,52 +226,8 @@ export async function createOrGetConversation(params: {
         return { success: true, conversationId: convId as string };
       }
 
-      // Resilient fallback: direct mutual conversation resolution
-      try {
-        const { data: myConvs } = await dbClient
-          .from('conversation_participants')
-          .select('conversation_id')
-          .eq('user_id', user.id);
-
-        const myConvIds = ((myConvs as { conversation_id: string }[]) || []).map((c) => c.conversation_id);
-        if (myConvIds.length > 0) {
-          const { data: mutual } = await dbClient
-            .from('conversation_participants')
-            .select('conversation_id')
-            .in('conversation_id', myConvIds)
-            .eq('user_id', params.recipientId)
-            .limit(1);
-
-          const mutualRows = mutual as { conversation_id: string }[] | null;
-          if (mutualRows && mutualRows.length > 0) {
-            return { success: true, conversationId: mutualRows[0].conversation_id };
-          }
-        }
-
-        const { data: newConv } = await dbClient
-          .from('conversations')
-          .insert({
-            created_by: user.id,
-            title: params.title || 'Direct Inquiry',
-            last_message_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single();
-
-        if (newConv?.id) {
-          await dbClient.from('conversation_participants').insert([
-            { conversation_id: newConv.id, user_id: user.id },
-            { conversation_id: newConv.id, user_id: params.recipientId },
-          ]);
-          return { success: true, conversationId: newConv.id };
-        }
-      } catch (fbErr) {
-        console.warn('Direct conversation fallback notice:', fbErr);
-      }
-
-      if (rpcError) {
-        return { success: false, error: rpcError.message };
-      }
+      const errorMsg = rpcError?.message || 'Failed to initialize direct conversation';
+      return { success: false, error: errorMsg };
     }
 
     return {
@@ -384,11 +241,11 @@ export async function createOrGetConversation(params: {
 }
 
 /**
- * Fetch all conversations for the authenticated user, complete with participants,
- * last message preview, unread counts, and related job/contract context.
+ * Fetch conversations for the authenticated user with stable cursor pagination,
+ * fetching only the latest message per conversation and computing unread counts efficiently.
  */
 export async function getConversations(
-  options: { search?: string } = {}
+  options: GetConversationsOptions = {}
 ): Promise<GetConversationsResult> {
   try {
     const supabase = await createClient();
@@ -401,8 +258,18 @@ export async function getConversations(
       return { success: false, conversations: [], error: 'Authentication required' };
     }
 
-    // 1. Fetch conversations in which the user is an active participant
-    const { data: rawConversations, error: convError } = await supabase
+    const limit = Math.min(Math.max(1, options.limit ?? 50), 100);
+
+    let parsedCursor: { createdAt: string; id?: string } | null = null;
+    if (options.cursor) {
+      parsedCursor = parseCursor(options.cursor);
+      if (!parsedCursor) {
+        return { success: false, conversations: [], error: 'Invalid cursor parameter' };
+      }
+    }
+
+    // 1. Fetch conversations with deterministic ordering and stable pagination
+    let convQuery = supabase
       .from('conversations')
       .select(`
         id,
@@ -432,20 +299,48 @@ export async function getConversations(
           )
         )
       `)
-      .order('last_message_at', { ascending: false });
+      .order('last_message_at', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (parsedCursor) {
+      if (parsedCursor.id) {
+        convQuery = convQuery.or(
+          `last_message_at.lt.${parsedCursor.createdAt},and(last_message_at.eq.${parsedCursor.createdAt},id.lt.${parsedCursor.id})`
+        );
+      } else {
+        convQuery = convQuery.lt('last_message_at', parsedCursor.createdAt);
+      }
+    }
+
+    convQuery = convQuery.limit(limit + 1);
+
+    const { data: rawConversations, error: convError } = await convQuery;
 
     if (convError) {
       return { success: false, conversations: [], error: convError.message };
     }
 
     if (!rawConversations || rawConversations.length === 0) {
-      return { success: true, conversations: [] };
+      return { success: true, conversations: [], hasMore: false, nextCursor: null };
     }
 
-    const conversationIds = rawConversations.map((c) => c.id);
+    const hasMore = rawConversations.length > limit;
+    const slicedConversations = hasMore ? rawConversations.slice(0, limit) : rawConversations;
 
-    // 2. Fetch the latest non-deleted message for each conversation in parallel
-    const { data: recentMessages, error: msgError } = await supabase
+    const nextCursor =
+      hasMore && slicedConversations.length > 0
+        ? encodeCursor(
+            slicedConversations[slicedConversations.length - 1].last_message_at,
+            slicedConversations[slicedConversations.length - 1].id
+          )
+        : null;
+
+    const conversationIds = slicedConversations.map((c) => c.id);
+    const lastMessageAtTimes = Array.from(new Set(slicedConversations.map((c) => c.last_message_at)));
+
+    // 2. Fetch ONLY the latest message required for each conversation in a single bounded batch query
+    // Utilizing the composite index on (conversation_id, created_at DESC)
+    const { data: latestMessages, error: msgError } = await supabase
       .from('messages')
       .select(`
         id,
@@ -462,6 +357,7 @@ export async function getConversations(
         profiles:sender_id ( id, full_name, avatar_url, username )
       `)
       .in('conversation_id', conversationIds)
+      .in('created_at', lastMessageAtTimes)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
@@ -471,15 +367,8 @@ export async function getConversations(
 
     // Map latest message by conversation_id
     const latestMessageMap = new Map<string, Message>();
-    const unreadCountMap = new Map<string, number>();
-
-    // Initialize unread counts
-    for (const c of rawConversations) {
-      unreadCountMap.set(c.id, 0);
-    }
-
-    if (recentMessages) {
-      for (const m of recentMessages) {
+    if (latestMessages) {
+      for (const m of latestMessages) {
         if (!latestMessageMap.has(m.conversation_id)) {
           const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
           latestMessageMap.set(m.conversation_id, {
@@ -501,24 +390,102 @@ export async function getConversations(
       }
     }
 
-    // 3. Calculate unread messages efficiently
-    for (const raw of rawConversations) {
+    // For any conversation whose latest message was not returned at last_message_at (e.g. edge cases where message was edited/deleted)
+    const missingConvIds = conversationIds.filter((id) => !latestMessageMap.has(id));
+    if (missingConvIds.length > 0) {
+      const { data: fallbackLatest } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          conversation_id,
+          sender_id,
+          content,
+          message_type,
+          attachment_path,
+          attachment_name,
+          created_at,
+          updated_at,
+          edited_at,
+          deleted_at,
+          profiles:sender_id ( id, full_name, avatar_url, username )
+        `)
+        .in('conversation_id', missingConvIds)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (fallbackLatest) {
+        for (const m of fallbackLatest) {
+          if (!latestMessageMap.has(m.conversation_id)) {
+            const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+            latestMessageMap.set(m.conversation_id, {
+              id: m.id,
+              conversationId: m.conversation_id,
+              senderId: m.sender_id,
+              senderName: profile?.full_name || 'Participant',
+              senderAvatar: profile?.avatar_url || null,
+              content: m.content,
+              messageType: m.message_type as MessageType,
+              attachmentPath: m.attachment_path || null,
+              attachmentName: m.attachment_name || null,
+              createdAt: m.created_at,
+              updatedAt: m.updated_at,
+              editedAt: m.edited_at || null,
+              deletedAt: m.deleted_at || null,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Calculate unread counts efficiently:
+    // Only query candidate conversations where last_message_at > myLastReadAt
+    const unreadCountMap = new Map<string, number>();
+    const unreadCandidateConvs: typeof slicedConversations = [];
+
+    for (const raw of slicedConversations) {
+      unreadCountMap.set(raw.id, 0);
       const myParticipant = raw.conversation_participants?.find((p) => p.user_id === user.id);
       const myLastReadAt = myParticipant ? new Date(myParticipant.last_read_at).getTime() : 0;
+      const lastMessageTime = new Date(raw.last_message_at).getTime();
 
-      if (recentMessages) {
-        const unread = recentMessages.filter(
-          (m) =>
-            m.conversation_id === raw.id &&
-            m.sender_id !== user.id &&
-            new Date(m.created_at).getTime() > myLastReadAt
-        ).length;
-        unreadCountMap.set(raw.id, unread);
+      if (lastMessageTime > myLastReadAt) {
+        unreadCandidateConvs.push(raw);
+      }
+    }
+
+    if (unreadCandidateConvs.length > 0) {
+      const candidateIds = unreadCandidateConvs.map((c) => c.id);
+      let earliestReadTime = Infinity;
+      for (const c of unreadCandidateConvs) {
+        const myPart = c.conversation_participants?.find((p) => p.user_id === user.id);
+        const t = myPart ? new Date(myPart.last_read_at).getTime() : 0;
+        if (t < earliestReadTime) earliestReadTime = t;
+      }
+
+      const { data: unreadRows, error: unreadError } = await supabase
+        .from('messages')
+        .select('conversation_id, created_at')
+        .in('conversation_id', candidateIds)
+        .neq('sender_id', user.id)
+        .gt('created_at', new Date(earliestReadTime).toISOString())
+        .is('deleted_at', null);
+
+      if (!unreadError && unreadRows) {
+        for (const raw of unreadCandidateConvs) {
+          const myParticipant = raw.conversation_participants?.find((p) => p.user_id === user.id);
+          const myLastReadAt = myParticipant ? new Date(myParticipant.last_read_at).getTime() : 0;
+          const count = unreadRows.filter(
+            (m) =>
+              m.conversation_id === raw.id &&
+              new Date(m.created_at).getTime() > myLastReadAt
+          ).length;
+          unreadCountMap.set(raw.id, count);
+        }
       }
     }
 
     // 4. Map and format conversations
-    const mapped: Conversation[] = (rawConversations as unknown as DbConversationRow[]).map(
+    const mapped: Conversation[] = (slicedConversations as unknown as DbConversationRow[]).map(
       (raw) => {
         const myParticipant = raw.conversation_participants?.find((p) => p.user_id === user.id);
         const otherParticipantRow = raw.conversation_participants?.find(
@@ -621,10 +588,10 @@ export async function getConversations(
           c.title?.toLowerCase().includes(q) ||
           c.lastMessage?.content.toLowerCase().includes(q)
       );
-      return { success: true, conversations: filtered };
+      return { success: true, conversations: filtered, hasMore, nextCursor };
     }
 
-    return { success: true, conversations: finalConversations };
+    return { success: true, conversations: finalConversations, hasMore, nextCursor };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch conversations';
     return { success: false, conversations: [], error: msg };
@@ -763,14 +730,16 @@ export async function getConversationDetails(
 }
 
 /**
- * Fetch messages for a conversation with cursor-based pagination.
- * Generates temporary signed URLs for attachments.
+ * Fetch messages for a conversation with deterministic cursor-based pagination.
+ * Ensures consistent cursor semantics, handles identical timestamps without skipping,
+ * enforces a maximum limit of 100, and generates temporary signed URLs for attachments safely.
  */
 export async function getMessages(
   conversationId: string,
   options: GetMessagesOptions = {}
 ): Promise<GetMessagesResult> {
-  const { limit = 40, before, after } = options;
+  const limit = Math.min(Math.max(1, options.limit ?? 40), 100);
+  const { before, after } = options;
 
   try {
     if (!UUID_REGEX.test(conversationId)) {
@@ -825,18 +794,47 @@ export async function getMessages(
       .eq('conversation_id', conversationId);
 
     if (after) {
+      const parsedAfter = parseCursor(after);
+      if (!parsedAfter) {
+        return { success: false, messages: [], hasMore: false, error: 'Invalid cursor parameter' };
+      }
+
+      if (parsedAfter.createdAt && parsedAfter.id) {
+        query = query.or(
+          `created_at.gt.${parsedAfter.createdAt},and(created_at.eq.${parsedAfter.createdAt},id.gt.${parsedAfter.id})`
+        );
+      } else if (parsedAfter.createdAt) {
+        query = query.gt('created_at', parsedAfter.createdAt);
+      } else if (parsedAfter.id) {
+        query = query.gt('id', parsedAfter.id);
+      }
+
       query = query
-        .gt('created_at', after)
         .order('created_at', { ascending: true })
-        .limit(limit);
+        .order('id', { ascending: true })
+        .limit(limit + 1);
     } else {
+      if (before) {
+        const parsedBefore = parseCursor(before);
+        if (!parsedBefore) {
+          return { success: false, messages: [], hasMore: false, error: 'Invalid cursor parameter' };
+        }
+
+        if (parsedBefore.createdAt && parsedBefore.id) {
+          query = query.or(
+            `created_at.lt.${parsedBefore.createdAt},and(created_at.eq.${parsedBefore.createdAt},id.lt.${parsedBefore.id})`
+          );
+        } else if (parsedBefore.createdAt) {
+          query = query.lt('created_at', parsedBefore.createdAt);
+        } else if (parsedBefore.id) {
+          query = query.lt('id', parsedBefore.id);
+        }
+      }
+
       query = query
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(limit + 1);
-
-      if (before) {
-        query = query.lt('created_at', before);
-      }
     }
 
     const { data: rawMessages, error: msgError } = await query;
@@ -845,48 +843,71 @@ export async function getMessages(
       return { success: false, messages: [], hasMore: false, error: msgError.message };
     }
 
-    const hasMore = after ? false : (rawMessages || []).length > limit;
+    const hasMore = (rawMessages || []).length > limit;
     const sliced = hasMore ? (rawMessages || []).slice(0, limit) : rawMessages || [];
 
     // Chronological order (oldest to newest)
     const chronological = after ? sliced : sliced.slice().reverse();
 
-    // Generate signed URLs for attachments if present
-    const admin = getAdminSupabaseClient();
-    const mapped: Message[] = await Promise.all(
-      (chronological as unknown as DbMessageRow[]).map(async (row) => {
-        let attachmentUrl: string | null = null;
-        if (row.attachment_path) {
-          const { data: signed } = await admin.storage
-            .from('workspace-message-attachments')
-            .createSignedUrl(row.attachment_path, 3600);
-          attachmentUrl = signed?.signedUrl || null;
-        }
-
-        const isDeleted = Boolean(row.deleted_at);
-
-        return {
-          id: row.id,
-          conversationId: row.conversation_id,
-          senderId: row.sender_id,
-          senderName: row.profiles?.full_name || 'User',
-          senderAvatar: row.profiles?.avatar_url || null,
-          content: isDeleted ? 'This message was deleted' : row.content,
-          messageType: (row.message_type as MessageType) || 'text',
-          attachmentPath: isDeleted ? null : row.attachment_path || null,
-          attachmentName: isDeleted ? null : row.attachment_name || null,
-          attachmentSize: isDeleted ? null : row.attachment_size || null,
-          attachmentType: isDeleted ? null : row.attachment_type || null,
-          attachmentUrl: isDeleted ? null : attachmentUrl,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          editedAt: row.edited_at || null,
-          deletedAt: row.deleted_at || null,
-        };
-      })
+    // Collect non-deleted attachment paths for batch signing
+    const attachmentPaths = Array.from(
+      new Set(
+        chronological
+          .filter((row) => !row.deleted_at && Boolean(row.attachment_path))
+          .map((row) => row.attachment_path as string)
+      )
     );
 
-    const nextCursor = hasMore && sliced.length > 0 ? sliced[sliced.length - 1].created_at : null;
+    const signedUrlMap = new Map<string, string>();
+    if (attachmentPaths.length > 0) {
+      try {
+        const admin = getAdminSupabaseClient();
+        const { data: signedResults, error: signError } = await admin.storage
+          .from('workspace-message-attachments')
+          .createSignedUrls(attachmentPaths, 3600);
+
+        if (!signError && Array.isArray(signedResults)) {
+          for (const item of signedResults) {
+            if (item.signedUrl && item.path) {
+              signedUrlMap.set(item.path, item.signedUrl);
+            }
+          }
+        } else if (signError) {
+          console.warn('Batch attachment signing notice:', signError.message);
+        }
+      } catch (storageErr) {
+        console.warn('Storage signing exception:', storageErr);
+      }
+    }
+
+    const mapped: Message[] = (chronological as unknown as DbMessageRow[]).map((row) => {
+      const isDeleted = Boolean(row.deleted_at);
+      const attachmentUrl = isDeleted || !row.attachment_path ? null : (signedUrlMap.get(row.attachment_path) || null);
+
+      return {
+        id: row.id,
+        conversationId: row.conversation_id,
+        senderId: row.sender_id,
+        senderName: row.profiles?.full_name || 'User',
+        senderAvatar: row.profiles?.avatar_url || null,
+        content: isDeleted ? 'This message was deleted' : row.content,
+        messageType: (row.message_type as MessageType) || 'text',
+        attachmentPath: isDeleted ? null : row.attachment_path || null,
+        attachmentName: isDeleted ? null : row.attachment_name || null,
+        attachmentSize: isDeleted ? null : row.attachment_size || null,
+        attachmentType: isDeleted ? null : row.attachment_type || null,
+        attachmentUrl,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        editedAt: row.edited_at || null,
+        deletedAt: row.deleted_at || null,
+      };
+    });
+
+    const nextCursor =
+      hasMore && sliced.length > 0
+        ? encodeCursor(sliced[sliced.length - 1].created_at, sliced[sliced.length - 1].id)
+        : null;
 
     return {
       success: true,
@@ -903,6 +924,7 @@ export async function getMessages(
 /**
  * Send a message in a conversation.
  * Server validates sender identity, conversation membership, content length,
+ * safely handles attachment signing errors without failing message delivery,
  * and asynchronously notifies other participants.
  */
 export async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
@@ -996,11 +1018,19 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 
     let attachmentUrl: string | null = null;
     if (typedRow.attachment_path) {
-      const admin = getAdminSupabaseClient();
-      const { data: signed } = await admin.storage
-        .from('workspace-message-attachments')
-        .createSignedUrl(typedRow.attachment_path, 3600);
-      attachmentUrl = signed?.signedUrl || null;
+      try {
+        const admin = getAdminSupabaseClient();
+        const { data: signed, error: signError } = await admin.storage
+          .from('workspace-message-attachments')
+          .createSignedUrl(typedRow.attachment_path, 3600);
+        if (!signError && signed?.signedUrl) {
+          attachmentUrl = signed.signedUrl;
+        } else if (signError) {
+          console.warn('Signed URL warning on send:', signError.message);
+        }
+      } catch (signErr) {
+        console.warn('Storage signing exception on send:', signErr);
+      }
     }
 
     const formattedMessage: Message = {
@@ -1189,6 +1219,8 @@ export async function deleteMessage(
 
 /**
  * Mark a conversation as read for the authenticated caller.
+ * Verifies membership, inspects RPC errors, checks fallback errors,
+ * and returns success ONLY after a successful database update.
  */
 export async function markConversationAsRead(
   conversationId: string
@@ -1208,20 +1240,53 @@ export async function markConversationAsRead(
       return { success: false, error: 'Authentication required' };
     }
 
+    // Explicitly verify conversation membership first
+    const { data: participant, error: partError } = await supabase
+      .from('conversation_participants')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (partError || !participant) {
+      return { success: false, error: 'User is not a participant in this conversation' };
+    }
+
+    // Call authoritative database RPC
     const { error: rpcError } = await supabase.rpc('mark_conversation_read', {
       p_conversation_id: conversationId,
     });
 
-    if (rpcError) {
-      try {
-        await supabase
-          .from('conversation_participants')
-          .update({ last_read_at: new Date().toISOString() })
-          .eq('conversation_id', conversationId)
-          .eq('user_id', user.id);
-      } catch {
-        // Safe non-blocking read-receipt fallback
-      }
+    if (!rpcError) {
+      return { success: true };
+    }
+
+    // If RPC failed due to authentication/authorization, do not attempt fallback
+    if (
+      rpcError.code === '42501' ||
+      rpcError.message.includes('not a participant') ||
+      rpcError.message.includes('Authentication required')
+    ) {
+      return { success: false, error: rpcError.message };
+    }
+
+    // Direct fallback update with user authenticated client (strictly bounded to caller)
+    const { data: updated, error: fallbackError } = await supabase
+      .from('conversation_participants')
+      .update({ last_read_at: new Date().toISOString() })
+      .eq('conversation_id', conversationId)
+      .eq('user_id', user.id)
+      .select('id');
+
+    if (fallbackError) {
+      return { success: false, error: fallbackError.message };
+    }
+
+    if (!updated || updated.length === 0) {
+      return {
+        success: false,
+        error: 'Failed to update read receipt: participant record not updated',
+      };
     }
 
     return { success: true };
@@ -1233,6 +1298,7 @@ export async function markConversationAsRead(
 
 /**
  * Get total unread messages count across all conversations for navbar badge.
+ * Evaluates unread status efficiently without retrieving complete message histories.
  */
 export async function getUnreadMessageCount(): Promise<{ success: boolean; count: number }> {
   try {
@@ -1257,22 +1323,26 @@ export async function getUnreadMessageCount(): Promise<{ success: boolean; count
     }
 
     const convIds = participations.map((p) => p.conversation_id);
+    let minLastRead = Infinity;
+    const readMap = new Map<string, number>();
 
-    // Fetch messages in user's conversations where sender is not user and message is not deleted
+    for (const p of participations) {
+      const t = new Date(p.last_read_at).getTime();
+      readMap.set(p.conversation_id, t);
+      if (t < minLastRead) minLastRead = t;
+    }
+
+    // Fetch only messages in user's conversations created after the earliest last_read_at
     const { data: recentMsgs, error: msgError } = await supabase
       .from('messages')
       .select('conversation_id, created_at')
       .in('conversation_id', convIds)
       .neq('sender_id', user.id)
+      .gt('created_at', new Date(minLastRead).toISOString())
       .is('deleted_at', null);
 
     if (msgError || !recentMsgs) {
       return { success: true, count: 0 };
-    }
-
-    const readMap = new Map<string, number>();
-    for (const p of participations) {
-      readMap.set(p.conversation_id, new Date(p.last_read_at).getTime());
     }
 
     let totalUnread = 0;
@@ -1383,7 +1453,8 @@ export async function uploadMessageAttachment(
 
 /**
  * Generate a short-lived authorized download/preview URL for an attachment.
- * Strictly verifies caller is a participant in the associated conversation.
+ * Strictly verifies caller is a participant in the associated conversation
+ * and ensures that the message has not been deleted.
  */
 export async function getAuthorizedAttachmentUrl(
   attachmentPath: string
@@ -1418,6 +1489,19 @@ export async function getAuthorizedAttachmentUrl(
 
     if (!participant) {
       return { success: false, error: 'Unauthorized to access this attachment' };
+    }
+
+    // Avoid generating signed URLs for deleted messages
+    const { data: messageRecord, error: msgErr } = await supabase
+      .from('messages')
+      .select('id, deleted_at')
+      .eq('conversation_id', conversationId)
+      .eq('attachment_path', attachmentPath)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (msgErr || !messageRecord) {
+      return { success: false, error: 'Attachment not found or message was deleted' };
     }
 
     const admin = getAdminSupabaseClient();

@@ -17,7 +17,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(result);
     }
 
-    const result = await getConversations({ search });
+    const cursor = searchParams.get('cursor') || undefined;
+    const limitParam = searchParams.get('limit');
+    let limit: number | undefined = undefined;
+    if (limitParam) {
+      const parsed = parseInt(limitParam, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        limit = Math.min(parsed, 100);
+      }
+    }
+
+    const result = await getConversations({ search, limit, cursor });
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || 'Failed to fetch conversations' },
