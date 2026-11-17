@@ -381,24 +381,24 @@ export default function FreelancerTimeTrackingPage() {
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {/* Today's Logged Hours */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-xs hover:border-emerald-300 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Today
             </span>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Clock className="w-3.5 h-3.5" />
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2.5">
             {loading ? (
               <div className="h-7 w-16 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                <span className="text-xl sm:text-2xl font-black text-slate-900">
                   {formatDurationMinutes(data?.stats.todayMinutes || 0)}
                 </span>
-                <p className="text-[11px] text-emerald-600 font-medium mt-0.5">
+                <p className="text-xs text-emerald-600 font-bold mt-0.5">
                   ${(data?.stats.todayEarnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
                 </p>
               </>
@@ -407,24 +407,24 @@ export default function FreelancerTimeTrackingPage() {
         </div>
 
         {/* This Week's Hours */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-xs hover:border-blue-300 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               This Week
             </span>
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Calendar className="w-3.5 h-3.5" />
+            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Calendar className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2.5">
             {loading ? (
               <div className="h-7 w-16 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                <span className="text-xl sm:text-2xl font-black text-slate-900">
                   {formatDurationMinutes(data?.stats.thisWeekMinutes || 0)}
                 </span>
-                <p className="text-[11px] text-blue-600 font-medium mt-0.5">
+                <p className="text-xs text-blue-600 font-bold mt-0.5">
                   ${(data?.stats.thisWeekEarnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
                 </p>
               </>
@@ -433,48 +433,48 @@ export default function FreelancerTimeTrackingPage() {
         </div>
 
         {/* Active Hourly Contracts */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-xs hover:border-purple-300 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Active Contracts
             </span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Layers className="w-3.5 h-3.5" />
+            <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Layers className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2.5">
             {loading ? (
               <div className="h-7 w-10 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                <span className="text-xl sm:text-2xl font-black text-slate-900">
                   {data?.eligibleContracts.length || 0}
                 </span>
-                <p className="text-[11px] text-slate-500 mt-0.5">Hourly eligible</p>
+                <p className="text-xs text-purple-600 font-semibold mt-0.5">Hourly eligible</p>
               </>
             )}
           </div>
         </div>
 
         {/* All-Time Logged Hours */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-xs hover:border-amber-300 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Total Logged
             </span>
-            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <TrendingUp className="w-3.5 h-3.5" />
+            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2.5">
             {loading ? (
               <div className="h-7 w-14 bg-slate-100 animate-pulse rounded" />
             ) : (
               <>
-                <span className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                <span className="text-xl sm:text-2xl font-black text-slate-900">
                   {data?.stats.totalHoursAllTime || 0} hrs
                 </span>
-                <p className="text-[11px] text-slate-500 mt-0.5">Verified work diary</p>
+                <p className="text-xs text-amber-600 font-semibold mt-0.5">Verified work diary</p>
               </>
             )}
           </div>
@@ -540,31 +540,68 @@ export default function FreelancerTimeTrackingPage() {
                     isTimerRunning ? 'bg-emerald-500 animate-ping' : 'bg-slate-300'
                   }`}
                 />
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
                   {isTimerRunning ? 'Timer Active & Logging' : 'Timer Idle'}
                 </span>
               </div>
 
               {isTimerRunning && data?.activeSession && (
                 <div className="text-right">
-                  <span className="text-xs text-slate-500">Started at: </span>
-                  <span className="text-xs font-semibold text-slate-800">
+                  <span className="text-xs text-slate-400">Started at: </span>
+                  <span className="text-xs font-bold text-slate-800">
                     {new Date(data.activeSession.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </span>
                 </div>
               )}
             </div>
 
-            {/* Stopwatch Hero Display */}
-            <div className="py-8 sm:py-10 text-center">
-              <div className="font-mono text-5xl sm:text-7xl font-extrabold tracking-tight text-slate-900 select-all">
+            {/* Stopwatch Hero Display - Upwork Executive Console */}
+            <div className={`my-6 py-8 sm:py-10 text-center rounded-3xl transition-all ${
+              isTimerRunning
+                ? 'bg-gradient-to-b from-slate-950 to-slate-900 text-white shadow-xl border border-emerald-500/30'
+                : 'bg-slate-50 border border-slate-200/80 text-slate-900'
+            }`}>
+              <div className={`font-mono text-5xl sm:text-7xl font-black tracking-tight select-all ${
+                isTimerRunning ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.35)]' : 'text-slate-900'
+              }`}>
                 {formatTimeHHMMSS(elapsedSeconds)}
               </div>
-              <p className="text-xs text-slate-400 font-medium mt-2">
-                {isTimerRunning
-                  ? 'Elapsed time calculated from trusted database clock'
-                  : 'Select an active hourly project below and describe your task'}
-              </p>
+
+              {isTimerRunning && activeContract ? (
+                <div className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    +${((elapsedSeconds / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} earned this session
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    (${activeContract.hourlyRate}/hr)
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 font-medium mt-2">
+                  Select an active hourly project below and describe your task
+                </p>
+              )}
+
+              {/* Weekly Limit Progress Bar */}
+              {activeContract && (
+                <div className="max-w-xs mx-auto mt-5 px-4">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5 font-semibold">
+                    <span className={isTimerRunning ? 'text-slate-300' : 'text-slate-500'}>Weekly Cap</span>
+                    <span className={isTimerRunning ? 'text-emerald-400 font-bold' : 'text-emerald-700 font-bold'}>
+                      {((data?.stats.thisWeekMinutes || 0) / 60).toFixed(1)} / {activeContract.weeklyHourLimit || 40} hrs
+                    </span>
+                  </div>
+                  <div className={`w-full h-2 rounded-full overflow-hidden ${isTimerRunning ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(100, Math.round((((data?.stats.thisWeekMinutes || 0) / 60) / (activeContract.weeklyHourLimit || 40)) * 100))}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Controls Form */}
@@ -624,9 +661,12 @@ export default function FreelancerTimeTrackingPage() {
 
               {/* Work Memo Input */}
               <div>
-                <label htmlFor="work-memo" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Task Memo <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="work-memo" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Task Memo <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">Required for Work Diary & Timesheet</span>
+                </div>
                 <input
                   id="work-memo"
                   type="text"
@@ -640,9 +680,30 @@ export default function FreelancerTimeTrackingPage() {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50"
                 />
                 {memoError && <p className="text-xs text-rose-600 font-medium mt-1">{memoError}</p>}
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Required memo describing your work. Memos will appear in your client&apos;s weekly timesheet.
-                </p>
+
+                {/* Quick Task Memo Suggestions */}
+                <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 mr-0.5">Quick Tasks:</span>
+                  {[
+                    'Feature implementation',
+                    'Bug fixing & debugging',
+                    'Code refactoring & review',
+                    'Architecture & database design',
+                    'API testing & documentation',
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => {
+                        setWorkMemo(chip);
+                        if (memoError) setMemoError(null);
+                      }}
+                      className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition cursor-pointer"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Action Buttons */}
@@ -922,6 +983,37 @@ export default function FreelancerTimeTrackingPage() {
       {/* Timesheets Review & Billing Tab */}
       {activeMainTab === 'timesheets' && (
         <div className="space-y-6">
+          {/* Upwork Billing Cycle Educational Trust Card */}
+          <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 rounded-3xl p-6 text-white border border-emerald-500/30 shadow-md">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-2 max-w-2xl">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Upwork Weekly Billing & Hourly Protection</span>
+                </div>
+                <h3 className="text-lg font-bold tracking-tight text-white">
+                  How Hourly Billing & Invoicing Works
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Your work week begins <strong>Monday 00:00 UTC</strong> and ends <strong>Sunday 23:59 UTC</strong>.
+                  On Monday, timesheets are automatically invoiced to your client. The client has Monday through Friday to review your Work Diary, after which funds are disbursed directly to your payout account.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-xs shrink-0">
+                <div className="text-center px-3">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Current Cycle</span>
+                  <span className="text-sm font-black text-emerald-400">Monday – Sunday</span>
+                </div>
+                <div className="h-8 w-px bg-white/10" />
+                <div className="text-center px-3">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Settlement</span>
+                  <span className="text-sm font-black text-white">Friday Payout</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {timesheets.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-4">
               <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">

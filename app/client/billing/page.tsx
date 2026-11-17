@@ -537,12 +537,12 @@ export default function ClientBillingPage() {
         {/* Financial KPI Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {/* 1. Funded in Escrow */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs relative overflow-hidden">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs hover:border-emerald-300 transition-all relative overflow-hidden group">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Funded in Escrow
               </span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Lock className="w-4 h-4" />
               </div>
             </div>
@@ -550,7 +550,7 @@ export default function ClientBillingPage() {
               {loading ? (
                 <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
               ) : (
-                <div className="text-2xl font-black text-emerald-700 tracking-tight">
+                <div className="text-2xl sm:text-3xl font-black text-emerald-700 tracking-tight">
                   ${stats.totalEscrowFunded.toFixed(2)}
                 </div>
               )}
@@ -561,12 +561,12 @@ export default function ClientBillingPage() {
           </div>
 
           {/* 2. Pending Funding */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs hover:border-amber-300 transition-all relative overflow-hidden group">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Pending Funding
               </span>
-              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Clock className="w-4 h-4" />
               </div>
             </div>
@@ -574,7 +574,7 @@ export default function ClientBillingPage() {
               {loading ? (
                 <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
               ) : (
-                <div className="text-2xl font-black text-amber-600 tracking-tight">
+                <div className="text-2xl sm:text-3xl font-black text-amber-600 tracking-tight">
                   ${stats.totalPendingFunding.toFixed(2)}
                 </div>
               )}
@@ -585,12 +585,12 @@ export default function ClientBillingPage() {
           </div>
 
           {/* 3. Released to Freelancers */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs hover:border-blue-300 transition-all relative overflow-hidden group">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Released Payouts
               </span>
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
             </div>
@@ -598,7 +598,7 @@ export default function ClientBillingPage() {
               {loading ? (
                 <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
               ) : (
-                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                <div className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                   ${stats.totalReleased.toFixed(2)}
                 </div>
               )}
@@ -609,12 +609,12 @@ export default function ClientBillingPage() {
           </div>
 
           {/* 4. Awaiting Review / Release */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs hover:border-purple-300 transition-all relative overflow-hidden group">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Awaiting Review
               </span>
-              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Send className="w-4 h-4" />
               </div>
             </div>
@@ -622,7 +622,7 @@ export default function ClientBillingPage() {
               {loading ? (
                 <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
               ) : (
-                <div className="text-2xl font-black text-purple-700 tracking-tight">
+                <div className="text-2xl sm:text-3xl font-black text-purple-700 tracking-tight">
                   {stats.awaitingReviewCount}
                 </div>
               )}
