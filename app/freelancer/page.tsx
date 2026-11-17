@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { FreelancerDashboardResult } from '@/lib/actions/freelancer-dashboard';
@@ -9,6 +9,7 @@ import {
   Bookmark,
   CheckCircle2,
   Clock,
+  Calendar,
   DollarSign,
   Briefcase,
   ChevronRight,
@@ -29,9 +30,32 @@ import {
 } from 'lucide-react';
 import ProposalDetailsModal from '@/components/jobs/proposal-details-modal';
 
+const DASHBOARD_CACHE_KEY = 'workspace_freelancer_dashboard_cache';
+
 export default function FreelancerDashboardPage() {
-  const [dashboardData, setDashboardData] = useState<FreelancerDashboardResult | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const lastFetchTimeRef = useRef<number>(0);
+  const [dashboardData, setDashboardData] = useState<FreelancerDashboardResult | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (cached) return JSON.parse(cached);
+      } catch {
+        // Safe cache fallback
+      }
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return !sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  });
+  const [isRevalidating, setIsRevalidating] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [activeProposalTab, setActiveProposalTab] = useState<'all' | 'pending' | 'interviewing' | 'accepted' | 'archived'>('all');
@@ -58,8 +82,12 @@ export default function FreelancerDashboardPage() {
   useEffect(() => {
     let isCancelled = false;
 
-    async function fetchDashboard() {
-      setLoading(true);
+    async function fetchDashboard(silent = false) {
+      if (!silent) {
+        setLoading(true);
+      } else {
+        setIsRevalidating(true);
+      }
       setFetchError(null);
       try {
         const res = await fetch('/api/freelancer/dashboard', {
@@ -78,6 +106,12 @@ export default function FreelancerDashboardPage() {
 
         if (res.ok && data.success) {
           setDashboardData(data);
+          lastFetchTimeRef.current = Date.now();
+          try {
+            sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data));
+          } catch {
+            // Non-blocking cache write
+          }
         } else {
           setFetchError(data.error || 'Failed to retrieve freelancer dashboard data.');
         }
@@ -88,14 +122,21 @@ export default function FreelancerDashboardPage() {
       } finally {
         if (!isCancelled) {
           setLoading(false);
+          setIsRevalidating(false);
         }
       }
     }
 
-    fetchDashboard();
+    // If cache already exists, revalidate silently without full-screen loading spinners
+    const hasInitialCache = typeof window !== 'undefined' && Boolean(sessionStorage.getItem(DASHBOARD_CACHE_KEY));
+    fetchDashboard(hasInitialCache);
 
     const onWindowFocus = () => {
-      fetchDashboard();
+      // Throttle window-focus revalidation: only re-fetch if at least 30s have passed
+      const now = Date.now();
+      if (now - lastFetchTimeRef.current > 30000) {
+        fetchDashboard(true);
+      }
     };
     window.addEventListener('focus', onWindowFocus);
 
@@ -213,8 +254,9 @@ export default function FreelancerDashboardPage() {
     switch (status) {
       case 'interviewing':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-            Interviewing
+          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
+            <Calendar className="w-3 h-3 text-blue-600" />
+            <span>In Discussions</span>
           </span>
         );
       case 'accepted':
@@ -327,11 +369,11 @@ export default function FreelancerDashboardPage() {
           <button
             onClick={handleRefresh}
             type="button"
-            disabled={loading}
+            disabled={loading || isRevalidating}
             className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
             title="Refresh dashboard data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading || isRevalidating ? 'animate-spin' : ''}`} />
           </button>
           <Link
             href="/freelancer/time-tracking"
@@ -445,11 +487,11 @@ export default function FreelancerDashboardPage() {
           </div>
         </div>
 
-        {/* Interviews */}
+        {/* Discussions & Meetings */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">
-              Interviews
+              Discussions
             </span>
             <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
               <FileCheck2 className="w-3.5 h-3.5" />
@@ -599,7 +641,7 @@ export default function FreelancerDashboardPage() {
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
                 >
-                  Interviews ({stats.interviewingProposals})
+                  In Discussions ({stats.interviewingProposals})
                 </button>
                 <button
                   type="button"

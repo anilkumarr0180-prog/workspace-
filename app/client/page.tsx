@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { ClientDashboardResult, ClientJobSummary, ClientDashboardActivity } from '@/lib/actions/client';
 import {
@@ -16,13 +17,13 @@ import {
   ChevronRight,
   AlertCircle,
   Clock,
+  Calendar,
   FileText,
   Archive,
   RefreshCw,
   X,
   ExternalLink,
   Layers,
-  ThumbsUp,
   MessageSquare,
   XCircle,
   FileEdit
@@ -62,12 +63,10 @@ export default function ClientDashboardPage() {
   const [activeTab, setActiveTab] = useState<'published' | 'proposals' | 'drafts' | 'completed'>('published');
   const [toastMessage, setToastMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [updatingProposalId, setUpdatingProposalId] = useState<string | null>(null);
   const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
 
   // Upwork Candidate Pipeline state
-  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'shortlisted' | 'interviewing' | 'archived'>('all');
-  const [isShortlistingId, setIsShortlistingId] = useState<string | null>(null);
+  const [pipelineFilter, setPipelineFilter] = useState<'all' | 'under_review' | 'interviewing' | 'archived'>('all');
 
   // Hire offer modal state
   const [proposalForHire, setProposalForHire] = useState<ProposalRecord | null>(null);
@@ -239,6 +238,46 @@ export default function ClientDashboardPage() {
     setRefreshIndex((prev) => prev + 1);
   }, []);
 
+  // Real-time listener: Auto-update client dashboard when freelancer submits a proposal
+  useEffect(() => {
+    // 1. Listen for cross-component notification events dispatched by NotificationPopover
+    const onNotificationReceived = (e: Event) => {
+      const customEvent = e as CustomEvent<{ type?: string; message?: string }>;
+      const item = customEvent.detail;
+      if (item?.type === 'proposal_received') {
+        setRefreshIndex((prev) => prev + 1);
+        setToastMessage('New proposal received!');
+        setTimeout(() => setToastMessage(''), 4000);
+      }
+    };
+
+    window.addEventListener('workspace-notification-received', onNotificationReceived);
+
+    // 2. Direct Supabase Realtime subscription on proposals table
+    const supabase = createClient();
+    const channel = supabase
+      .channel('client-dashboard-realtime-proposals')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'proposals',
+        },
+        () => {
+          setRefreshIndex((prev) => prev + 1);
+          setToastMessage('New proposal submitted by freelancer!');
+          setTimeout(() => setToastMessage(''), 4000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('workspace-notification-received', onNotificationReceived);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
 
   // Toggle Job Status (Pause / Reopen) against real database
   const handleToggleJobStatus = async (jobId: string, currentStatus: string) => {
@@ -294,7 +333,6 @@ export default function ClientDashboardPage() {
 
   // Update proposal status adhering to state machine
   const handleUpdateProposalStatus = async (proposalId: string, newStatus: string) => {
-    setUpdatingProposalId(proposalId);
     try {
       const res = await fetch(`/api/proposals/${proposalId}`, {
         method: 'PATCH',
@@ -335,56 +373,16 @@ export default function ClientDashboardPage() {
       }
     } catch {
       showError('Network error while updating proposal status.');
-    } finally {
-      setUpdatingProposalId(null);
     }
   };
 
-  // Candidate pipeline shortlist toggle handler
-  const handleToggleShortlist = async (proposalId: string, currentShortlisted?: boolean) => {
-    setIsShortlistingId(proposalId);
-    const targetState = !currentShortlisted;
-    try {
-      const res = await fetch(`/api/proposals/${proposalId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'toggle_shortlist', isShortlisted: targetState }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setDashboardData((prev) => {
-          if (!prev?.proposals) return prev;
-          return {
-            ...prev,
-            proposals: prev.proposals.map((p) =>
-              p.id === proposalId
-                ? { ...p, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
-                : p
-            ),
-          };
-        });
-        setJobSpecificProposals((prev) =>
-          prev
-            ? prev.map((p) =>
-                p.id === proposalId
-                  ? { ...p, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
-                  : p
-              )
-            : null
-        );
-        setSelectedProposalForReview((prev) =>
-          prev && prev.id === proposalId
-            ? { ...prev, isShortlisted: targetState, shortlistedAt: targetState ? new Date().toISOString() : null }
-            : prev
-        );
-        showToast(targetState ? 'Candidate shortlisted (thumbs up).' : 'Removed from shortlist.');
-      } else {
-        showError(data.error || 'Failed to update candidate shortlist status.');
-      }
-    } catch {
-      showError('Network error while toggling shortlist.');
-    } finally {
-      setIsShortlistingId(null);
+  // Open Review modal and automatically transition newly submitted proposals to 'under_review'
+  const handleOpenReviewModal = (prop: ProposalRecord) => {
+    setSelectedProposalForReview(prop);
+    setIsReviewModalOpen(true);
+
+    if (prop.status === 'submitted') {
+      handleUpdateProposalStatus(prop.id, 'under_review');
     }
   };
 
@@ -487,7 +485,12 @@ export default function ClientDashboardPage() {
       case 'under_review':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Under Review</span>;
       case 'interviewing':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">Interviewing</span>;
+        return (
+          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
+            <Calendar className="w-3 h-3 text-blue-600" />
+            <span>In Discussions</span>
+          </span>
+        );
       case 'accepted':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Offer Accepted</span>;
       case 'rejected':
@@ -508,13 +511,13 @@ export default function ClientDashboardPage() {
     : proposals;
 
   const countAll = rawDisplayedProposals.filter((p) => p.status !== 'rejected' && p.status !== 'withdrawn').length;
-  const countShortlisted = rawDisplayedProposals.filter((p) => p.isShortlisted && p.status !== 'withdrawn').length;
+  const countUnderReview = rawDisplayedProposals.filter((p) => p.status === 'under_review').length;
   const countInterviewing = rawDisplayedProposals.filter((p) => p.status === 'interviewing').length;
   const countArchived = rawDisplayedProposals.filter((p) => p.status === 'rejected' || p.status === 'withdrawn').length;
 
   const displayedProposals = rawDisplayedProposals.filter((p) => {
-    if (pipelineFilter === 'shortlisted') {
-      return p.isShortlisted && p.status !== 'withdrawn';
+    if (pipelineFilter === 'under_review') {
+      return p.status === 'under_review';
     }
     if (pipelineFilter === 'interviewing') {
       return p.status === 'interviewing';
@@ -958,21 +961,21 @@ export default function ClientDashboardPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPipelineFilter('shortlisted')}
+                        onClick={() => setPipelineFilter('under_review')}
                         className={`px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                          pipelineFilter === 'shortlisted'
+                          pipelineFilter === 'under_review'
                             ? 'bg-amber-600 text-white shadow-2xs'
                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                         }`}
                       >
-                        <ThumbsUp className="w-3 h-3" />
-                        <span>Shortlisted</span>
+                        <Clock className="w-3 h-3" />
+                        <span>Under Review</span>
                         <span
                           className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            pipelineFilter === 'shortlisted' ? 'bg-amber-700 text-white' : 'bg-slate-200 text-slate-700'
+                            pipelineFilter === 'under_review' ? 'bg-amber-700 text-white' : 'bg-slate-200 text-slate-700'
                           }`}
                         >
-                          {countShortlisted}
+                          {countUnderReview}
                         </span>
                       </button>
                       <button
@@ -984,8 +987,8 @@ export default function ClientDashboardPage() {
                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                         }`}
                       >
-                        <MessageSquare className="w-3 h-3" />
-                        <span>Interviewing</span>
+                        <Calendar className="w-3 h-3" />
+                        <span>In Discussions</span>
                         <span
                           className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
                             pipelineFilter === 'interviewing' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
@@ -1062,10 +1065,10 @@ export default function ClientDashboardPage() {
                           <Users className="w-6 h-6" />
                         </div>
                         <h3 className="text-sm font-bold text-slate-900">
-                          {pipelineFilter === 'shortlisted'
-                            ? 'No Shortlisted Candidates'
+                          {pipelineFilter === 'under_review'
+                            ? 'No Proposals Under Review'
                             : pipelineFilter === 'interviewing'
-                            ? 'No Candidates Under Interview'
+                            ? 'No Candidates In Discussions'
                             : pipelineFilter === 'archived'
                             ? 'No Archived or Declined Proposals'
                             : selectedJobFilter
@@ -1073,10 +1076,10 @@ export default function ClientDashboardPage() {
                             : 'No Proposals Found in This View'}
                         </h3>
                         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                          {pipelineFilter === 'shortlisted'
-                            ? 'Click the thumbs-up icon on any proposal card to shortlist top candidates for quick access.'
+                          {pipelineFilter === 'under_review'
+                            ? 'Proposals you open and review will automatically appear in this stage.'
                             : pipelineFilter === 'interviewing'
-                            ? 'Candidates you invite for interviews or message will automatically be organized here.'
+                            ? 'Candidates you message or schedule consultation meetings with will automatically appear here.'
                             : pipelineFilter === 'archived'
                             ? 'Proposals that you decline or candidates who withdraw will appear in this archive.'
                             : 'When talent applies to your active project listings, their bids and qualifications will appear here for review.'}
@@ -1095,10 +1098,8 @@ export default function ClientDashboardPage() {
                       </div>
                     ) : (
                       <div className="divide-y divide-slate-100">
-                        {displayedProposals.map((prop) => {
-                          const isUpdating = updatingProposalId === prop.id;
-                          return (
-                            <div key={prop.id} className="p-5 hover:bg-slate-50/70 transition-colors space-y-3">
+                        {displayedProposals.map((prop) => (
+                          <div key={prop.id} className="p-5 hover:bg-slate-50/70 transition-colors space-y-3">
                               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                 <div className="flex items-start gap-3">
                                   {prop.freelancerAvatar ? (
@@ -1159,41 +1160,12 @@ export default function ClientDashboardPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0">
-                                  {/* Upwork Shortlist Thumbs Up toggle */}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleShortlist(prop.id, prop.isShortlisted)}
-                                    disabled={isShortlistingId === prop.id}
-                                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                                      prop.isShortlisted
-                                        ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 shadow-2xs'
-                                        : 'border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                                    }`}
-                                    title={
-                                      prop.isShortlisted
-                                        ? 'Candidate is shortlisted. Click to remove.'
-                                        : 'Shortlist candidate (Thumbs Up)'
-                                    }
-                                  >
-                                    <ThumbsUp
-                                      className={`w-3.5 h-3.5 ${
-                                        prop.isShortlisted ? 'fill-amber-500 text-amber-600' : 'text-slate-400'
-                                      }`}
-                                    />
-                                    <span className="hidden sm:inline">
-                                      {prop.isShortlisted ? 'Shortlisted' : 'Shortlist'}
-                                    </span>
-                                  </button>
-
                                   <div>{getProposalStatusBadge(prop.status, prop.contractStatus)}</div>
                                 </div>
                               </div>
 
                               <div
-                                onClick={() => {
-                                  setSelectedProposalForReview(prop);
-                                  setIsReviewModalOpen(true);
-                                }}
+                                onClick={() => handleOpenReviewModal(prop)}
                                 className="cursor-pointer group"
                                 title="Click to open full proposal details and cover letter"
                               >
@@ -1228,10 +1200,7 @@ export default function ClientDashboardPage() {
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setSelectedProposalForReview(prop);
-                                      setIsReviewModalOpen(true);
-                                    }}
+                                    onClick={() => handleOpenReviewModal(prop)}
                                     className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                                     title="View full proposal, cover letter, and candidate details"
                                   >
@@ -1253,16 +1222,6 @@ export default function ClientDashboardPage() {
                                   {/* Non-terminal actions */}
                                   {!['accepted', 'rejected', 'withdrawn'].includes(prop.status) && (
                                     <>
-                                      {prop.status === 'submitted' && (
-                                        <button
-                                          onClick={() => handleUpdateProposalStatus(prop.id, 'under_review')}
-                                          disabled={isUpdating}
-                                          type="button"
-                                          className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                                        >
-                                          {isUpdating ? 'Updating...' : 'Under Review'}
-                                        </button>
-                                      )}
 
                                       {/* Upwork Hire / Make Formal Offer Button */}
                                       {prop.contractStatus === 'pending_offer' ? (
@@ -1324,9 +1283,8 @@ export default function ClientDashboardPage() {
                                 </div>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                          ))}
+                        </div>
                     )}
                   </div>
                 )}
@@ -1523,9 +1481,6 @@ export default function ClientDashboardPage() {
           }}
           mode="client"
           onUpdateStatus={handleUpdateProposalStatus}
-          onToggleShortlist={async (propId, nextState) => {
-            await handleToggleShortlist(propId, !nextState);
-          }}
           onDecline={async (propId, reason) => {
             await handleDeclineProposalWithReason(propId, reason);
           }}

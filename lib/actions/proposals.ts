@@ -265,14 +265,16 @@ export async function submitProposal(input: SubmitProposalInput): Promise<{
     }
 
     if (job.client_id) {
-      createNotification({
+      await createNotification({
         userId: job.client_id,
         type: 'proposal_received',
         title: 'New Proposal Received',
         message: `A freelancer submitted a proposal for "${job.title}".`,
         link: `/client`,
         metadata: { jobId: job.id, proposalId: newProposal.id },
-      }).catch(() => {});
+      }).catch((notifErr) => {
+        console.warn('Proposal notification dispatch notice:', notifErr);
+      });
     }
 
     return {
@@ -706,14 +708,16 @@ export async function updateProposalStatus(
     }
 
     if (!isFreelancer && proposal.freelancer_id) {
-      createNotification({
+      await createNotification({
         userId: proposal.freelancer_id,
         type: 'proposal_status_updated',
         title: 'Proposal Status Updated',
         message: `Your proposal for "${job?.title || 'the job'}" is now ${newStatus.replace('_', ' ')}.`,
         link: `/freelancer`,
         metadata: { proposalId: proposal.id, jobId: proposal.job_id, status: newStatus },
-      }).catch(() => {});
+      }).catch((notifErr) => {
+        console.warn('Proposal status notification notice:', notifErr);
+      });
     }
 
     return {

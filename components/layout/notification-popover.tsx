@@ -151,6 +151,13 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
           if (!newItem.read) {
             setUnreadCount((c) => c + 1);
           }
+
+          // Dispatch global window event so open pages (e.g. Client Dashboard) update immediately
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('workspace-notification-received', { detail: newItem })
+            );
+          }
         }
       )
       .on(
@@ -177,8 +184,21 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
       )
       .subscribe();
 
+    // Resilient background polling fallback (every 10s) in case WebSocket reconnects
+    const pollInterval = setInterval(() => {
+      getNotifications({ limit: 30 })
+        .then((res) => {
+          if (res.success) {
+            setNotifications(res.notifications);
+            setUnreadCount(res.totalUnread);
+          }
+        })
+        .catch(() => {});
+    }, 10000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
   }, [userId]);
 
