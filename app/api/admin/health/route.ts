@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getAdminSupabaseClient } from '../../../../lib/supabase/admin';
+import { verifySmtpConnection } from '../../../../lib/email/smtp-transport';
 
 /**
  * Validates administrative caller authorization using timing-safe comparison.
@@ -77,6 +78,8 @@ export async function handleAdminHealthCheck(request: NextRequest, options?: Adm
   let totalJobsInDb = 0;
   let proposalsCheckPassed = false;
   let totalProposalsInDb = 0;
+  let smtpCheckPassed = true;
+  let smtpConfigured = false;
 
   try {
     const admin = options?.injectedAdminClient || getAdminSupabaseClient();
@@ -112,12 +115,28 @@ export async function handleAdminHealthCheck(request: NextRequest, options?: Adm
     } catch (pException) {
       console.error('[Admin Health Diagnostics] Proposals query exception:', pException);
     }
+
+    // Check 3: SMTP connection readiness (when configured)
+    const smtpHost = process.env.SMTP_HOST?.trim();
+    if (smtpHost && !smtpHost.includes('your_smtp_host') && smtpHost.length > 2) {
+      smtpConfigured = true;
+      try {
+        const smtpRes = await verifySmtpConnection();
+        smtpCheckPassed = smtpRes.success;
+        if (!smtpRes.success) {
+          console.error('[Admin Health Diagnostics] SMTP check error:', smtpRes.error);
+        }
+      } catch (smtpEx) {
+        smtpCheckPassed = false;
+        console.error('[Admin Health Diagnostics] SMTP check exception:', smtpEx);
+      }
+    }
   } catch (clientErr) {
     console.error('[Admin Health Diagnostics] Supabase client initialization error:', clientErr);
   }
 
   // All required diagnostic checks must succeed to report healthy
-  const isHealthy = jobsCheckPassed && proposalsCheckPassed;
+  const isHealthy = jobsCheckPassed && proposalsCheckPassed && (!smtpConfigured || smtpCheckPassed);
 
   return NextResponse.json(
     {
@@ -125,9 +144,10 @@ export async function handleAdminHealthCheck(request: NextRequest, options?: Adm
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
       checks: {
-        database: isHealthy,
+        database: jobsCheckPassed && proposalsCheckPassed,
         jobsQuery: jobsCheckPassed,
         proposalsQuery: proposalsCheckPassed,
+        ...(smtpConfigured ? { smtp: smtpCheckPassed } : {}),
       },
       summary: {
         totalJobs: totalJobsInDb,

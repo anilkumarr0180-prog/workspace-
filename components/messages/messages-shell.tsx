@@ -317,7 +317,7 @@ export default function MessagesShell({
         throw err;
       }
     },
-    [activeConversationId, addOptimisticMessage, replaceOptimisticMessage, removeOptimisticMessage]
+    [activeConversationId, addOptimisticMessage, replaceOptimisticMessage, removeOptimisticMessage, broadcastMessage]
   );
 
   // Edit message

@@ -7,7 +7,7 @@ if (typeof window !== 'undefined') {
   throw new Error('Security Violation: Email types and modules cannot be loaded in the browser.');
 }
 
-export type SupportedEmailProvider = 'mailpit' | 'resend' | 'test';
+export type SupportedEmailProvider = 'mailpit' | 'smtp' | 'resend' | 'test';
 
 export interface SendEmailOptions {
   to: string | string[];

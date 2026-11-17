@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
+    "test:messaging": "node --import ./tests/register.mjs --experimental-strip-types --test tests/messaging/*.test.ts",
+    "test:email": "node --import ./tests/register.mjs --experimental-strip-types --test tests/email/*.test.ts",
     "email:worker": "npx tsx scripts/dev-email-worker.ts"
   },
   "dependencies": {
