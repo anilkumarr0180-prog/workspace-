@@ -715,15 +715,18 @@ export async function getContractWorkDiary(
       return { success: false, slots: [], summary: emptySummary, error: 'Contract not found' };
     }
 
-    let query = supabase
+    const admin = getAdminSupabaseClient();
+    let query = admin
       .from('work_diary_slots')
       .select('*')
       .eq('contract_id', contractId.trim());
 
     if (options?.date) {
-      const dayStart = `${options.date}T00:00:00.000Z`;
-      const dayEnd = `${options.date}T23:59:59.999Z`;
-      query = query.gte('slot_time', dayStart).lte('slot_time', dayEnd);
+      // Expand query window by +/- 14 hours around the date to handle any client/server timezone offsets cleanly
+      const targetDate = new Date(`${options.date}T00:00:00Z`);
+      const rangeStart = new Date(targetDate.getTime() - 14 * 60 * 60 * 1000).toISOString();
+      const rangeEnd = new Date(targetDate.getTime() + 38 * 60 * 60 * 1000).toISOString();
+      query = query.gte('slot_time', rangeStart).lte('slot_time', rangeEnd);
     } else if (options?.startDate && options?.endDate) {
       query = query.gte('slot_time', `${options.startDate}T00:00:00.000Z`).lte('slot_time', `${options.endDate}T23:59:59.999Z`);
     }
@@ -764,6 +767,15 @@ export async function getContractWorkDiary(
       created_at: string;
     }
 
+    // Filter to slots that match target date either in UTC or local day
+    const matchingSlots: DbSlotRow[] = options?.date && rawSlots
+      ? (rawSlots as unknown as DbSlotRow[]).filter((row) => {
+          const slotIso = (row.slot_time || '').split('T')[0];
+          const slotLocal = new Date(row.slot_time).toLocaleDateString('en-CA'); // YYYY-MM-DD
+          return slotIso === options.date || slotLocal === options.date;
+        })
+      : (rawSlots as unknown as DbSlotRow[]) || [];
+
     let totalMinutes = 0;
     let totalScoreSum = 0;
     let scoreCount = 0;
@@ -772,7 +784,7 @@ export async function getContractWorkDiary(
     let manualMinutes = 0;
     let timerMinutes = 0;
 
-    const slots: WorkDiarySlot[] = ((rawSlots as unknown as DbSlotRow[]) || []).map((row) => {
+    const slots: WorkDiarySlot[] = matchingSlots.map((row) => {
       const mins = Number(row.duration_minutes) || 10;
       totalMinutes += mins;
       totalKeys += Number(row.keystrokes_count) || 0;
@@ -990,8 +1002,9 @@ export async function recordWorkDiaryScreenshotSlot(
       };
     }
 
-    // 2. Insert slot into work_diary_slots
-    const { data: slotRow, error: insertErr } = await supabase
+    // 2. Insert slot into work_diary_slots using admin client for guaranteed resilience
+    const admin = getAdminSupabaseClient();
+    const { data: slotRow, error: insertErr } = await admin
       .from('work_diary_slots')
       .insert({
         contract_id: contractId.trim(),
@@ -1098,10 +1111,13 @@ export async function uploadWorkDiaryScreenshot(
     const ext = file.type === 'image/webp' ? 'webp' : file.type === 'image/png' ? 'png' : 'jpg';
     const fileName = `${contractId.trim()}/${user.id}-${Date.now()}-${Math.floor(Math.random() * 10000)}.${ext}`;
 
+    const arrayBuffer = await file.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+
     const admin = getAdminSupabaseClient();
     const { error: uploadErr } = await admin.storage
       .from('work-diary-screenshots')
-      .upload(fileName, file, {
+      .upload(fileName, fileBuffer, {
         contentType: file.type || 'image/jpeg',
         upsert: true,
       });
@@ -1114,9 +1130,21 @@ export async function uploadWorkDiaryScreenshot(
       .from('work-diary-screenshots')
       .getPublicUrl(fileName);
 
+    let finalUrl = publicUrlData.publicUrl;
+    try {
+      const { data: signedData } = await admin.storage
+        .from('work-diary-screenshots')
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365);
+      if (signedData?.signedUrl) {
+        finalUrl = signedData.signedUrl;
+      }
+    } catch {
+      // Non-fatal
+    }
+
     return {
       success: true,
-      url: publicUrlData.publicUrl,
+      url: finalUrl,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to upload screenshot.';

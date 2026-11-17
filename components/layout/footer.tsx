@@ -12,7 +12,8 @@ export default function Footer() {
   if (
     pathname === '/login' ||
     pathname.startsWith('/signup') ||
-    pathname.startsWith('/messages')
+    pathname.startsWith('/messages') ||
+    pathname.includes('/popout')
   ) {
     return null;
   }
