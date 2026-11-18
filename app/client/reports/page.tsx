@@ -113,37 +113,39 @@ export default function ClientReportsPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-            Financial & Work Tracking
-          </span>
-          <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-800">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold backdrop-blur-md">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Financial & Work Tracking</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white">
               Client Reports
             </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+              Review tracked hours, verified weekly timesheets, milestone escrow releases, and active contract allocations.
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Review tracked hours, weekly timesheets, and milestone escrow release status.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={loadReports}
-            type="button"
-            disabled={loading}
-            className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
-            title="Refresh reports data"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-          <Link
-            href="/client/jobs/new"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-all"
-          >
-            <span>Post a Job</span>
-          </Link>
+          <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+            <button
+              onClick={loadReports}
+              type="button"
+              disabled={loading}
+              className="p-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white transition-all duration-200 disabled:opacity-50 cursor-pointer backdrop-blur-md hover:scale-105 active:scale-95"
+              title="Refresh reports data"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <Link
+              href="/client/jobs/new"
+              className="inline-flex items-center gap-2.5 px-5 sm:px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all duration-200 cursor-pointer"
+            >
+              <span>Post a Job</span>
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -168,26 +170,27 @@ export default function ClientReportsPage() {
       )}
 
       {/* KPI Overview Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-5">
         {/* 1. Total Logged Time */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        <div className="relative overflow-hidden rounded-2xl bg-white p-5 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-400 opacity-80 group-hover:opacity-100 transition-opacity" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Hourly Tracked
             </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-emerald-100 transition-all duration-300 shadow-2xs">
+              <Clock className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-4">
             {loading ? (
-              <div className="h-8 w-20 bg-slate-100 animate-pulse rounded" />
+              <div className="h-8 w-20 bg-slate-100 animate-pulse rounded-lg" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
                   {stats.totalLoggedHours}h
                 </span>
-                <span className="text-xs text-slate-500 ml-2">
+                <span className="text-xs text-slate-500 ml-2 font-medium">
                   ({stats.totalLoggedMinutes} mins)
                 </span>
               </>
@@ -196,21 +199,22 @@ export default function ClientReportsPage() {
         </div>
 
         {/* 2. Accrued Hourly Work Total */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        <div className="relative overflow-hidden rounded-2xl bg-white p-5 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-400 opacity-80 group-hover:opacity-100 transition-opacity" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Hourly Accrued
             </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-blue-100 transition-all duration-300 shadow-2xs">
+              <DollarSign className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-4">
             {loading ? (
-              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
+              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded-lg" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
                   ${stats.totalAccruedAmount.toFixed(2)}
                 </span>
                 <span className="text-xs text-blue-600 font-semibold block mt-0.5">
@@ -222,25 +226,26 @@ export default function ClientReportsPage() {
         </div>
 
         {/* 3. Simulated Milestones Released */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        <div className="relative overflow-hidden rounded-2xl bg-white p-5 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-400 opacity-80 group-hover:opacity-100 transition-opacity" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Milestones Released
             </span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-indigo-100 transition-all duration-300 shadow-2xs">
+              <DollarSign className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-4">
             {loading ? (
-              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
+              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded-lg" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
                   ${stats.simulatedMilestoneReleased.toFixed(2)}
                 </span>
                 <span className="text-xs text-indigo-600 font-semibold block mt-0.5">
-                  Escrow reserved: ${stats.simulatedEscrowHeld.toFixed(2)}
+                  Escrow: ${stats.simulatedEscrowHeld.toFixed(2)}
                 </span>
               </>
             )}
@@ -248,24 +253,25 @@ export default function ClientReportsPage() {
         </div>
 
         {/* 4. Active Contracts */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        <div className="relative overflow-hidden rounded-2xl bg-white p-5 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-violet-400 opacity-80 group-hover:opacity-100 transition-opacity" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Active Contracts
             </span>
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Briefcase className="w-4 h-4" />
+            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-purple-100 transition-all duration-300 shadow-2xs">
+              <Briefcase className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-4">
             {loading ? (
-              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded" />
+              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded-lg" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
                   {stats.activeHourlyContracts + stats.activeFixedContracts}
                 </span>
-                <span className="text-xs text-slate-500 block mt-0.5">
+                <span className="text-xs text-slate-500 block mt-0.5 font-medium">
                   {stats.activeHourlyContracts} hourly, {stats.activeFixedContracts} fixed
                 </span>
               </>
@@ -273,22 +279,23 @@ export default function ClientReportsPage() {
           </div>
         </div>
 
-        {/* 5. Invoiced & Paid (Accurate Unimplemented State) */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+        {/* 5. Total Disbursed */}
+        <div className="relative overflow-hidden rounded-2xl bg-white p-5 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 group">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-slate-400 to-slate-300 opacity-80 group-hover:opacity-100 transition-opacity" />
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Total Disbursed
             </span>
-            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center">
-              <ShieldAlert className="w-4 h-4" />
+            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center group-hover:scale-110 group-hover:bg-slate-200 transition-all duration-300 shadow-2xs">
+              <ShieldAlert className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3">
+          <div className="mt-4">
             {loading ? (
-              <div className="h-8 w-20 bg-slate-100 animate-pulse rounded" />
+              <div className="h-8 w-20 bg-slate-100 animate-pulse rounded-lg" />
             ) : (
               <>
-                <span className="text-2xl sm:text-3xl font-extrabold text-slate-400">
+                <span className="text-2xl sm:text-3xl font-extrabold text-slate-400 tracking-tight tabular-nums">
                   $0.00
                 </span>
                 <span className="text-xs text-slate-500 font-semibold block mt-0.5">
@@ -301,42 +308,44 @@ export default function ClientReportsPage() {
       </div>
 
       {/* Tabs and Data Tables */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-[0_2px_16px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
         {/* Navigation Tabs */}
-        <div className="p-4 border-b border-slate-200 flex items-center gap-2 flex-wrap bg-slate-50/50">
-          <button
-            type="button"
-            onClick={() => setActiveTab('timesheets')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
-              activeTab === 'timesheets'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Weekly Timesheets ({data?.timesheets?.length || 0})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('timelogs')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
-              activeTab === 'timelogs'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Detailed Time Logs ({data?.recentEntries?.length || 0})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('contracts')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors cursor-pointer ${
-              activeTab === 'contracts'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            Contract Financial Terms ({data?.contracts?.length || 0})
-          </button>
+        <div className="p-3 sm:p-4 border-b border-slate-200/80 bg-slate-50/70 flex items-center gap-2 overflow-x-auto">
+          <div className="bg-slate-200/70 p-1 rounded-2xl flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('timesheets')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-150 cursor-pointer shrink-0 ${
+                activeTab === 'timesheets'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Weekly Timesheets ({data?.timesheets?.length || 0})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('timelogs')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-150 cursor-pointer shrink-0 ${
+                activeTab === 'timelogs'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Detailed Time Logs ({data?.recentEntries?.length || 0})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('contracts')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-150 cursor-pointer shrink-0 ${
+                activeTab === 'contracts'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Contract Terms ({data?.contracts?.length || 0})
+            </button>
+          </div>
         </div>
 
         {/* Content Section */}

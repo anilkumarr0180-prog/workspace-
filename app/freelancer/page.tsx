@@ -24,7 +24,6 @@ import {
   Star,
   UserCheck,
   FileCheck2,
-  Building2,
   Sparkles,
   Eye,
   CreditCard,
@@ -398,63 +397,58 @@ export default function FreelancerDashboardPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-            Talent Workspace
-          </span>
-          <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Freelancer Hub
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-800">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold backdrop-blur-md">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Talent Workspace</span>
+              <span className="text-emerald-500">•</span>
+              <span className="text-emerald-200/80">Pro Dashboard</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white">
+              {profile?.fullName ? `Welcome back, ${profile.fullName}` : 'Freelancer Hub'}
             </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+              Track active proposals, evaluate contracts, monitor verified earnings, and discover genuine opportunities tailored to your skillset.
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            {profile?.fullName ? `Welcome back, ${profile.fullName}. ` : ''}
-            Track active proposals, monitor verified earnings, and discover genuine opportunities.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            type="button"
-            disabled={loading || isRevalidating}
-            className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
-            title="Refresh dashboard data"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading || isRevalidating ? 'animate-spin' : ''}`} />
-          </button>
-          <Link
-            href="/freelancer/time-tracking"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs transition-colors shadow-2xs"
-            title="Open Hourly Work Diary & Time Tracker"
-          >
-            <Clock className="w-4 h-4 text-emerald-600" />
-            <span>Time Tracker</span>
-          </Link>
-          <Link
-            href="/freelancer/settings/payouts"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 font-semibold text-xs transition-colors shadow-2xs"
-            title="Manage Payout Settings & Direct Deposits"
-          >
-            <CreditCard className="w-4 h-4 text-indigo-600" />
-            <span>Payout Settings</span>
-          </Link>
-          <Link
-            href="/jobs"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm shadow-emerald-600/20 transition-all"
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>Search New Jobs</span>
-          </Link>
-          <Link
-            href="/client"
-            className="hidden sm:inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs transition-colors"
-            title="Switch to Client / Employer Control Center"
-          >
-            <Building2 className="w-3.5 h-3.5 text-slate-500" />
-            <span>Employer Mode</span>
-          </Link>
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap sm:flex-nowrap">
+            <button
+              onClick={handleRefresh}
+              type="button"
+              disabled={loading || isRevalidating}
+              className="p-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white transition-all duration-200 disabled:opacity-50 cursor-pointer backdrop-blur-md hover:scale-105 active:scale-95"
+              title="Refresh dashboard data"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading || isRevalidating ? 'animate-spin' : ''}`} />
+            </button>
+            <Link
+              href="/freelancer/time-tracking"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-semibold text-xs transition-all backdrop-blur-md"
+              title="Open Hourly Work Diary & Time Tracker"
+            >
+              <Clock className="w-4 h-4 text-emerald-400" />
+              <span>Time Tracker</span>
+            </Link>
+            <Link
+              href="/freelancer/settings/payouts"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-semibold text-xs transition-all backdrop-blur-md"
+              title="Manage Payout Settings & Direct Deposits"
+            >
+              <CreditCard className="w-4 h-4 text-indigo-400" />
+              <span>Payouts</span>
+            </Link>
+            <Link
+              href="/jobs"
+              className="inline-flex items-center gap-2 px-5 sm:px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all duration-200 cursor-pointer"
+            >
+              <Briefcase className="w-4 h-4 stroke-[2.5]" />
+              <span>Browse Jobs</span>
+            </Link>
+          </div>
         </div>
       </div>
 
