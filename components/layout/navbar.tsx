@@ -7,6 +7,7 @@ import { useMarketplace } from '@/lib/context/marketplace-context';
 import WorkspaceLogo from '@/components/layout/workspace-logo';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
+import type { Contract } from '@/lib/types';
 import Image from 'next/image';
 import {
   ChevronDown,
@@ -57,7 +58,7 @@ export default function Navbar() {
   const activeTabParam = searchParams?.get('tab');
   const isAllJobsActive =
     pathname === '/client' && (!activeTabParam || activeTabParam === 'published');
-  const isProposalsActive = pathname === '/client' && activeTabParam === 'proposals';
+  const isContractsActive = pathname === '/contracts' || pathname.startsWith('/contracts/');
 
   // Navigation State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -96,6 +97,10 @@ export default function Navbar() {
     link: string;
   } | null>(null);
 
+  // Dynamic Active Contracts State
+  const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
+  const [activeContractsCount, setActiveContractsCount] = useState<number>(0);
+
   useEffect(() => {
     if (!user) return;
 
@@ -116,14 +121,33 @@ export default function Navbar() {
       }
     };
 
+    const fetchContracts = async () => {
+      try {
+        const res = await fetch('/api/contracts?status=active');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && Array.isArray(data.contracts)) {
+            setActiveContracts(data.contracts);
+            setActiveContractsCount(data.contracts.length);
+          }
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+
     fetchUnread();
+    fetchContracts();
     const interval = setInterval(fetchUnread, 5000);
+    const contractsInterval = setInterval(fetchContracts, 10000);
 
     const onWindowFocus = () => {
       fetchUnread();
+      fetchContracts();
     };
     window.addEventListener('focus', onWindowFocus);
     window.addEventListener('workspace:unread-messages-refresh', fetchUnread);
+    window.addEventListener('workspace:contracts-refresh', fetchContracts);
 
     // Global Presence: Broadcast that current user is online across the entire application
     const presenceChannel = supabase.channel('global-presence', {
@@ -207,8 +231,10 @@ export default function Navbar() {
     return () => {
       isMounted = false;
       clearInterval(interval);
+      clearInterval(contractsInterval);
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('workspace:unread-messages-refresh', fetchUnread);
+      window.removeEventListener('workspace:contracts-refresh', fetchContracts);
       presenceChannel.unsubscribe();
       notifChannel.unsubscribe();
     };
@@ -1009,16 +1035,89 @@ export default function Navbar() {
                   <span className="hidden xl:inline">All Job Posts</span>
                   <span className="inline xl:hidden">Job Posts</span>
                 </NextLink>
-                <NextLink
-                  href="/client?tab=proposals"
-                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
-                    isProposalsActive
-                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
-                      : 'hover:text-[#14a800] hover:bg-slate-50'
-                  }`}
+                <div
+                  className="relative shrink-0"
+                  onMouseEnter={() => setActiveDropdown('client_contracts')}
+                  onMouseLeave={() => setActiveDropdown(null)}
                 >
-                  <span>Proposals</span>
-                </NextLink>
+                  <NextLink
+                    href="/contracts"
+                    onClick={() => setActiveDropdown(null)}
+                    className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+                      isContractsActive
+                        ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                        : 'hover:text-[#14a800] hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>Contracts</span>
+                    {activeContractsCount > 0 && (
+                      <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
+                        {activeContractsCount}
+                      </span>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  </NextLink>
+
+                  {activeDropdown === 'client_contracts' && (
+                    <div className="absolute top-full left-0 w-80 pt-2 shadow-xl z-50">
+                      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-lg space-y-1">
+                        <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-slate-100 mb-1">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            Active Contracts ({activeContractsCount})
+                          </span>
+                          <NextLink
+                            href="/contracts"
+                            onClick={() => setActiveDropdown(null)}
+                            className="text-xs font-semibold text-[#14a800] hover:underline"
+                          >
+                            View all
+                          </NextLink>
+                        </div>
+
+                        {activeContracts.length === 0 ? (
+                          <div className="px-3 py-3 text-center text-xs text-slate-500">
+                            No active contracts found.
+                          </div>
+                        ) : (
+                          activeContracts.slice(0, 4).map((c) => (
+                            <NextLink
+                              key={c.id}
+                              href={`/contracts/${c.id}`}
+                              onClick={() => setActiveDropdown(null)}
+                              className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-slate-50 transition-colors group"
+                            >
+                              <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700 shrink-0 mt-0.5">
+                                <FileText className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-slate-900 group-hover:text-emerald-700 truncate">
+                                  {c.title || c.jobTitle}
+                                </div>
+                                <div className="text-[11px] text-slate-500 flex items-center justify-between mt-0.5">
+                                  <span>{c.freelancerName || 'Freelancer'}</span>
+                                  <span className="font-medium text-slate-700">
+                                    {c.contractType === 'hourly' ? `$${c.hourlyRate || 0}/hr` : `$${c.fixedPrice || 0}`}
+                                  </span>
+                                </div>
+                              </div>
+                            </NextLink>
+                          ))
+                        )}
+
+                        <div className="pt-1 border-t border-slate-100">
+                          <NextLink
+                            href="/contracts"
+                            onClick={() => setActiveDropdown(null)}
+                            className="flex items-center justify-between p-2 rounded-lg text-xs font-semibold text-[#14a800] hover:bg-emerald-50/50 transition-colors"
+                          >
+                            <span>Manage all contracts & timesheets</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </NextLink>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <NextLink
                   href="/freelancers"
                   className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
@@ -1495,11 +1594,18 @@ export default function Navbar() {
             </NextLink>
 
             <NextLink
-              href="/client?tab=proposals"
+              href="/contracts"
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
-              <span>Proposals Received</span>
+              <div className="flex items-center gap-2">
+                <span>Contracts</span>
+                {activeContractsCount > 0 && (
+                  <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[11px] font-bold rounded-full">
+                    {activeContractsCount}
+                  </span>
+                )}
+              </div>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </NextLink>
 
