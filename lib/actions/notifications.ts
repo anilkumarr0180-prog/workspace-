@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { NotificationItem, NotificationType } from '@/lib/types';
+import { sendEmail } from '@/lib/email/service';
 
 export interface GetNotificationsParams {
   limit?: number;
@@ -265,8 +266,78 @@ export async function createNotification(
       return { success: false, error: error.message };
     }
 
+    // Trigger transactional notification email non-blockingly
+    dispatchNotificationEmail(input).catch((e) => {
+      console.warn('[EMAIL NOTIFICATION] Non-blocking delivery notice:', e);
+    });
+
     return { success: true, id: data?.id };
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to create notification' };
+  }
+}
+
+/**
+ * Asynchronously delivers a transactional notification email to the target user.
+ * Looks up the recipient's email address from auth.users via admin client.
+ * Non-blocking: failures are logged without disrupting application transactions.
+ */
+async function dispatchNotificationEmail(input: CreateNotificationInput): Promise<void> {
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: userData, error: uErr } = await admin.auth.admin.getUserById(input.userId);
+    if (uErr || !userData?.user?.email) {
+      return;
+    }
+
+    const recipientEmail = userData.user.email;
+    const recipientName =
+      userData.user.user_metadata?.full_name ||
+      userData.user.user_metadata?.name ||
+      'Workspace Member';
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://workspace-inky-six.vercel.app';
+    const actionUrl = input.link
+      ? input.link.startsWith('http')
+        ? input.link
+        : `${baseUrl}${input.link}`
+      : baseUrl;
+
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background-color: #ffffff;">
+        <div style="padding-bottom: 20px; border-bottom: 1px solid #e2e8f0; margin-bottom: 24px;">
+          <h2 style="margin: 0; color: #14a800; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">Workspace</h2>
+        </div>
+        
+        <p style="font-size: 14px; margin-bottom: 8px; color: #64748b;">Hello <strong>${recipientName}</strong>,</p>
+        
+        <div style="background-color: #f8fafc; border-left: 4px solid #14a800; padding: 16px 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin: 0 0 8px 0; color: #0f172a; font-size: 16px; font-weight: 700;">${input.title}</h3>
+          <p style="margin: 0; font-size: 14px; color: #334155; line-height: 1.6;">${input.message}</p>
+        </div>
+
+        <div style="margin: 28px 0 32px 0;">
+          <a href="${actionUrl}" style="display: inline-block; background-color: #14a800; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-size: 13.5px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            View Details in Workspace &rarr;
+          </a>
+        </div>
+
+        <p style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+          This is an automated notification from Workspace Escrow & Project Management. You received this email because you have an active account and project activity.
+        </p>
+      </div>
+    `;
+
+    const emailText = `Workspace Notification: ${input.title}\n\nHello ${recipientName},\n\n${input.message}\n\nView details: ${actionUrl}\n\nWorkspace Marketplace`;
+
+    await sendEmail({
+      to: recipientEmail,
+      subject: `[Workspace] ${input.title}`,
+      html: emailHtml,
+      text: emailText,
+      from: process.env.SMTP_FROM || 'Workspace Notifications <notifications@workspace.com>',
+    });
+  } catch (err: unknown) {
+    console.warn('[EMAIL NOTIFICATION] Non-blocking dispatch error:', err instanceof Error ? err.message : err);
   }
 }

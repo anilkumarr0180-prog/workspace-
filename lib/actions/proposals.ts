@@ -869,25 +869,18 @@ export async function declineProposal(
       return { success: false, error: 'Invalid proposal identifier' };
     }
 
-    const { error } = await supabase.rpc('decline_proposal', {
+    // 1. Try RPC execution first
+    const { error: rpcErr } = await supabase.rpc('decline_proposal', {
       p_proposal_id: proposalId.trim(),
       p_reason: reason?.trim() || null,
     });
 
-    if (!error) {
+    if (!rpcErr) {
       return { success: true };
     }
 
-    // Direct fallback if RPC is unapplied in database
-    let db = supabase;
-    try {
-      const admin = getAdminSupabaseClient();
-      if (admin) db = admin;
-    } catch {
-      // fallback
-    }
-
-    const { error: updateErr } = await db
+    // 2. Direct fallback using authenticated user session
+    let updateRes = await supabase
       .from('proposals')
       .update({
         status: 'rejected',
@@ -895,8 +888,57 @@ export async function declineProposal(
       })
       .eq('id', proposalId.trim());
 
-    if (updateErr) {
-      return { success: false, error: updateErr.message };
+    if (updateRes.error && updateRes.error.message.includes('declined_reason')) {
+      updateRes = await supabase
+        .from('proposals')
+        .update({ status: 'rejected' })
+        .eq('id', proposalId.trim());
+    }
+
+    // 3. Fallback to admin client if RLS blocked user session
+    if (updateRes.error) {
+      const admin = getAdminSupabaseClient();
+      let adminRes = await admin
+        .from('proposals')
+        .update({
+          status: 'rejected',
+          declined_reason: reason?.trim() || null,
+        })
+        .eq('id', proposalId.trim());
+
+      if (adminRes.error) {
+        adminRes = await admin
+          .from('proposals')
+          .update({ status: 'rejected' })
+          .eq('id', proposalId.trim());
+      }
+
+      if (adminRes.error) {
+        return { success: false, error: adminRes.error.message };
+      }
+    }
+
+    // 4. Send polite notification to applicant
+    try {
+      const admin = getAdminSupabaseClient();
+      const { data: prop } = await admin
+        .from('proposals')
+        .select('freelancer_id, job_id, jobs(title)')
+        .eq('id', proposalId.trim())
+        .maybeSingle();
+
+      if (prop?.freelancer_id) {
+        const jobTitle = (prop.jobs as { title?: string } | null)?.title || 'Job';
+        await createNotification({
+          userId: prop.freelancer_id,
+          type: 'proposal_declined',
+          title: 'Proposal Status Update',
+          message: `Your proposal for "${jobTitle}" was declined by the hiring client.`,
+          link: `/freelancer`,
+        });
+      }
+    } catch {
+      // Non-blocking notification dispatch
     }
 
     return { success: true };

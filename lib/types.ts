@@ -268,7 +268,9 @@ export type LedgerEventType =
   | 'escrow_released'
   | 'payout_disbursed'
   | 'service_fee_deducted'
-  | 'escrow_refund';
+  | 'escrow_refund'
+  | 'hourly_funded'
+  | 'hourly_billed';
 
 export type LedgerStatus = 'succeeded' | 'pending' | 'reversed';
 
@@ -333,7 +335,10 @@ export interface PaymentLedgerEntry {
 }
 
 export type NotificationType =
+  | 'job_created'
   | 'proposal_received'
+  | 'proposal_submitted'
+  | 'proposal_declined'
   | 'proposal_status_updated'
   | 'contract_offer_received'
   | 'contract_offer_accepted'

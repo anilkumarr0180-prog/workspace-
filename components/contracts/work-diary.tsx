@@ -45,6 +45,7 @@ export default function WorkDiary({
     return new Date().toISOString().split('T')[0];
   });
   const [slots, setSlots] = useState<WorkDiarySlot[]>([]);
+  const [activeDates, setActiveDates] = useState<string[]>([]);
   const [summary, setSummary] = useState<WorkDiarySummary>({
     totalMinutes: 0,
     totalHours: 0,
@@ -109,6 +110,16 @@ export default function WorkDiary({
           if (res.success) {
             setSlots(res.slots);
             setSummary(res.summary);
+            if (res.activeDates && res.activeDates.length > 0) {
+              setActiveDates(res.activeDates);
+              // If currently selected date has no entries, auto-switch to a day in this week that does have entries
+              if (res.slots.length === 0) {
+                const dayWithWork = weekDays.find((w) => res.activeDates!.includes(w.iso));
+                if (dayWithWork && dayWithWork.iso !== selectedDate) {
+                  setSelectedDate(dayWithWork.iso);
+                }
+              }
+            }
             setError(null);
           } else {
             // Gracefully handle missing table or schema cache notice as empty diary
@@ -355,6 +366,7 @@ export default function WorkDiary({
         <div className="grid grid-cols-7 gap-2">
           {weekDays.map((d) => {
             const isSelected = d.iso === selectedDate;
+            const hasActivity = activeDates.includes(d.iso);
             const isToday = d.iso === new Date().toISOString().split('T')[0];
 
             return (
@@ -379,11 +391,23 @@ export default function WorkDiary({
                 <span className="block text-sm font-extrabold mt-0.5">
                   {d.dayNum}
                 </span>
-                {isToday && (
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full mt-1 ${
-                    isSelected ? 'bg-emerald-400' : 'bg-emerald-600'
-                  }`} />
-                )}
+                <div className="flex items-center justify-center gap-1 mt-1">
+                  {hasActivity ? (
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full ${
+                        isSelected ? 'bg-emerald-400 ring-2 ring-emerald-500/50' : 'bg-emerald-600'
+                      }`}
+                      title="Work session recorded on this date"
+                    />
+                  ) : isToday ? (
+                    <span
+                      className={`inline-block w-1.5 h-1.5 rounded-full ${
+                        isSelected ? 'bg-slate-400' : 'bg-slate-300'
+                      }`}
+                      title="Today"
+                    />
+                  ) : null}
+                </div>
               </button>
             );
           })}

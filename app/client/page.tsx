@@ -123,6 +123,20 @@ function ClientDashboardContent() {
     hourlyRate?: number | null;
   } | null>(null);
 
+  // Job withdraw modal state
+  const [jobToWithdraw, setJobToWithdraw] = useState<ClientJobSummary | null>(null);
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+  const [isWithdrawingJob, setIsWithdrawingJob] = useState(false);
+
+  // Job price update modal state
+  const [jobToEditPrice, setJobToEditPrice] = useState<ClientJobSummary | null>(null);
+  const [isEditPriceModalOpen, setIsEditPriceModalOpen] = useState(false);
+  const [editPriceType, setEditPriceType] = useState<'fixed' | 'hourly'>('fixed');
+  const [editFixedAmount, setEditFixedAmount] = useState<number | ''>('');
+  const [editHourlyMin, setEditHourlyMin] = useState<number | ''>('');
+  const [editHourlyMax, setEditHourlyMax] = useState<number | ''>('');
+  const [isUpdatingPrice, setIsUpdatingPrice] = useState(false);
+
   // Server-verified job proposals fetcher
   const handleViewJobProposals = useCallback(async (job: { id: string; title: string }) => {
     setSelectedJobFilter(job);
@@ -385,6 +399,136 @@ function ClientDashboardContent() {
       showError('Network error while updating job status.');
     } finally {
       setUpdatingJobId(null);
+    }
+  };
+
+  // Handle Withdrawing / Closing Job
+  const handleConfirmWithdrawJob = async () => {
+    if (!jobToWithdraw) return;
+    setIsWithdrawingJob(true);
+    try {
+      const res = await fetch(`/api/jobs/${jobToWithdraw.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'withdraw' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDashboardData((prev) => {
+          if (!prev?.jobs) return prev;
+          const updatedJobs = prev.jobs.all.map((j) =>
+            j.id === jobToWithdraw.id ? { ...j, status: 'cancelled' as ClientJobSummary['status'] } : j
+          );
+          return {
+            ...prev,
+            jobs: {
+              ...prev.jobs,
+              all: updatedJobs,
+              published: updatedJobs.filter((j) => j.status === 'published' || j.status === 'in_progress'),
+              completed: updatedJobs.filter((j) => j.status === 'completed' || j.status === 'cancelled'),
+            },
+          };
+        });
+        showToast(`Job "${jobToWithdraw.title}" has been withdrawn and closed.`);
+        setIsWithdrawModalOpen(false);
+        setJobToWithdraw(null);
+      } else {
+        showError(data.error || 'Failed to withdraw job.');
+      }
+    } catch {
+      showError('Network error while withdrawing job.');
+    } finally {
+      setIsWithdrawingJob(false);
+    }
+  };
+
+  // Open Edit Price Modal
+  const handleOpenEditPrice = (job: ClientJobSummary) => {
+    setJobToEditPrice(job);
+    setEditPriceType(job.budget.type);
+    if (job.budget.type === 'fixed') {
+      setEditFixedAmount(job.budget.fixedAmount ?? '');
+      setEditHourlyMin('');
+      setEditHourlyMax('');
+    } else {
+      setEditHourlyMin(job.budget.hourlyMin ?? '');
+      setEditHourlyMax(job.budget.hourlyMax ?? '');
+      setEditFixedAmount('');
+    }
+    setIsEditPriceModalOpen(true);
+  };
+
+  // Handle Updating Job Price / Budget
+  const handleConfirmUpdatePrice = async () => {
+    if (!jobToEditPrice) return;
+    setIsUpdatingPrice(true);
+    try {
+      const payload: Record<string, unknown> = {
+        action: 'update_budget',
+        projectType: editPriceType,
+      };
+      if (editPriceType === 'fixed') {
+        const val = Number(editFixedAmount);
+        if (isNaN(val) || val <= 0) {
+          showError('Please enter a valid fixed price greater than $0.');
+          setIsUpdatingPrice(false);
+          return;
+        }
+        payload.fixedAmount = val;
+      } else {
+        const minVal = Number(editHourlyMin);
+        const maxVal = Number(editHourlyMax);
+        if (isNaN(minVal) || isNaN(maxVal) || minVal < 0 || maxVal <= 0 || minVal > maxVal) {
+          showError('Please enter a valid hourly rate range (Min <= Max).');
+          setIsUpdatingPrice(false);
+          return;
+        }
+        payload.budgetMin = minVal;
+        payload.budgetMax = maxVal;
+      }
+
+      const res = await fetch(`/api/jobs/${jobToEditPrice.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDashboardData((prev) => {
+          if (!prev?.jobs) return prev;
+          const updatedJobs = prev.jobs.all.map((j) => {
+            if (j.id !== jobToEditPrice.id) return j;
+            return {
+              ...j,
+              projectType: editPriceType,
+              budget: {
+                type: editPriceType,
+                fixedAmount: editPriceType === 'fixed' ? Number(editFixedAmount) : undefined,
+                hourlyMin: editPriceType === 'hourly' ? Number(editHourlyMin) : undefined,
+                hourlyMax: editPriceType === 'hourly' ? Number(editHourlyMax) : undefined,
+              },
+            };
+          });
+          return {
+            ...prev,
+            jobs: {
+              ...prev.jobs,
+              all: updatedJobs,
+              published: updatedJobs.filter((j) => j.status === 'published' || j.status === 'in_progress'),
+            },
+          };
+        });
+        showToast('Job price updated successfully!');
+        setIsEditPriceModalOpen(false);
+        setJobToEditPrice(null);
+      } else {
+        showError(data.error || 'Failed to update job price.');
+      }
+    } catch {
+      showError('Network error while updating job price.');
+    } finally {
+      setIsUpdatingPrice(false);
     }
   };
 
@@ -1065,6 +1209,16 @@ function ClientDashboardContent() {
                                 </Link>
 
                                 <button
+                                  type="button"
+                                  onClick={() => handleOpenEditPrice(job)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200/90 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 shadow-2xs transition-all duration-150 cursor-pointer"
+                                  title={`Update budget / price for "${job.title}"`}
+                                >
+                                  <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Update Price</span>
+                                </button>
+
+                                <button
                                   onClick={() => handleToggleJobStatus(job.id, job.status)}
                                   disabled={isUpdating}
                                   type="button"
@@ -1075,6 +1229,19 @@ function ClientDashboardContent() {
                                   }`}
                                 >
                                   {isUpdating ? 'Updating...' : isPaused ? 'Reopen' : 'Pause'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setJobToWithdraw(job);
+                                    setIsWithdrawModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-all duration-150 cursor-pointer"
+                                  title={`Withdraw and cancel "${job.title}"`}
+                                >
+                                  <XCircle className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Withdraw</span>
                                 </button>
                               </div>
                             </div>
@@ -1919,6 +2086,199 @@ function ClientDashboardContent() {
           isOpen={Boolean(contactFreelancer)}
           onClose={() => setContactFreelancer(null)}
         />
+      )}
+
+      {/* Withdraw Job Confirmation Modal */}
+      {isWithdrawModalOpen && jobToWithdraw && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <XCircle className="w-4 h-4" />
+                </div>
+                <span>Withdraw Job Listing</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWithdrawModalOpen(false);
+                  setJobToWithdraw(null);
+                }}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to withdraw <strong className="text-slate-900">&ldquo;{jobToWithdraw.title}&rdquo;</strong>? 
+              This will close the job post, mark it as cancelled, and stop any new freelancer applications.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWithdrawModalOpen(false);
+                  setJobToWithdraw(null);
+                }}
+                className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isWithdrawingJob}
+                onClick={handleConfirmWithdrawJob}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition-all shadow-md shadow-rose-600/20 cursor-pointer active:scale-95"
+              >
+                {isWithdrawingJob ? 'Withdrawing...' : 'Confirm Withdraw Job'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update Job Price / Budget Modal */}
+      {isEditPriceModalOpen && jobToEditPrice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+                <span>Update Job Budget & Rate</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditPriceModalOpen(false);
+                  setJobToEditPrice(null);
+                }}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-3">
+                Update compensation terms for <strong className="text-slate-800">&ldquo;{jobToEditPrice.title}&rdquo;</strong>.
+              </p>
+
+              {/* Budget Type Toggle */}
+              <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl mb-4">
+                <button
+                  type="button"
+                  onClick={() => setEditPriceType('fixed')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    editPriceType === 'fixed'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Fixed Price
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditPriceType('hourly')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    editPriceType === 'hourly'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Hourly Rate
+                </button>
+              </div>
+
+              {editPriceType === 'fixed' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Total Project Budget ($ USD)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-slate-400 text-sm font-bold">$</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step="any"
+                      value={editFixedAmount}
+                      onChange={(e) => setEditFixedAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="e.g. 500"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Minimum Rate ($/hr)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-slate-400 text-sm font-bold">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step="any"
+                        value={editHourlyMin}
+                        onChange={(e) => setEditHourlyMin(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 25"
+                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Maximum Rate ($/hr)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-slate-400 text-sm font-bold">$</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step="any"
+                        value={editHourlyMax}
+                        onChange={(e) => setEditHourlyMax(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 50"
+                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditPriceModalOpen(false);
+                  setJobToEditPrice(null);
+                }}
+                className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isUpdatingPrice}
+                onClick={handleConfirmUpdatePrice}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition-all shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
+              >
+                {isUpdatingPrice ? 'Saving...' : 'Save Updated Price'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

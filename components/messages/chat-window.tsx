@@ -613,9 +613,31 @@ export default function ChatWindow({
           )}
 
           {isLoadingMessages ? (
-            <div className="flex flex-col items-center justify-center py-24 space-y-3">
-              <Loader2 className="w-7 h-7 text-emerald-600 animate-spin" />
-              <p className="text-xs font-medium text-slate-500">Loading conversation messages...</p>
+            <div className="space-y-4 py-4 animate-pulse">
+              <div className="flex items-start gap-3 max-w-md">
+                <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 w-20 bg-slate-200 rounded-sm" />
+                  <div className="h-14 bg-slate-100 rounded-2xl rounded-tl-sm p-3 border border-slate-200/70" />
+                </div>
+              </div>
+              <div className="flex items-end justify-end">
+                <div className="space-y-1.5 max-w-sm w-full flex flex-col items-end">
+                  <div className="h-12 w-3/4 bg-emerald-100/70 rounded-2xl rounded-tr-sm border border-emerald-200/50" />
+                </div>
+              </div>
+              <div className="flex items-start gap-3 max-w-md">
+                <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 w-28 bg-slate-200 rounded-sm" />
+                  <div className="h-16 bg-slate-100 rounded-2xl rounded-tl-sm p-3 border border-slate-200/70" />
+                </div>
+              </div>
+              <div className="flex items-end justify-end">
+                <div className="space-y-1.5 max-w-sm w-full flex flex-col items-end">
+                  <div className="h-10 w-1/2 bg-emerald-100/70 rounded-2xl rounded-tr-sm border border-emerald-200/50" />
+                </div>
+              </div>
             </div>
           ) : messages.length === 0 ? (
             <div className="text-center py-16 space-y-2">

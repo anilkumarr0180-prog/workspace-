@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getJobById, updateJobStatus } from '@/lib/actions/jobs';
+import { getJobById, updateJobStatus, updateJobBudget, withdrawJob } from '@/lib/actions/jobs';
 
 export async function GET(
   request: NextRequest,
@@ -40,10 +40,40 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { status } = body;
 
+    // 1. Handle Withdraw / Cancel Action
+    if (body.action === 'withdraw') {
+      const result = await withdrawJob(id);
+      if (!result.success) {
+        return NextResponse.json({ error: result.error, code: result.code }, { status: 400 });
+      }
+      return NextResponse.json(result);
+    }
+
+    // 2. Handle Budget / Price Update
+    if (
+      body.action === 'update_budget' ||
+      typeof body.fixedAmount === 'number' ||
+      typeof body.budgetMin === 'number' ||
+      typeof body.budgetMax === 'number'
+    ) {
+      const result = await updateJobBudget(id, {
+        projectType: body.projectType,
+        fixedAmount: body.fixedAmount,
+        budgetMin: body.budgetMin,
+        budgetMax: body.budgetMax,
+      });
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error, code: result.code }, { status: 400 });
+      }
+      return NextResponse.json(result);
+    }
+
+    // 3. Handle Status Update
+    const { status } = body;
     if (!status) {
-      return NextResponse.json({ error: 'Status field is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Status or budget parameters are required' }, { status: 400 });
     }
 
     const result = await updateJobStatus(id, status);
