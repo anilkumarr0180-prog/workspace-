@@ -976,7 +976,8 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
   }
 
   try {
-    const { data, error } = await supabase
+    const admin = getAdminSupabaseClient();
+    const { data, error } = await admin
       .from('payment_ledger')
       .select(`
         id,
@@ -998,9 +999,30 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
       .eq('contract_id', contractId.trim())
       .order('created_at', { ascending: false });
 
-    if (error) {
-      return { success: false, entries: [], error: error.message, code: error.code };
-    }
+    // Also fetch paid timesheets from DB to ensure hourly payments are dynamically reflected in the ledger
+    const { data: paidTimesheets } = await admin
+      .from('timesheets')
+      .select(`
+        id,
+        contract_id,
+        client_id,
+        freelancer_id,
+        total_amount,
+        total_minutes,
+        week_start_date,
+        status,
+        created_at,
+        updated_at,
+        client:profiles!client_id (full_name),
+        freelancer:profiles!freelancer_id (full_name)
+      `)
+      .eq('contract_id', contractId.trim())
+      .eq('status', 'paid');
+
+    const { data: paymentAttempts } = await admin
+      .from('payment_attempts')
+      .select('*')
+      .eq('contract_id', contractId.trim());
 
     const mapped: PaymentLedgerEntry[] = ((data as unknown as RawLedgerRow[]) || []).map((row) => {
       const fromObj = Array.isArray(row.from_profile) ? row.from_profile[0] : row.from_profile;
@@ -1025,6 +1047,62 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
         createdAt: row.created_at,
       };
     });
+
+    // Merge in paid timesheets dynamically if not already recorded in payment_ledger
+    if (paidTimesheets && paidTimesheets.length > 0) {
+      for (const ts of paidTimesheets as unknown as Array<{
+        id: string;
+        contract_id: string;
+        client_id: string;
+        freelancer_id: string;
+        total_amount: number;
+        total_minutes: number;
+        week_start_date: string;
+        created_at: string;
+        updated_at: string;
+        client?: { full_name?: string } | Array<{ full_name?: string }>;
+        freelancer?: { full_name?: string } | Array<{ full_name?: string }>;
+      }>) {
+        const alreadyRecorded = mapped.some(
+          (entry) =>
+            entry.metadata?.timesheet_id === ts.id ||
+            entry.description.includes(ts.week_start_date)
+        );
+
+        if (!alreadyRecorded) {
+          const clObj = Array.isArray(ts.client) ? ts.client[0] : ts.client;
+          const flObj = Array.isArray(ts.freelancer) ? ts.freelancer[0] : ts.freelancer;
+          const matchedAttempt = (paymentAttempts || []).find(
+            (a: { timesheet_id?: string; metadata?: { week_start_date?: string } }) =>
+              a.timesheet_id === ts.id || a.metadata?.week_start_date === ts.week_start_date
+          );
+
+          mapped.unshift({
+            id: `ts-ledger-${ts.id}`,
+            contractId: ts.contract_id,
+            milestoneId: null,
+            milestoneTitle: null,
+            fromUserId: ts.client_id,
+            fromUserName: clObj?.full_name || 'Client',
+            toUserId: ts.freelancer_id,
+            toUserName: flObj?.full_name || 'Freelancer',
+            amount: Number(ts.total_amount),
+            currency: 'INR',
+            eventType: 'hourly_funded',
+            status: 'succeeded',
+            description: `Hourly Invoice Payment for Week of ${ts.week_start_date} (${ts.total_minutes} mins)`,
+            metadata: {
+              provider: matchedAttempt?.provider || 'razorpay',
+              environment: matchedAttempt?.environment || 'test',
+              razorpay_payment_id: matchedAttempt?.razorpay_payment_id,
+              razorpay_order_id: matchedAttempt?.razorpay_order_id,
+              timesheet_id: ts.id,
+            },
+            createdAt: ts.updated_at || ts.created_at,
+          });
+        }
+      }
+    }
 
     return { success: true, entries: mapped };
   } catch (err: unknown) {

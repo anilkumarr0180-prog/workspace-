@@ -978,7 +978,7 @@ function ContractDetailsContent() {
                 <span>End Contract</span>
               </button>
             )}
-            {isClient && contract.contractType === 'fixed' && (
+            {isClient && contract.contractType === 'fixed' && contract.status === 'active' && (
               <button
                 onClick={openCreateMilestoneModal}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm cursor-pointer"
@@ -1658,7 +1658,7 @@ function ContractDetailsContent() {
                   </div>
                 </div>
 
-                {isClient && (
+                {isClient && contract.status === 'active' ? (
                   <div className="pt-2">
                     <button
                       onClick={openCreateMilestoneModal}
@@ -1668,7 +1668,14 @@ function ContractDetailsContent() {
                       <span>Create Milestone 1</span>
                     </button>
                   </div>
-                )}
+                ) : isClient && (contract.status === 'pending_offer' || (contract.status as string) === 'pending') ? (
+                  <div className="pt-2">
+                    <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 text-amber-900 border border-amber-200/90 rounded-xl text-xs font-medium">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Contract offer sent. Milestone creation will unlock as soon as the freelancer accepts your offer.</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               milestones.map((milestone) => {
@@ -2002,7 +2009,7 @@ function ContractDetailsContent() {
                               ? 'bg-blue-50 text-blue-800 border border-blue-200'
                               : entry.eventType === 'escrow_released'
                               ? 'bg-purple-50 text-purple-800 border border-purple-200'
-                              : entry.eventType === 'payout_disbursed'
+                              : entry.eventType === 'payout_disbursed' || entry.eventType === 'hourly_funded'
                               ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                               : entry.eventType === 'service_fee_deducted'
                               ? 'bg-slate-100 text-slate-700'

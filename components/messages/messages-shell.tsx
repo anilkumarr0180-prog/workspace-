@@ -92,6 +92,8 @@ export default function MessagesShell({
           fetch(`/api/messages/${activeConversationId}/read`, { method: 'POST' }),
         ];
         if (!isAlreadyLoaded) {
+          setIsLoadingMessages(true);
+          setMessages([]);
           promises.unshift(fetch(`/api/messages/${activeConversationId}?limit=40`));
         }
 
@@ -221,14 +223,16 @@ export default function MessagesShell({
   // Handle selecting a conversation
   const handleSelectConversation = useCallback(
     (conversationId: string) => {
+      if (conversationId === activeConversationId) return;
       setActiveConversationId(conversationId);
+      setIsLoadingMessages(true);
       const found = conversations.find((c) => c.id === conversationId);
       if (found) {
         setActiveConversation(found);
       }
       router.push(`/messages/${conversationId}`);
     },
-    [conversations, router]
+    [activeConversationId, conversations, router]
   );
 
   // Handle returning to inbox list on mobile

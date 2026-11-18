@@ -3,6 +3,7 @@
 import { createClient } from '../supabase/server';
 import { Job, ProjectType, ExperienceLevel, ProjectDuration, ClientInfo } from '../types';
 import { INITIAL_JOBS } from '../mock-data';
+import { createNotification } from './notifications';
 
 export interface CreateJobInput {
   title: string;
@@ -629,6 +630,15 @@ export async function createJob(input: CreateJobInput): Promise<{
 
     const finalJob = fullJob || mapSupabaseJobToFrontend(insertedJob as unknown as SupabaseJobRow);
 
+    // Notify client of successful job publication
+    createNotification({
+      userId: user.id,
+      type: 'job_created',
+      title: 'Job Successfully Posted',
+      message: `Your job listing "${input.title}" is now published and open for proposals.`,
+      link: `/jobs/${insertedJob.id}`,
+    }).catch(() => {});
+
     return {
       success: true,
       job: finalJob,
@@ -741,5 +751,124 @@ export async function updateJobStatus(
       error: message,
     };
   }
+}
+
+export interface UpdateJobBudgetInput {
+  projectType?: 'fixed' | 'hourly';
+  fixedAmount?: number;
+  budgetMin?: number;
+  budgetMax?: number;
+}
+
+/**
+ * Update the budget / price of a job post with client ownership verification.
+ */
+export async function updateJobBudget(
+  jobId: string,
+  input: UpdateJobBudgetInput
+): Promise<{
+  success: boolean;
+  job?: Job;
+  error?: string;
+  code?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return {
+      success: false,
+      error: 'Authentication required to update job budget.',
+      code: 'UNAUTHENTICATED',
+    };
+  }
+
+  try {
+    const { data: job, error: fetchError } = await supabase
+      .from('jobs')
+      .select('id, client_id, company_id, status, project_type')
+      .eq('id', jobId.trim())
+      .maybeSingle();
+
+    if (fetchError || !job) {
+      return { success: false, error: 'Job not found.', code: 'NOT_FOUND' };
+    }
+
+    let isAuthorized = job.client_id === user.id;
+    if (!isAuthorized && job.company_id) {
+      const { data: member } = await supabase
+        .from('company_members')
+        .select('role')
+        .eq('company_id', job.company_id)
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin', 'hiring_manager'])
+        .maybeSingle();
+      if (member) isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: 'Unauthorized: You do not have permission to update this job.',
+        code: 'FORBIDDEN',
+      };
+    }
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if (input.projectType) {
+      updatePayload.project_type = input.projectType;
+    }
+
+    const type = input.projectType || job.project_type;
+
+    if (type === 'fixed') {
+      const amount = typeof input.fixedAmount === 'number' ? input.fixedAmount : input.budgetMax;
+      if (typeof amount !== 'number' || amount <= 0) {
+        return { success: false, error: 'Fixed price budget must be greater than zero.' };
+      }
+      updatePayload.budget_min = amount;
+      updatePayload.budget_max = amount;
+    } else {
+      const min = typeof input.budgetMin === 'number' ? input.budgetMin : 0;
+      const max = typeof input.budgetMax === 'number' ? input.budgetMax : min;
+      if (min < 0 || max <= 0 || min > max) {
+        return { success: false, error: 'Hourly rate minimum must be less than or equal to maximum.' };
+      }
+      updatePayload.budget_min = min;
+      updatePayload.budget_max = max;
+    }
+
+    const { error: updateError } = await supabase
+      .from('jobs')
+      .update(updatePayload)
+      .eq('id', jobId.trim());
+
+    if (updateError) {
+      return { success: false, error: updateError.message, code: updateError.code };
+    }
+
+    const { job: updatedJob } = await getJobById(jobId.trim());
+
+    return {
+      success: true,
+      job: updatedJob || undefined,
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Error updating job budget.',
+    };
+  }
+}
+
+/**
+ * Client action to withdraw / cancel a job post.
+ */
+export async function withdrawJob(jobId: string) {
+  return updateJobStatus(jobId, 'cancelled');
 }
 

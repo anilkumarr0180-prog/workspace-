@@ -849,33 +849,78 @@ async function executeDeclineContractOfferFallback(
       return { success: false, error: 'Contract not found.' };
     }
 
-    if (contract.freelancer_id !== userId) {
-      return { success: false, error: 'Only the invited freelancer can decline this offer.' };
+    const isFreelancer = contract.freelancer_id === userId;
+    const isClient = contract.client_id === userId;
+
+    if (!isFreelancer && !isClient) {
+      return { success: false, error: 'Only the invited freelancer or client can decline this offer.' };
     }
 
-    if (contract.status !== 'pending_offer') {
+    if (contract.status !== 'pending_offer' && contract.status !== 'pending') {
       return { success: false, error: `This offer is in status "${contract.status}" and cannot be declined.` };
     }
 
     const nowIso = new Date().toISOString();
-    await admin
-      .from('contracts')
-      .update({
-        status: 'declined',
-        declined_reason: reason?.trim() || null,
-        offer_declined_at: nowIso,
-        updated_at: nowIso,
-      })
-      .eq('id', contractId);
+    const targetStatus = isFreelancer ? 'declined' : 'cancelled';
 
-    await createNotification({
-      userId: contract.client_id,
-      type: 'contract_offer_declined',
-      title: 'Offer Declined',
-      message: `Your contract offer for "${contract.title}" was declined.`,
-      link: `/contracts/${contractId}`,
-      metadata: { actor_id: userId, contract_id: contractId },
-    });
+    // Attempt primary update with offer metadata
+    let updateErr = null;
+    try {
+      const { error: fullUpdateErr } = await admin
+        .from('contracts')
+        .update({
+          status: targetStatus,
+          declined_reason: reason?.trim() || null,
+          offer_declined_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq('id', contractId);
+      updateErr = fullUpdateErr;
+    } catch (e: unknown) {
+      updateErr = e instanceof Error ? e : new Error(String(e));
+    }
+
+    // Fallback if declined_reason or offer_declined_at column is missing from schema
+    if (updateErr) {
+      const { error: simpleUpdateErr } = await admin
+        .from('contracts')
+        .update({
+          status: targetStatus,
+          updated_at: nowIso,
+        })
+        .eq('id', contractId);
+
+      if (simpleUpdateErr) {
+        return { success: false, error: simpleUpdateErr.message };
+      }
+    }
+
+    // Sync proposal if applicable
+    if (contract.proposal_id) {
+      try {
+        await admin
+          .from('proposals')
+          .update({ status: 'rejected', updated_at: nowIso })
+          .eq('id', contract.proposal_id);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // Notify counterpart
+    const notifyTargetUserId = isFreelancer ? contract.client_id : contract.freelancer_id;
+    if (notifyTargetUserId) {
+      await createNotification({
+        userId: notifyTargetUserId,
+        type: 'contract_offer_declined',
+        title: isFreelancer ? 'Contract Offer Declined' : 'Contract Offer Revoked',
+        message: isFreelancer
+          ? `Your contract offer for "${contract.title}" was declined by the freelancer.`
+          : `The contract offer for "${contract.title}" was withdrawn by the client.`,
+        link: `/contracts/${contractId}`,
+        metadata: { actor_id: userId, contract_id: contractId },
+      }).catch(() => {});
+    }
 
     return { success: true };
   } catch (err: unknown) {

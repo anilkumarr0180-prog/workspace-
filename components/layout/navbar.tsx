@@ -1049,7 +1049,8 @@ export default function Navbar() {
                         : 'hover:text-[#14a800] hover:bg-slate-50'
                     }`}
                   >
-                    <span>Contracts</span>
+                    <span className="hidden xl:inline">All Contracts</span>
+                    <span className="inline xl:hidden">Contracts</span>
                     {activeContractsCount > 0 && (
                       <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[10px] font-bold rounded-full">
                         {activeContractsCount}
@@ -1599,7 +1600,7 @@ export default function Navbar() {
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
               <div className="flex items-center gap-2">
-                <span>Contracts</span>
+                <span>All Contracts</span>
                 {activeContractsCount > 0 && (
                   <span className="px-1.5 py-0.2 bg-[#14a800] text-white text-[11px] font-bold rounded-full">
                     {activeContractsCount}
