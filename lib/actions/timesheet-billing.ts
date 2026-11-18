@@ -174,63 +174,32 @@ export async function approveTimesheet(timesheetId: string): Promise<TimesheetAc
       return { success: false, error: 'Only the client can approve this timesheet.', code: 'FORBIDDEN' };
     }
 
-    if (timesheet.status !== 'submitted' && timesheet.status !== 'under_review') {
-      // Early client approval: if client approves an open or draft timesheet with logged time
-      if ((timesheet.status === 'open' || timesheet.status === 'draft') && Number(timesheet.total_minutes) > 0) {
-        const adminClient = getAdminSupabaseClient();
-        const { data: earlyUpdated, error: earlyErr } = await adminClient
-          .from('timesheets')
-          .update({ status: 'approved', updated_at: new Date().toISOString() })
-          .eq('id', timesheetId.trim())
-          .select()
-          .single();
-
-        if (earlyErr || !earlyUpdated) {
-          return { success: false, error: 'Failed to approve timesheet.', code: 'DB_ERROR' };
-        }
-
-        createNotification({
-          userId: timesheet.freelancer_id,
-          type: 'milestone_approved',
-          title: 'Timesheet Approved',
-          message: `Your timesheet for week of ${timesheet.week_start_date} ($${timesheet.total_amount}) has been approved. Payment initiated.`,
-          link: `/contracts/${timesheet.contract_id}`,
-          metadata: { timesheetId: timesheet.id, contractId: timesheet.contract_id },
-        }).catch(() => {});
-
-        revalidatePath(`/contracts/${timesheet.contract_id}`);
-        revalidatePath('/contracts');
-        revalidatePath('/client/reports');
-
-        return {
-          success: true,
-          timesheet: {
-            id: earlyUpdated.id,
-            contractId: earlyUpdated.contract_id,
-            clientId: earlyUpdated.client_id,
-            freelancerId: earlyUpdated.freelancer_id,
-            weekStartDate: earlyUpdated.week_start_date,
-            totalMinutes: earlyUpdated.total_minutes,
-            totalAmount: Number(earlyUpdated.total_amount),
-            status: 'approved',
-            createdAt: earlyUpdated.created_at,
-            updatedAt: earlyUpdated.updated_at,
-          },
-        };
-      }
-
-      return { success: false, error: `Timesheet in status "${timesheet.status}" cannot be approved.`, code: 'INVALID_STATE' };
+    if (timesheet.status === 'approved' || timesheet.status === 'paid') {
+      return { success: false, error: `Timesheet is already ${timesheet.status}.`, code: 'ALREADY_APPROVED' };
     }
 
-    // Try trusted stored procedure first
+    if (timesheet.status === 'open' && Number(timesheet.total_minutes) <= 0) {
+      return { success: false, error: 'Cannot approve an open timesheet with zero logged time.', code: 'EMPTY_TIMESHEET' };
+    }
+
+    // 1. Try atomic SECURITY DEFINER stored procedure first (handles permissions & state transitions cleanly)
     const { data: rpcUpdated, error: rpcError } = await supabase.rpc('approve_timesheet', {
       p_timesheet_id: timesheetId.trim(),
     });
 
     let updated = rpcUpdated;
+
+    // 2. Fallback: If RPC is not available or rejected due to older schema, attempt via admin client or direct client
     if (rpcError || !updated) {
-      const adminClient = getAdminSupabaseClient();
-      const { data: adminUpdated, error: adminErr } = await adminClient
+      let clientToUse = supabase;
+      try {
+        clientToUse = getAdminSupabaseClient();
+      } catch {
+        // Safe fallback to authenticated client if service role key is absent in serverless environment
+        clientToUse = supabase;
+      }
+
+      const { data: adminUpdated, error: adminErr } = await clientToUse
         .from('timesheets')
         .update({ status: 'approved', updated_at: new Date().toISOString() })
         .eq('id', timesheetId.trim())
@@ -238,12 +207,14 @@ export async function approveTimesheet(timesheetId: string): Promise<TimesheetAc
         .single();
 
       if (adminErr || !adminUpdated) {
-        return { success: false, error: 'Failed to approve timesheet.', code: 'DB_ERROR' };
+        const detailError =
+          adminErr?.message || rpcError?.message || 'Failed to approve timesheet.';
+        return { success: false, error: detailError, code: adminErr?.code || 'DB_ERROR' };
       }
       updated = adminUpdated;
     }
 
-    // Notify freelancer
+    // Notify freelancer of approval
     createNotification({
       userId: timesheet.freelancer_id,
       type: 'milestone_approved',
@@ -252,6 +223,10 @@ export async function approveTimesheet(timesheetId: string): Promise<TimesheetAc
       link: `/contracts/${timesheet.contract_id}`,
       metadata: { timesheetId: timesheet.id, contractId: timesheet.contract_id },
     }).catch(() => {});
+
+    revalidatePath(`/contracts/${timesheet.contract_id}`);
+    revalidatePath('/contracts');
+    revalidatePath('/client/reports');
 
     return {
       success: true,
