@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ProposalRecord } from '@/lib/actions/proposals';
 import { ClientDashboardResult, ClientJobSummary, ClientDashboardActivity } from '@/lib/actions/client';
@@ -35,8 +35,11 @@ import HireOfferModal from '@/components/jobs/hire-offer-modal';
 
 const DASHBOARD_CACHE_KEY = 'workspace_client_dashboard_cache';
 
-export default function ClientDashboardPage() {
+function ClientDashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+
   const [dashboardData, setDashboardData] = useState<ClientDashboardResult | null>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -61,7 +64,28 @@ export default function ClientDashboardPage() {
   const [isRevalidating, setIsRevalidating] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'published' | 'proposals' | 'drafts' | 'completed'>('published');
+  const [activeTabOverride, setActiveTabOverride] = useState<'published' | 'proposals' | 'drafts' | 'completed' | null>(null);
+  const [prevTabParam, setPrevTabParam] = useState(tabParam);
+
+  if (tabParam !== prevTabParam) {
+    setPrevTabParam(tabParam);
+    setActiveTabOverride(null);
+  }
+
+  const activeTab: 'published' | 'proposals' | 'drafts' | 'completed' =
+    activeTabOverride ??
+    (tabParam === 'proposals' || tabParam === 'drafts' || tabParam === 'completed'
+      ? tabParam
+      : 'published');
+
+  const handleTabChange = useCallback((tab: 'published' | 'proposals' | 'drafts' | 'completed') => {
+    setActiveTabOverride(tab);
+    if (typeof window !== 'undefined') {
+      const url = tab === 'published' ? '/client' : `/client?tab=${tab}`;
+      window.history.replaceState(null, '', url);
+    }
+  }, []);
+
   const [toastMessage, setToastMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
@@ -102,7 +126,7 @@ export default function ClientDashboardPage() {
   // Server-verified job proposals fetcher
   const handleViewJobProposals = useCallback(async (job: { id: string; title: string }) => {
     setSelectedJobFilter(job);
-    setActiveTab('proposals');
+    handleTabChange('proposals');
 
     // Instantly show already-fetched proposals from dashboard data if available
     const existing = dashboardData?.proposals?.filter((p) => p.jobId === job.id);
@@ -140,7 +164,7 @@ export default function ClientDashboardPage() {
     } finally {
       setLoadingJobProposals(false);
     }
-  }, [dashboardData]);
+  }, [dashboardData, handleTabChange]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -630,13 +654,7 @@ export default function ClientDashboardPage() {
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-800">
         <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Employer Control Center</span>
-              <span className="text-emerald-500">•</span>
-              <span className="text-emerald-200/80">Live Marketplace</span>
-            </div>
+          <div className="space-y-1.5">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white">
               {dashboardData?.client?.fullName
                 ? `Welcome back, ${dashboardData.client.fullName}`
@@ -733,7 +751,7 @@ export default function ClientDashboardPage() {
             setSelectedJobFilter(null);
             setJobSpecificProposals(null);
             setJobProposalsError(null);
-            setActiveTab('proposals');
+            handleTabChange('proposals');
           }}
           className="relative overflow-hidden rounded-2xl bg-white p-5 sm:p-6 border border-slate-200/90 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-blue-300/80 transition-all duration-300 group text-left w-full cursor-pointer"
           title="Click to view all proposals received"
@@ -826,7 +844,7 @@ export default function ClientDashboardPage() {
             <div className="p-3 sm:p-4 border-b border-slate-200/80 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="bg-slate-200/70 p-1 rounded-2xl flex items-center gap-1 overflow-x-auto max-w-full">
                 <button
-                  onClick={() => setActiveTab('published')}
+                  onClick={() => handleTabChange('published')}
                   type="button"
                   className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center gap-2 ${
                     activeTab === 'published'
@@ -851,7 +869,7 @@ export default function ClientDashboardPage() {
                     setSelectedJobFilter(null);
                     setJobSpecificProposals(null);
                     setJobProposalsError(null);
-                    setActiveTab('proposals');
+                    handleTabChange('proposals');
                   }}
                   type="button"
                   className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center gap-2 ${
@@ -875,7 +893,7 @@ export default function ClientDashboardPage() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('drafts')}
+                  onClick={() => handleTabChange('drafts')}
                   type="button"
                   className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center gap-2 ${
                     activeTab === 'drafts'
@@ -896,7 +914,7 @@ export default function ClientDashboardPage() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('completed')}
+                  onClick={() => handleTabChange('completed')}
                   type="button"
                   className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center gap-2 ${
                     activeTab === 'completed'
@@ -1025,6 +1043,18 @@ export default function ClientDashboardPage() {
 
                               {/* Actions */}
                               <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0">
+                                {job.proposalCount > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewJobProposals({ id: job.id, title: job.title })}
+                                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs hover:shadow transition-all duration-150 cursor-pointer"
+                                    title={`Review ${job.proposalCount} candidate ${job.proposalCount === 1 ? 'proposal' : 'proposals'} for this job`}
+                                  >
+                                    <Users className="w-3.5 h-3.5" />
+                                    <span>Review Proposals</span>
+                                  </button>
+                                )}
+
                                 <Link
                                   href={`/jobs/${job.id}`}
                                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200/90 text-xs font-semibold text-slate-700 hover:bg-white hover:text-slate-900 hover:border-slate-300 shadow-2xs transition-all duration-150"
@@ -1891,5 +1921,25 @@ export default function ClientDashboardPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ClientDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
+          <div className="h-44 bg-slate-900 rounded-3xl" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="h-28 bg-white rounded-2xl border border-slate-200" />
+            <div className="h-28 bg-white rounded-2xl border border-slate-200" />
+            <div className="h-28 bg-white rounded-2xl border border-slate-200" />
+            <div className="h-28 bg-white rounded-2xl border border-slate-200" />
+          </div>
+        </div>
+      }
+    >
+      <ClientDashboardContent />
+    </Suspense>
   );
 }

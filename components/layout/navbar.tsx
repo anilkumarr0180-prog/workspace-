@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import NextLink from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMarketplace } from '@/lib/context/marketplace-context';
 import WorkspaceLogo from '@/components/layout/workspace-logo';
 import { createClient } from '@/lib/supabase/client';
@@ -51,7 +51,13 @@ interface UserProfile {
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { savedJobIds } = useMarketplace();
+
+  const activeTabParam = searchParams?.get('tab');
+  const isAllJobsActive =
+    pathname === '/client' && (!activeTabParam || activeTabParam === 'published');
+  const isProposalsActive = pathname === '/client' && activeTabParam === 'proposals';
 
   // Navigation State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -406,13 +412,13 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-2xs w-full">
-      <div className="w-full max-w-[1440px] mx-auto px-6 sm:px-8 lg:px-10 xl:px-12">
+      <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-5 xl:px-8 2xl:px-10">
         <div className="flex items-center justify-between h-16">
           {/* ================= LEFT: Brand & Navigation ================= */}
-          <div className="flex items-center gap-4 xl:gap-8 min-w-0">
+          <div className="flex items-center gap-2 lg:gap-3 xl:gap-5 min-w-0">
             <NextLink
               href={user ? (isClientMode ? '/client' : '/freelancer') : '/'}
-              className="flex items-center shrink-0"
+              className="flex items-center shrink-0 mr-1"
               aria-label="Workspace Home"
             >
               <WorkspaceLogo />
@@ -981,10 +987,10 @@ export default function Navbar() {
               </nav>
             ) : (
               /* ---------- AUTHENTICATED CLIENT NAVIGATION (ON DASHBOARDS) ---------- */
-              <nav className="hidden lg:flex items-center gap-1 xl:gap-2 text-[14px] font-medium text-slate-800">
+              <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 2xl:gap-1.5 text-[13px] xl:text-[13.5px] 2xl:text-[14px] font-medium text-slate-800 whitespace-nowrap">
                 <NextLink
                   href="/client/jobs/new"
-                  className={`px-3 py-2 rounded-lg transition-colors font-semibold ${
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors font-semibold ${
                     pathname === '/client/jobs/new'
                       ? 'text-[#14a800] bg-emerald-50/80'
                       : 'text-[#14a800] hover:bg-slate-50'
@@ -994,17 +1000,28 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/client"
-                  className={`px-3 py-2 rounded-lg transition-colors ${
-                    pathname === '/client'
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors ${
+                    isAllJobsActive
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
                   }`}
                 >
-                  All Job Posts
+                  <span className="hidden xl:inline">All Job Posts</span>
+                  <span className="inline xl:hidden">Job Posts</span>
+                </NextLink>
+                <NextLink
+                  href="/client?tab=proposals"
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    isProposalsActive
+                      ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
+                      : 'hover:text-[#14a800] hover:bg-slate-50'
+                  }`}
+                >
+                  <span>Proposals</span>
                 </NextLink>
                 <NextLink
                   href="/freelancers"
-                  className={`px-3 py-2 rounded-lg transition-colors ${
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors ${
                     pathname === '/freelancers' || pathname.startsWith('/freelancers/')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1014,17 +1031,18 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/client/billing"
-                  className={`px-3 py-2 rounded-lg transition-colors ${
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors ${
                     pathname === '/client/billing' || pathname.startsWith('/client/billing')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
                   }`}
                 >
-                  Billing & Payments
+                  <span className="hidden xl:inline">Billing & Payments</span>
+                  <span className="inline xl:hidden">Billing</span>
                 </NextLink>
                 <NextLink
                   href="/client/reports"
-                  className={`px-3 py-2 rounded-lg transition-colors ${
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors ${
                     pathname === '/client/reports' || pathname.startsWith('/client/reports')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1034,7 +1052,7 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/messages"
-                  className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 ${
+                  className={`px-2 xl:px-2.5 2xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
                     pathname.startsWith('/messages')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1052,10 +1070,10 @@ export default function Navbar() {
           </div>
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 xl:gap-2.5 shrink-0">
             {/* Unified Upwork Search Component on tablet & desktop (ONLY WHEN AUTHENTICATED) */}
             {user && (
-              <NavbarSearch className="hidden sm:block w-48 md:w-56 lg:w-60" />
+              <NavbarSearch className="hidden sm:block w-36 md:w-44 lg:w-36 xl:w-52 2xl:w-60" />
             )}
 
             {/* Mobile Search Toggle on screens < sm (ONLY WHEN AUTHENTICATED) */}
@@ -1075,10 +1093,10 @@ export default function Navbar() {
             {user && (
               <NextLink
                 href="/saved"
-                className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+                className="relative p-1.5 xl:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
                 title="Saved jobs"
               >
-                <Bookmark className="w-4.5 h-4.5" />
+                <Bookmark className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
                 {savedJobIds.length > 0 && (
                   <span className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                     {savedJobIds.length}
@@ -1095,10 +1113,10 @@ export default function Navbar() {
                 {/* Help Icon */}
                 <NextLink
                   href="/jobs"
-                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  className="p-1.5 xl:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
                   title="Help & Support"
                 >
-                  <HelpCircle className="w-4.5 h-4.5" />
+                  <HelpCircle className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
                 </NextLink>
 
                 {/* Real-time Notifications Popover */}
@@ -1107,14 +1125,14 @@ export default function Navbar() {
                 {/* Direct Messages / Chat Link */}
                 <NextLink
                   href="/messages"
-                  className={`relative p-2 rounded-full transition-colors hidden sm:block ${
+                  className={`relative p-1.5 xl:p-2 rounded-full transition-colors hidden sm:block ${
                     pathname.startsWith('/messages')
                       ? 'text-[#14a800] bg-emerald-50'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
                   title="Messages"
                 >
-                  <MessageSquare className="w-4.5 h-4.5" />
+                  <MessageSquare className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
                   {unreadMessageCount > 0 && (
                     <span
                       id="navbar-unread-messages-badge"
@@ -1471,7 +1489,16 @@ export default function Navbar() {
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
-              <span>Client Dashboard</span>
+              <span>Client Dashboard & Jobs</span>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
+              href="/client?tab=proposals"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <span>Proposals Received</span>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </NextLink>
 
