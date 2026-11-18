@@ -13,7 +13,7 @@ export default function HomePage() {
   return (
     <div className="space-y-16 sm:space-y-20 lg:space-y-24 pb-20 sm:pb-24">
       {/* 1. Upwork Hero & Social Proof Section */}
-      <section className="w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0">
+      <section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <PromoBanner />
         <UpworkHero />
         <TrustedBrands />
@@ -32,7 +32,7 @@ export default function HomePage() {
       <HowItWorksSection />
 
       {/* 6. Dual CTA Section */}
-      <section className="w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0">
+      <section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
           {/* Client Card */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl sm:rounded-3xl p-8 sm:p-10 text-white relative overflow-hidden flex flex-col justify-between shadow-xs">

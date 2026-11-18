@@ -7,7 +7,7 @@ export default function HowItWorksSection() {
 
   return (
     <section className="bg-white border-y border-slate-200/80 py-16 sm:py-20">
-      <div className="w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12">
           <span className="text-[12px] sm:text-[13px] font-semibold uppercase tracking-wider text-emerald-700">
             Transparent & Secure

@@ -412,13 +412,13 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-2xs w-full">
-      <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-5 lg:px-4 xl:px-6 2xl:px-8">
-        <div className="flex items-center justify-between h-16">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-4">
           {/* ================= LEFT: Brand & Navigation ================= */}
-          <div className="flex items-center gap-1.5 lg:gap-2.5 xl:gap-3.5 shrink-0">
+          <div className="flex items-center gap-2.5 lg:gap-3.5 xl:gap-6 shrink-0">
             <NextLink
               href={user ? (isClientMode ? '/client' : '/freelancer') : '/'}
-              className="flex items-center shrink-0 mr-0.5 sm:mr-1"
+              className="flex items-center shrink-0 mr-1"
               aria-label="Workspace Home"
             >
               <WorkspaceLogo />
@@ -987,10 +987,10 @@ export default function Navbar() {
               </nav>
             ) : (
               /* ---------- AUTHENTICATED CLIENT NAVIGATION (ON DASHBOARDS) ---------- */
-              <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 text-[13px] xl:text-[13.5px] 2xl:text-[14px] font-medium text-slate-800 whitespace-nowrap shrink-0">
+              <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 2xl:gap-2 text-[13.5px] xl:text-[14px] font-medium text-slate-800 whitespace-nowrap shrink-0">
                 <NextLink
                   href="/client/jobs/new"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors font-semibold shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors font-semibold shrink-0 ${
                     pathname === '/client/jobs/new'
                       ? 'text-[#14a800] bg-emerald-50/80'
                       : 'text-[#14a800] hover:bg-slate-50'
@@ -1000,18 +1000,18 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/client"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
                     isAllJobsActive
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
                   }`}
                 >
-                  <span className="hidden 2xl:inline">All Job Posts</span>
-                  <span className="inline 2xl:hidden">Job Posts</span>
+                  <span className="hidden xl:inline">All Job Posts</span>
+                  <span className="inline xl:hidden">Job Posts</span>
                 </NextLink>
                 <NextLink
                   href="/client?tab=proposals"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
                     isProposalsActive
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1021,29 +1021,29 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/freelancers"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
                     pathname === '/freelancers' || pathname.startsWith('/freelancers/')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
                   }`}
                 >
-                  <span className="hidden 2xl:inline">Discover Talent</span>
-                  <span className="inline 2xl:hidden">Talent</span>
+                  <span className="hidden xl:inline">Discover Talent</span>
+                  <span className="inline xl:hidden">Talent</span>
                 </NextLink>
                 <NextLink
                   href="/client/billing"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
                     pathname === '/client/billing' || pathname.startsWith('/client/billing')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
                   }`}
                 >
-                  <span className="hidden 2xl:inline">Billing & Payments</span>
-                  <span className="inline 2xl:hidden">Billing</span>
+                  <span className="hidden xl:inline">Billing & Payments</span>
+                  <span className="inline xl:hidden">Billing</span>
                 </NextLink>
                 <NextLink
                   href="/client/reports"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
                     pathname === '/client/reports' || pathname.startsWith('/client/reports')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1053,7 +1053,7 @@ export default function Navbar() {
                 </NextLink>
                 <NextLink
                   href="/messages"
-                  className={`px-2 xl:px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+                  className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
                     pathname.startsWith('/messages')
                       ? 'text-[#14a800] bg-emerald-50/80 font-semibold'
                       : 'hover:text-[#14a800] hover:bg-slate-50'
@@ -1071,10 +1071,10 @@ export default function Navbar() {
           </div>
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
-          <div className="flex items-center gap-1.5 sm:gap-2 xl:gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 xl:gap-3 shrink-0">
             {/* Unified Upwork Search Component on tablet & desktop (ONLY WHEN AUTHENTICATED) */}
             {user && (
-              <NavbarSearch className="hidden sm:block w-36 md:w-40 lg:w-36 xl:w-40 2xl:w-56 shrink-0" />
+              <NavbarSearch className="hidden sm:block w-36 md:w-44 lg:w-40 xl:w-52 2xl:w-60 shrink-0" />
             )}
 
             {/* Mobile Search Toggle on screens < sm (ONLY WHEN AUTHENTICATED) */}

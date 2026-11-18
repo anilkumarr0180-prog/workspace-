@@ -94,7 +94,7 @@ export default function FeaturedFreelancers({ className = '' }: FeaturedFreelanc
   };
 
   return (
-    <section className={`w-full max-w-[1050px] mx-auto px-4 sm:px-6 xl:px-0 ${className}`}>
+    <section className={`w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${className}`}>
       {/* Header matching Upwork visual hierarchy */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 sm:mb-10">
         <div>

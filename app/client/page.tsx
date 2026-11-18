@@ -1928,7 +1928,7 @@ export default function ClientDashboardPage() {
   return (
     <Suspense
       fallback={
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
           <div className="h-44 bg-slate-900 rounded-3xl" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="h-28 bg-white rounded-2xl border border-slate-200" />
