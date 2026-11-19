@@ -25,9 +25,9 @@ export default function PostJobPage() {
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
   const [projectType, setProjectType] = useState<ProjectType>('fixed');
-  const [fixedAmount, setFixedAmount] = useState<number>(3500);
-  const [hourlyMin, setHourlyMin] = useState<number>(50);
-  const [hourlyMax, setHourlyMax] = useState<number>(90);
+  const [fixedAmount, setFixedAmount] = useState<number | ''>('');
+  const [hourlyMin, setHourlyMin] = useState<number | ''>('');
+  const [hourlyMax, setHourlyMax] = useState<number | ''>('');
   const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>('expert');
   const [duration, setDuration] = useState<ProjectDuration>('1_to_3_months');
   const [clientName, setClientName] = useState('');
@@ -112,11 +112,13 @@ export default function PostJobPage() {
     }
 
     if (projectType === 'fixed') {
-      if (!fixedAmount || fixedAmount <= 0) {
+      if (fixedAmount === '' || Number(fixedAmount) <= 0) {
         errs.budget = 'Please enter a valid positive fixed budget.';
       }
     } else {
-      if (!hourlyMin || !hourlyMax || hourlyMin <= 0 || hourlyMax < hourlyMin) {
+      const min = hourlyMin === '' ? 0 : Number(hourlyMin);
+      const max = hourlyMax === '' ? 0 : Number(hourlyMax);
+      if (hourlyMin === '' || hourlyMax === '' || min <= 0 || max < min) {
         errs.budget = 'Please specify a valid hourly range (max >= min).';
       }
     }
@@ -138,9 +140,9 @@ export default function PostJobPage() {
         description: description.trim(),
         deliverables,
         projectType,
-        fixedAmount: projectType === 'fixed' ? Number(fixedAmount) : undefined,
-        budgetMin: projectType === 'hourly' ? Number(hourlyMin) : Number(fixedAmount),
-        budgetMax: projectType === 'hourly' ? Number(hourlyMax) : undefined,
+        fixedAmount: projectType === 'fixed' && fixedAmount !== '' ? Number(fixedAmount) : undefined,
+        budgetMin: projectType === 'hourly' && hourlyMin !== '' ? Number(hourlyMin) : (fixedAmount !== '' ? Number(fixedAmount) : undefined),
+        budgetMax: projectType === 'hourly' && hourlyMax !== '' ? Number(hourlyMax) : undefined,
         experienceLevel,
         duration,
         skills,
@@ -224,6 +226,9 @@ export default function PostJobPage() {
                 setDescription('');
                 setSkills([]);
                 setDeliverables([]);
+                setFixedAmount('');
+                setHourlyMin('');
+                setHourlyMax('');
               }}
               type="button"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 active:scale-[0.99] text-slate-700 font-semibold text-sm shadow-xs transition-all cursor-pointer"
@@ -523,7 +528,11 @@ export default function PostJobPage() {
                       min="50"
                       step="50"
                       value={fixedAmount}
-                      onChange={(e) => setFixedAmount(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFixedAmount(val === '' ? '' : Number(val));
+                      }}
+                      placeholder="e.g. 3500"
                       className="w-full pl-7 pr-3 py-2 text-sm border border-slate-300 rounded-lg text-slate-900 font-semibold"
                       required
                     />
@@ -542,8 +551,11 @@ export default function PostJobPage() {
                         min="10"
                         step="5"
                         value={hourlyMin}
-                        onChange={(e) => setHourlyMin(Number(e.target.value))}
-                        placeholder="Min"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setHourlyMin(val === '' ? '' : Number(val));
+                        }}
+                        placeholder="Min (e.g. 50)"
                         className="w-full pl-7 pr-3 py-2 text-xs border border-slate-300 rounded-lg text-slate-900"
                         required
                       />
@@ -556,8 +568,11 @@ export default function PostJobPage() {
                         min="10"
                         step="5"
                         value={hourlyMax}
-                        onChange={(e) => setHourlyMax(Number(e.target.value))}
-                        placeholder="Max"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setHourlyMax(val === '' ? '' : Number(val));
+                        }}
+                        placeholder="Max (e.g. 90)"
                         className="w-full pl-7 pr-3 py-2 text-xs border border-slate-300 rounded-lg text-slate-900"
                         required
                       />

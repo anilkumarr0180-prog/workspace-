@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NextLink from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMarketplace } from '@/lib/context/marketplace-context';
@@ -89,7 +89,34 @@ export default function Navbar() {
   }
 
   // Real-time Unread Messages Count & In-App Toast
-  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('workspace_unread_msg_count');
+        if (cached !== null) {
+          const parsed = parseInt(cached, 10);
+          return isNaN(parsed) ? 0 : parsed;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return 0;
+  });
+
+  const updateUnreadCount = useCallback((countOrFn: number | ((prev: number) => number)) => {
+    setUnreadMessageCount((prev) => {
+      const next = typeof countOrFn === 'function' ? countOrFn(prev) : countOrFn;
+      const safe = Math.max(0, next);
+      try {
+        sessionStorage.setItem('workspace_unread_msg_count', safe.toString());
+      } catch {
+        // non-blocking
+      }
+      return safe;
+    });
+  }, []);
+
   const [messageToast, setMessageToast] = useState<{
     id: string;
     title: string;
@@ -101,19 +128,64 @@ export default function Navbar() {
   const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
   const [activeContractsCount, setActiveContractsCount] = useState<number>(0);
 
+  // Immediate parallel fetch on mount without waiting for client auth waterfall
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchImmediate = async () => {
+      try {
+        const res = await fetch('/api/messages?unreadCount=true', {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && typeof data.count === 'number') {
+            updateUnreadCount(data.count);
+          }
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+
+    fetchImmediate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [updateUnreadCount]);
+
   useEffect(() => {
     if (!user) return;
 
     let isMounted = true;
     const supabase = createClient();
 
+    // Authenticate Supabase Realtime WebSocket with active JWT
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await supabase.realtime.setAuth(session.access_token);
+        }
+      } catch {
+        // non-blocking
+      }
+    })();
+
     const fetchUnread = async () => {
       try {
-        const res = await fetch('/api/messages?unreadCount=true');
+        const res = await fetch('/api/messages?unreadCount=true', {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
         if (res.ok) {
           const data = await res.json();
           if (isMounted && typeof data.count === 'number') {
-            setUnreadMessageCount(data.count);
+            updateUnreadCount(data.count);
           }
         }
       } catch {
@@ -138,7 +210,7 @@ export default function Navbar() {
 
     fetchUnread();
     fetchContracts();
-    const interval = setInterval(fetchUnread, 5000);
+    const interval = setInterval(fetchUnread, 4000);
     const contractsInterval = setInterval(fetchContracts, 10000);
 
     const onWindowFocus = () => {
@@ -148,6 +220,14 @@ export default function Navbar() {
     window.addEventListener('focus', onWindowFocus);
     window.addEventListener('workspace:unread-messages-refresh', fetchUnread);
     window.addEventListener('workspace:contracts-refresh', fetchContracts);
+
+    const handleCrossNotification = (e: Event) => {
+      const customEvent = e as CustomEvent<{ type?: string }>;
+      if (customEvent.detail?.type === 'new_message') {
+        fetchUnread();
+      }
+    };
+    window.addEventListener('workspace-notification-received', handleCrossNotification);
 
     // Global Presence: Broadcast that current user is online across the entire application
     const presenceChannel = supabase.channel('global-presence', {
@@ -200,7 +280,7 @@ export default function Navbar() {
             metadata?: { conversationId?: string };
           };
           if (row.type === 'new_message') {
-            setUnreadMessageCount((prev) => prev + 1);
+            updateUnreadCount((prev: number) => prev + 1);
             // If not currently inside this conversation, trigger in-app toast alert
             const convId = row.metadata?.conversationId;
             if (!pathname.includes(convId || 'nomatch_conv_id')) {
@@ -235,10 +315,11 @@ export default function Navbar() {
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('workspace:unread-messages-refresh', fetchUnread);
       window.removeEventListener('workspace:contracts-refresh', fetchContracts);
+      window.removeEventListener('workspace-notification-received', handleCrossNotification);
       presenceChannel.unsubscribe();
       notifChannel.unsubscribe();
     };
-  }, [user, profile?.full_name, pathname]);
+  }, [user, profile?.full_name, pathname, updateUnreadCount]);
 
   // Subscribe to Supabase Auth State
   useEffect(() => {

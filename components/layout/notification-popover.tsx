@@ -68,23 +68,40 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [unreadCount, setUnreadCount] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('workspace_unread_notif_count');
+        if (cached !== null) {
+          const parsed = parseInt(cached, 10);
+          return isNaN(parsed) ? 0 : parsed;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return 0;
+  });
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const [markingAll, setMarkingAll] = useState(false);
 
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // 1. Fetch initial notifications asynchronously on mount/userId change
+  // 1. Fetch initial notifications asynchronously on mount
   useEffect(() => {
     let isCancelled = false;
-    if (!userId) return;
 
     getNotifications({ limit: 30 })
       .then((res) => {
         if (!isCancelled && res.success) {
           setNotifications(res.notifications);
           setUnreadCount(res.totalUnread);
+          try {
+            sessionStorage.setItem('workspace_unread_notif_count', res.totalUnread.toString());
+          } catch {
+            // non-blocking
+          }
         }
       })
       .catch(() => {
@@ -107,6 +124,20 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
 
     const supabase = createClient();
     const channelName = `realtime-notifications-${userId}`;
+
+    // Ensure Realtime WebSocket connection is authenticated with session JWT for Postgres RLS
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await supabase.realtime.setAuth(session.access_token);
+        }
+      } catch {
+        // non-blocking
+      }
+    })();
 
     const channel = supabase
       .channel(channelName)
@@ -149,7 +180,15 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
 
           setNotifications((prev) => [newItem, ...prev.filter((n) => n.id !== newItem.id)]);
           if (!newItem.read) {
-            setUnreadCount((c) => c + 1);
+            setUnreadCount((c) => {
+              const next = c + 1;
+              try {
+                sessionStorage.setItem('workspace_unread_notif_count', next.toString());
+              } catch {
+                // non-blocking
+              }
+              return next;
+            });
           }
 
           // Dispatch global window event so open pages (e.g. Client Dashboard) update immediately
@@ -177,7 +216,13 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
           );
           // Recalculate unread count
           setNotifications((latest) => {
-            setUnreadCount(latest.filter((n) => !n.read).length);
+            const count = latest.filter((n) => !n.read).length;
+            setUnreadCount(count);
+            try {
+              sessionStorage.setItem('workspace_unread_notif_count', count.toString());
+            } catch {
+              // non-blocking
+            }
             return latest;
           });
         }
@@ -224,7 +269,15 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
       setNotifications((prev) =>
         prev.map((n) => (n.id === item.id ? { ...n, read: true } : n))
       );
-      setUnreadCount((c) => Math.max(0, c - 1));
+      setUnreadCount((c) => {
+        const next = Math.max(0, c - 1);
+        try {
+          sessionStorage.setItem('workspace_unread_notif_count', next.toString());
+        } catch {
+          // non-blocking
+        }
+        return next;
+      });
       markNotificationAsRead(item.id).catch(() => {});
     }
 
@@ -240,7 +293,15 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
-    setUnreadCount((c) => Math.max(0, c - 1));
+    setUnreadCount((c) => {
+      const next = Math.max(0, c - 1);
+      try {
+        sessionStorage.setItem('workspace_unread_notif_count', next.toString());
+      } catch {
+        // non-blocking
+      }
+      return next;
+    });
     await markNotificationAsRead(id);
   };
 
@@ -250,6 +311,11 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
     try {
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
+      try {
+        sessionStorage.setItem('workspace_unread_notif_count', '0');
+      } catch {
+        // non-blocking
+      }
       await markAllNotificationsAsRead();
     } finally {
       setMarkingAll(false);
@@ -264,7 +330,13 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
       {/* Trigger Bell Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const nextOpen = !isOpen;
+          setIsOpen(nextOpen);
+          if (nextOpen && unreadCount > 0) {
+            handleMarkAllAsRead();
+          }
+        }}
         aria-expanded={isOpen}
         aria-label={`Notifications (${unreadCount} unread)`}
         title="Notifications"
