@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import {
   getContractById,
+  getContractDetailsBundle,
   acceptContractOffer,
   declineContractOffer,
   updateContractOfferPrice,
@@ -255,52 +256,59 @@ function ContractDetailsContent() {
     }
   };
 
-  // Load contract, milestones, and ledger (for refresh triggers)
+  // Consolidated, resilient contract bundle fetcher
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
     }
-    setError(null);
 
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
+      const res = await getContractDetailsBundle(contractId);
+
+      if (!res.success || !res.contract) {
+        throw new Error(res.error || 'Contract could not be retrieved.');
       }
 
-      const [contractRes, milestonesRes, ledgerRes, timesheetsRes] = await Promise.all([
-        getContractById(contractId),
-        getContractMilestones(contractId),
-        getContractPaymentLedger(contractId),
-        getContractTimesheets(contractId),
-      ]);
-
-      if (!contractRes.success || !contractRes.contract) {
-        throw new Error(contractRes.error || 'Contract not found');
+      setContract(res.contract);
+      setMilestones(res.milestones || []);
+      setLedgerEntries(res.ledgerEntries || []);
+      if (res.timesheets) {
+        setContractTimesheets(res.timesheets);
       }
+      setError(null);
 
-      setContract(contractRes.contract);
-      setMilestones(milestonesRes.milestones || []);
-      setLedgerEntries(ledgerRes.entries || []);
-      if (timesheetsRes.success && timesheetsRes.timesheets) {
-        setContractTimesheets(timesheetsRes.timesheets);
-      }
-
-      // Auto-expand first non-released milestone or first milestone
-      if (milestonesRes.milestones && milestonesRes.milestones.length > 0) {
-        const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
-        setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
+      // Handle search parameters on initial load / refresh
+      if (res.milestones && res.milestones.length > 0) {
+        const fundParam = searchParams.get('fundMilestone');
+        const tabParam = searchParams.get('tab');
+        if (tabParam === 'ledger') {
+          setActiveTab('ledger');
+        }
+        if (fundParam) {
+          const targetM = res.milestones.find((m) => m.id === fundParam);
+          if (targetM) {
+            setExpandedMilestoneId(targetM.id);
+            if (targetM.status === 'planned') {
+              setSelectedMilestoneForFund(targetM);
+              setIsFundModalOpen(true);
+            }
+          } else {
+            const activeM = res.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
+            setExpandedMilestoneId((prev) => prev || activeM?.id || res.milestones![0].id);
+          }
+        } else {
+          const activeM = res.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
+          setExpandedMilestoneId((prev) => prev || activeM?.id || res.milestones![0].id);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load contract details.';
       setError(msg);
     } finally {
       setRefreshing(false);
+      setLoading(false);
     }
-  }, [contractId]);
+  }, [contractId, searchParams]);
 
   useEffect(() => {
     let isMounted = true;
@@ -313,63 +321,18 @@ function ContractDetailsContent() {
         if (user && isMounted) {
           setCurrentUserId(user.id);
         }
-
-        const [contractRes, milestonesRes, ledgerRes, timesheetsRes] = await Promise.all([
-          getContractById(contractId),
-          getContractMilestones(contractId),
-          getContractPaymentLedger(contractId),
-          getContractTimesheets(contractId),
-        ]);
-
-        if (!isMounted) return;
-
-        if (!contractRes.success || !contractRes.contract) {
-          throw new Error(contractRes.error || 'Contract not found');
-        }
-
-        setContract(contractRes.contract);
-        setMilestones(milestonesRes.milestones || []);
-        setLedgerEntries(ledgerRes.entries || []);
-        if (timesheetsRes.success && timesheetsRes.timesheets) {
-          setContractTimesheets(timesheetsRes.timesheets);
-        }
-
-        if (milestonesRes.milestones && milestonesRes.milestones.length > 0) {
-          const fundParam = searchParams.get('fundMilestone');
-          const tabParam = searchParams.get('tab');
-          if (tabParam === 'ledger') {
-            setActiveTab('ledger');
-          }
-          if (fundParam) {
-            const targetM = milestonesRes.milestones.find((m) => m.id === fundParam);
-            if (targetM) {
-              setExpandedMilestoneId(targetM.id);
-              if (targetM.status === 'planned') {
-                setSelectedMilestoneForFund(targetM);
-                setIsFundModalOpen(true);
-              }
-            } else {
-              const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
-              setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
-            }
-          } else {
-            const activeM = milestonesRes.milestones.find((m) => m.status !== 'released' && m.status !== 'cancelled');
-            setExpandedMilestoneId((prev) => prev || activeM?.id || milestonesRes.milestones[0].id);
-          }
-        }
-      } catch (err: unknown) {
-        if (!isMounted) return;
-        const msg = err instanceof Error ? err.message : 'Failed to load contract details.';
-        setError(msg);
-      } finally {
-        if (isMounted) setLoading(false);
+      } catch (authErr) {
+        console.warn('Session verification notice:', authErr);
+      }
+      if (isMounted) {
+        await loadData(false);
       }
     })();
 
     return () => {
       isMounted = false;
     };
-  }, [contractId, searchParams]);
+  }, [contractId, loadData]);
 
   // Real-time synchronization for contract milestones, deliveries, and contract status
   useEffect(() => {
@@ -1076,12 +1039,25 @@ function ContractDetailsContent() {
           </div>
           <h2 className="text-lg font-bold text-slate-900">Contract Error</h2>
           <p className="text-xs text-slate-600">{error || 'Contract could not be retrieved.'}</p>
-          <Link
-            href="/freelancer"
-            className="inline-flex items-center justify-center px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors"
-          >
-            Return to Dashboard
-          </Link>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                loadData(true);
+              }}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Try Again</span>
+            </button>
+            <Link
+              href={isClient ? '/client' : '/freelancer'}
+              className="inline-flex items-center justify-center px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors"
+            >
+              Return to Dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
