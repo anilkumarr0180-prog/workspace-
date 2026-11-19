@@ -135,6 +135,7 @@ export default function ChatWindow({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
   const userScrolledUpRef = useRef<boolean>(false);
 
   // Auto-scroll logic
@@ -160,20 +161,27 @@ export default function ChatWindow({
     }
   }, [messages.length, scrollToBottom]);
 
-  // Handle typing debounce
+  // Handle typing debounce and throttle broadcast transmissions
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputText(val);
     setErrorMessage(null);
 
+    const now = Date.now();
     if (val.trim().length > 0) {
-      onTyping(true);
+      // Throttle broadcast typing status to at most once per 1500ms to prevent socket flooding
+      if (now - lastTypingSentRef.current > 1500) {
+        lastTypingSentRef.current = now;
+        onTyping(true);
+      }
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       typingTimerRef.current = setTimeout(() => {
+        lastTypingSentRef.current = 0;
         onTyping(false);
-      }, 1500);
+      }, 2000);
     } else {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      lastTypingSentRef.current = 0;
       onTyping(false);
     }
   };
@@ -241,6 +249,7 @@ export default function ChatWindow({
 
     // Stop typing broadcast
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    lastTypingSentRef.current = 0;
     onTyping(false);
 
     try {
@@ -994,6 +1003,7 @@ export default function ChatWindow({
               onKeyDown={handleKeyDown}
               onBlur={() => {
                 if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                lastTypingSentRef.current = 0;
                 onTyping(false);
               }}
               placeholder={`Write a message to ${other?.fullName || 'participant'}... (Shift+Enter for newline)`}
