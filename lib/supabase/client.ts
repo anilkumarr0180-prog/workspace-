@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 function getSupabaseEnv() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,6 +33,20 @@ export function createClient() {
 
   if (!clientInstance) {
     clientInstance = createBrowserClient(url, publishableKey);
+
+    // Keep Supabase Realtime WebSocket connection authenticated with active JWT
+    clientInstance.auth.getSession().then((res: { data: { session: Session | null } }) => {
+      const token = res?.data?.session?.access_token;
+      if (token && clientInstance) {
+        clientInstance.realtime.setAuth(token);
+      }
+    });
+
+    clientInstance.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      if (session?.access_token && clientInstance) {
+        clientInstance.realtime.setAuth(session.access_token);
+      }
+    });
   }
 
   return clientInstance;

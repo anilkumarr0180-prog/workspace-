@@ -46,6 +46,22 @@ export function useRealtimeChat({
   const latestMessageCursorRef = useRef<string | null>(null);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
+  // Stable refs for callbacks and metadata to prevent tearing down the WebSocket channel on re-renders
+  const onMessageReceivedRef = useRef(onMessageReceived);
+  useEffect(() => {
+    onMessageReceivedRef.current = onMessageReceived;
+  }, [onMessageReceived]);
+
+  const conversationRef = useRef(conversation);
+  useEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
+
+  const currentUserNameRef = useRef(currentUserName);
+  useEffect(() => {
+    currentUserNameRef.current = currentUserName;
+  }, [currentUserName]);
+
   // Adjust messages and read state during render when conversationId or initialMessages change
   const [prevConversationId, setPrevConversationId] = useState(conversationId);
   const [prevInitialMessages, setPrevInitialMessages] = useState(initialMessages);
@@ -92,18 +108,29 @@ export function useRealtimeChat({
 
   // Fetch missed messages using safe cursor pagination (prevents overlapping requests)
   const fetchMissedMessages = useCallback(async () => {
+    if (!conversationId || isRecoveringRef.current) return;
     const cursor = latestMessageCursorRef.current;
-    if (!cursor || !conversationId || isRecoveringRef.current) return;
 
     isRecoveringRef.current = true;
     try {
-      const res = await fetch(
-        `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(cursor)}`,
-        { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
-      );
+      const url = cursor
+        ? `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(cursor)}`
+        : `/api/messages/${conversationId}?limit=50`;
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+          // Immediately extinguish typing indicator on recovered incoming message
+          setIsTyping(false);
+          setTypingUser(null);
+          if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = null;
+          }
+
           setMessages((prev) => {
             const existingMap = new Map(prev.map((m) => [m.id, m]));
             let hasNewOrChanged = false;
@@ -157,8 +184,6 @@ export function useRealtimeChat({
 
     const supabase = createClient();
     const channelName = `conversation-${conversationId}`;
-
-    let isSubscribed = false;
 
     const channel = supabase.channel(channelName, {
       config: {
@@ -222,8 +247,8 @@ export function useRealtimeChat({
         return [...filtered, newMsg].sort(sortChronological);
       });
 
-      if (onMessageReceived) {
-        onMessageReceived(newMsg);
+      if (onMessageReceivedRef.current) {
+        onMessageReceivedRef.current(newMsg);
       }
 
       if (typeof window !== 'undefined') {
@@ -267,11 +292,12 @@ export function useRealtimeChat({
         // Resolve sender profile name
         let senderName = 'Participant';
         let senderAvatar: string | null = null;
+        const currentConv = conversationRef.current;
         if (senderId === currentUserId) {
-          senderName = currentUserName;
-        } else if (conversation?.otherParticipant?.userId === senderId) {
-          senderName = conversation.otherParticipant.fullName;
-          senderAvatar = conversation.otherParticipant.avatarUrl || null;
+          senderName = currentUserNameRef.current || 'User';
+        } else if (currentConv?.otherParticipant?.userId === senderId) {
+          senderName = currentConv.otherParticipant.fullName;
+          senderAvatar = currentConv.otherParticipant.avatarUrl || null;
         }
 
         // If attachment present, fetch signed URL
@@ -323,8 +349,8 @@ export function useRealtimeChat({
           return [...filtered, newMsg].sort(sortChronological);
         });
 
-        if (onMessageReceived) {
-          onMessageReceived(newMsg);
+        if (onMessageReceivedRef.current) {
+          onMessageReceivedRef.current(newMsg);
         }
       }
     );
@@ -385,7 +411,10 @@ export function useRealtimeChat({
     channel.on('broadcast', { event: 'typing' }, (payload: { payload: TypingPayload }) => {
       const data = payload?.payload;
       if (!data) return;
-      if (data.userId === currentUserId || (currentUserName && data.userName === currentUserName)) {
+      if (
+        data.userId === currentUserId ||
+        (currentUserNameRef.current && data.userName === currentUserNameRef.current)
+      ) {
         return;
       }
       if (data.isTyping) {
@@ -396,11 +425,15 @@ export function useRealtimeChat({
         typingTimeoutRef.current = setTimeout(() => {
           setIsTyping(false);
           setTypingUser(null);
-        }, 2000);
+          typingTimeoutRef.current = null;
+        }, 2500);
       } else {
         setIsTyping(false);
         setTypingUser(null);
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
       }
     });
 
@@ -490,47 +523,42 @@ export function useRealtimeChat({
       window.addEventListener('workspace:presence-leave', handleGlobalPresenceLeave);
     }
 
-    // Ensure Realtime WebSocket connection is authenticated before subscribing
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          await supabase.realtime.setAuth(session.access_token);
-        }
-      } catch {
-        // non-blocking
+    let isCancelled = false;
+
+    // Ensure Realtime WebSocket connection is authenticated before/during subscribe
+    supabase.auth.getSession().then((res: { data: { session: { access_token: string } | null } }) => {
+      const token = res?.data?.session?.access_token;
+      if (token && !isCancelled) {
+        supabase.realtime.setAuth(token);
       }
+    });
 
-      if (isSubscribed) return;
+    // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
+    channel.subscribe(async (status: string) => {
+      if (isCancelled) return;
+      if (status === 'SUBSCRIBED') {
+        isConnectedRef.current = true;
+        setIsConnected(true);
+        stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
+        await channel.track({
+          userId: currentUserId,
+          userName: currentUserNameRef.current || 'User',
+          onlineAt: new Date().toISOString(),
+        });
 
-      // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
-      channel.subscribe(async (status: string) => {
-        if (status === 'SUBSCRIBED') {
-          isConnectedRef.current = true;
-          setIsConnected(true);
-          stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
-          await channel.track({
-            userId: currentUserId,
-            userName: currentUserName,
-            onlineAt: new Date().toISOString(),
-          });
-
-          // Immediate recovery after connect or reconnect
-          fetchMissedMessages();
-        } else if (
-          status === 'CHANNEL_ERROR' ||
-          status === 'TIMED_OUT' ||
-          status === 'CLOSED'
-        ) {
-          isConnectedRef.current = false;
-          setIsConnected(false);
-          // Start fallback recovery polling only when disconnected or recovering
-          startFallbackPolling();
-        }
-      });
-    })();
+        // Immediate recovery after connect or reconnect
+        fetchMissedMessages();
+      } else if (
+        status === 'CHANNEL_ERROR' ||
+        status === 'TIMED_OUT' ||
+        status === 'CLOSED'
+      ) {
+        isConnectedRef.current = false;
+        setIsConnected(false);
+        // Start fallback recovery polling only when disconnected or recovering
+        startFallbackPolling();
+      }
+    });
 
     channelRef.current = channel;
 
@@ -551,13 +579,18 @@ export function useRealtimeChat({
     }
 
     return () => {
-      isSubscribed = true;
+      isCancelled = true;
       stopFallbackPolling();
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onWindowFocusOrVisible);
         document.removeEventListener('visibilitychange', onVisibilityChange);
       }
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      setIsTyping(false);
+      setTypingUser(null);
       if (channelRef.current) {
         channelRef.current.untrack();
         supabase.removeChannel(channelRef.current);
@@ -571,7 +604,7 @@ export function useRealtimeChat({
       isConnectedRef.current = false;
       setIsConnected(false);
     };
-  }, [conversationId, currentUserId, currentUserName, conversation, fetchMissedMessages, onMessageReceived]);
+  }, [conversationId, currentUserId, fetchMissedMessages]);
 
   // Broadcast a confirmed message instantly over WebSocket to other participants
   const broadcastMessage = useCallback((msg: Message) => {
@@ -594,12 +627,12 @@ export function useRealtimeChat({
         event: 'typing',
         payload: {
           userId: currentUserId,
-          userName: currentUserName,
+          userName: currentUserNameRef.current || 'User',
           isTyping: typing,
         },
       });
     },
-    [currentUserId, currentUserName]
+    [currentUserId]
   );
 
   // Optimistically add an outgoing message before server response
@@ -610,7 +643,7 @@ export function useRealtimeChat({
         id: tempId,
         conversationId,
         senderId: currentUserId || 'me',
-        senderName: currentUserName,
+        senderName: currentUserNameRef.current || 'User',
         senderAvatar: null,
         content: msg.content || '',
         messageType: msg.messageType || 'text',
@@ -628,7 +661,7 @@ export function useRealtimeChat({
       setMessages((prev) => [...prev, optimisticMsg]);
       return tempId;
     },
-    [conversationId, currentUserId, currentUserName]
+    [conversationId, currentUserId]
   );
 
   // Replace temporary optimistic message with confirmed server message

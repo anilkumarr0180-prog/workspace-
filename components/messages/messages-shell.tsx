@@ -77,26 +77,9 @@ export default function MessagesShell({
     );
   }, [conversations, activeConversation]);
 
-  // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
-  const {
-    messages,
-    isTyping,
-    typingUser,
-    isUserOnline,
-    otherParticipantLastRead,
-    sendTypingStatus,
-    broadcastMessage,
-    addOptimisticMessage,
-    replaceOptimisticMessage,
-    removeOptimisticMessage,
-    setMessages,
-  } = useRealtimeChat({
-    conversationId: activeConversationId || '',
-    initialMessages,
-    conversation: activeConversation,
-    currentUserId,
-    currentUserName,
-    onMessageReceived: (newMsg) => {
+  // Memoized onMessageReceived callback for inbox synchronization
+  const handleIncomingMessage = useCallback(
+    (newMsg: Message) => {
       // If we are currently actively viewing this conversation, mark as read
       if (activeConversationId === newMsg.conversationId) {
         fetch(`/api/messages/${newMsg.conversationId}/read`, { method: 'POST' });
@@ -126,6 +109,29 @@ export default function MessagesShell({
         window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
       }
     },
+    [activeConversationId, currentUserId]
+  );
+
+  // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
+  const {
+    messages,
+    isTyping,
+    typingUser,
+    isUserOnline,
+    otherParticipantLastRead,
+    sendTypingStatus,
+    broadcastMessage,
+    addOptimisticMessage,
+    replaceOptimisticMessage,
+    removeOptimisticMessage,
+    setMessages,
+  } = useRealtimeChat({
+    conversationId: activeConversationId || '',
+    initialMessages,
+    conversation: activeConversation,
+    currentUserId,
+    currentUserName,
+    onMessageReceived: handleIncomingMessage,
   });
 
   // Fetch messages and mark as read when active conversation changes
@@ -201,7 +207,26 @@ export default function MessagesShell({
         if (res.ok && !isCancelled) {
           const data = await res.json();
           if (Array.isArray(data.conversations)) {
-            setConversations(data.conversations);
+            setConversations((prev) => {
+              if (prev.length === data.conversations.length) {
+                let hasChanges = false;
+                for (let i = 0; i < prev.length; i++) {
+                  const p = prev[i];
+                  const d = data.conversations[i];
+                  if (
+                    p.id !== d.id ||
+                    p.unreadCount !== d.unreadCount ||
+                    p.lastMessageAt !== d.lastMessageAt ||
+                    p.lastMessage?.content !== d.lastMessage?.content
+                  ) {
+                    hasChanges = true;
+                    break;
+                  }
+                }
+                if (!hasChanges) return prev;
+              }
+              return data.conversations;
+            });
           }
         }
       } catch {
