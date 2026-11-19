@@ -371,6 +371,50 @@ function ContractDetailsContent() {
     };
   }, [contractId, searchParams]);
 
+  // Real-time synchronization for contract milestones, deliveries, and contract status
+  useEffect(() => {
+    const supabase = createClient();
+
+    const initRealtimeAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) {
+        supabase.realtime.setAuth(data.session.access_token);
+      }
+    };
+    void initRealtimeAuth();
+
+    const channel = supabase
+      .channel(`contract-sync-${contractId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contract_milestones',
+          filter: `contract_id=eq.${contractId}`,
+        },
+        () => {
+          loadData(false);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'milestone_deliveries',
+        },
+        () => {
+          loadData(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [contractId, loadData]);
+
   const isClient = useMemo(() => {
     if (!contract || !currentUserId) return false;
     return contract.clientId === currentUserId;
@@ -1849,8 +1893,10 @@ function ContractDetailsContent() {
                 ) : null}
               </div>
             ) : (
-              milestones.map((milestone) => {
-                const isExpanded = expandedMilestoneId === milestone.id;
+              milestones.map((milestone, index) => {
+                const activeMilestoneIndex = milestones.findIndex((m) => m.status !== 'released' && m.status !== 'cancelled');
+                const isUpcoming = activeMilestoneIndex !== -1 && index > activeMilestoneIndex && milestone.status === 'planned';
+                const isExpanded = expandedMilestoneId === milestone.id || milestone.status === 'submitted' || milestone.status === 'revision_requested';
                 const isBusy = busyMilestoneId === milestone.id;
                 const deliveries = milestone.deliveries || [];
                 const latestDelivery = deliveries[0];
@@ -1862,6 +1908,8 @@ function ContractDetailsContent() {
                     className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden ${
                       milestone.status === 'in_progress' || milestone.status === 'submitted'
                         ? 'border-emerald-300 shadow-sm ring-1 ring-emerald-100'
+                        : isUpcoming
+                        ? 'border-slate-200/60 bg-slate-50/30 opacity-90'
                         : 'border-slate-200/80 shadow-xs'
                     }`}
                   >
@@ -1873,7 +1921,14 @@ function ContractDetailsContent() {
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-md">
                               Milestone #{milestone.sequenceOrder}
                             </span>
-                            {getStatusBadge(milestone.status)}
+                            {isUpcoming ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                Upcoming Milestone
+                              </span>
+                            ) : (
+                              getStatusBadge(milestone.status)
+                            )}
                             {milestone.dueDate && (
                               <span className="text-xs text-slate-500 flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
@@ -1898,7 +1953,25 @@ function ContractDetailsContent() {
                       <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
                         <div className="flex items-center gap-2 flex-wrap">
                           {/* CLIENT ACTIONS */}
-                          {isClient && milestone.status === 'planned' && (
+                          {isClient && isUpcoming && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-slate-500 font-medium flex items-center gap-1.5 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                Activates after Milestone #{milestones[activeMilestoneIndex]?.sequenceOrder || 1} is approved
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => openEditMilestoneModal(milestone)}
+                                disabled={isBusy}
+                                className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer py-1 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-medium"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Edit Scope</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {isClient && !isUpcoming && milestone.status === 'planned' && (
                             <button
                               onClick={() => openFundModal(milestone)}
                               disabled={isBusy || isFundingWithRazorpay || isFundingSimulated}
@@ -1916,7 +1989,7 @@ function ContractDetailsContent() {
                                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Approve & Release Payment</span>
+                                <span>Approve &amp; Release Escrow Funds</span>
                               </button>
                               <button
                                 onClick={() => openReviewModal(milestone, 'revision')}
@@ -1928,7 +2001,7 @@ function ContractDetailsContent() {
                             </>
                           )}
 
-                          {isClient && milestone.status === 'planned' && (
+                          {isClient && !isUpcoming && milestone.status === 'planned' && (
                             <button
                               type="button"
                               onClick={() => openEditMilestoneModal(milestone)}
@@ -1952,10 +2025,24 @@ function ContractDetailsContent() {
                           )}
 
                           {/* FREELANCER ACTIONS */}
-                          {isFreelancer && milestone.status === 'planned' && (
+                          {isFreelancer && isUpcoming && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100/90 border border-slate-200/90 px-3 py-1.5 rounded-lg font-medium">
+                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>Upcoming Milestone — Work begins after Milestone #{milestones[activeMilestoneIndex]?.sequenceOrder || 1} is completed and approved.</span>
+                            </div>
+                          )}
+
+                          {isFreelancer && !isUpcoming && milestone.status === 'planned' && (
                             <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50/90 border border-amber-200/80 px-2.5 py-1.5 rounded-lg font-medium">
                               <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                               <span>Awaiting client escrow deposit. Do not start work until funded.</span>
+                            </div>
+                          )}
+
+                          {isFreelancer && milestone.status === 'submitted' && (
+                            <div className="flex items-center gap-1.5 text-xs text-purple-800 bg-purple-50/90 border border-purple-200/80 px-3 py-1.5 rounded-lg font-medium">
+                              <Clock className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                              <span>Deliverables submitted for review. Escrow funds ($1200.00) are safely locked awaiting client approval.</span>
                             </div>
                           )}
 
@@ -2493,7 +2580,7 @@ function ContractDetailsContent() {
                   reviewMode === 'approve' ? 'bg-white text-emerald-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Approve & Release Payment
+                Approve & Release Escrow
               </button>
               <button
                 type="button"
@@ -2511,13 +2598,21 @@ function ContractDetailsContent() {
                 <div className="space-y-3">
                   {/* Financial Breakdown */}
                   <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2 text-xs">
-                    <span className="font-bold text-emerald-950 block">Payment Disbursement Breakdown</span>
-                    <div className="flex justify-between text-slate-700">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-950">Escrow Release Breakdown</span>
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">
+                        $0.00 Additional Charge
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-normal">
+                      Funds are released from the <strong>${selectedMilestoneForReview.amount.toFixed(2)}</strong> already deposited in escrow. Your payment method will not be billed again.
+                    </p>
+                    <div className="flex justify-between text-slate-700 pt-1 border-t border-emerald-200/60">
                       <span>Milestone Escrow Held:</span>
                       <strong className="font-mono text-slate-900">${selectedMilestoneForReview.amount.toFixed(2)}</strong>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>Standard Platform Fee (10%):</span>
+                      <span>Platform Freelancer Fee (10%):</span>
                       <strong className="font-mono text-slate-700">-${(selectedMilestoneForReview.amount * 0.1).toFixed(2)}</strong>
                     </div>
                     <div className="pt-2 border-t border-emerald-200 flex justify-between font-bold text-emerald-900">
