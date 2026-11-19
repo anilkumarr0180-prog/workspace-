@@ -13,6 +13,7 @@ import {
   PaymentLedgerEntry,
 } from '@/lib/types';
 import { createNotification } from '@/lib/actions/notifications';
+import { sendContractSystemMessage } from '@/lib/actions/messages';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -772,6 +773,12 @@ export async function fundMilestone(milestoneId: string): Promise<MilestoneResul
       }).catch(() => {});
     }
 
+    sendContractSystemMessage({
+      contractId: raw.contract_id,
+      content: `📋 Milestone #${raw.sequence_order} Funded ($${Number(raw.amount).toFixed(2)}): "${raw.title}" has been funded into escrow. Freelancer may begin work!`,
+      senderId: user.id,
+    }).catch(() => {});
+
     return {
       success: true,
       milestone: {
@@ -916,6 +923,12 @@ export async function submitMilestoneDelivery(
         link: `/contracts/${milestoneInfo.contract_id}`,
         metadata: { milestoneId: milestoneInfo.id, contractId: milestoneInfo.contract_id, deliveryId: raw.id },
       }).catch(() => {});
+
+      sendContractSystemMessage({
+        contractId: milestoneInfo.contract_id,
+        content: `🚀 Work Submitted for Milestone "${milestoneInfo.title || 'Milestone'}": Deliverables submitted for client review.`,
+        senderId: user.id,
+      }).catch(() => {});
     }
 
     return {
@@ -993,6 +1006,12 @@ export async function requestMilestoneRevision(
         metadata: { milestoneId: raw.id, contractId: raw.contract_id },
       }).catch(() => {});
     }
+
+    sendContractSystemMessage({
+      contractId: raw.contract_id,
+      content: `🔄 Revision Requested for Milestone "${raw.title}": Client requested revisions.`,
+      senderId: user.id,
+    }).catch(() => {});
 
     return {
       success: true,
@@ -1084,6 +1103,12 @@ export async function approveAndReleaseMilestone(
         metadata: { milestoneId: raw.id, contractId: raw.contract_id, amount: raw.amount },
       }).catch(() => {});
     }
+
+    sendContractSystemMessage({
+      contractId: raw.contract_id,
+      content: `✅ Milestone Approved & Released: Client approved "${raw.title}". Funds have been released to freelancer!`,
+      senderId: user.id,
+    }).catch(() => {});
 
     const finalStatus: MilestoneStatus =
       payoutStatus === 'completed' ? 'released' : (raw.status as MilestoneStatus);
