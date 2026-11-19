@@ -222,7 +222,14 @@ export default function Navbar() {
     window.addEventListener('workspace:contracts-refresh', fetchContracts);
 
     const handleCrossNotification = (e: Event) => {
-      const customEvent = e as CustomEvent<{ type?: string }>;
+      const customEvent = e as CustomEvent<{
+        type?: string;
+        metadata?: { conversationId?: string };
+      }>;
+      const convId = customEvent.detail?.metadata?.conversationId;
+      if (convId && pathname.includes(convId)) {
+        return; // Already viewing this conversation in live chat: do not increment or refresh
+      }
       if (customEvent.detail?.type === 'new_message') {
         fetchUnread();
       }
@@ -280,10 +287,11 @@ export default function Navbar() {
             metadata?: { conversationId?: string };
           };
           if (row.type === 'new_message') {
-            updateUnreadCount((prev: number) => prev + 1);
-            // If not currently inside this conversation, trigger in-app toast alert
             const convId = row.metadata?.conversationId;
-            if (!pathname.includes(convId || 'nomatch_conv_id')) {
+            const isCurrentlyInConversation = convId && pathname.includes(convId);
+            if (!isCurrentlyInConversation) {
+              updateUnreadCount((prev: number) => prev + 1);
+              // If not currently inside this conversation, trigger in-app toast alert
               setMessageToast({
                 id: row.id,
                 title: row.title || 'New Message',

@@ -50,6 +50,11 @@ export default function MessagesShell({
     Boolean(initialConversation && initialConversation.id === selectedConversationId && initialMessagesProp.length > 0)
   );
 
+  const activeConversationIdRef = useRef<string | undefined>(activeConversationId);
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
   // Sync active conversation during render when prop changes
   const [prevSelectedId, setPrevSelectedId] = useState(selectedConversationId);
   if (prevSelectedId !== selectedConversationId) {
@@ -82,7 +87,17 @@ export default function MessagesShell({
     (newMsg: Message) => {
       // If we are currently actively viewing this conversation, mark as read
       if (activeConversationId === newMsg.conversationId) {
-        fetch(`/api/messages/${newMsg.conversationId}/read`, { method: 'POST' });
+        fetch(`/api/messages/${newMsg.conversationId}/read`, { method: 'POST' })
+          .then(() => {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+            }
+          })
+          .catch(() => {});
+      } else {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+        }
       }
 
       // Update conversations inbox preview and ordering
@@ -104,10 +119,6 @@ export default function MessagesShell({
         const others = prev.filter((_, idx) => idx !== convIndex);
         return [updated, ...others];
       });
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
-      }
     },
     [activeConversationId, currentUserId]
   );
@@ -207,12 +218,16 @@ export default function MessagesShell({
         if (res.ok && !isCancelled) {
           const data = await res.json();
           if (Array.isArray(data.conversations)) {
+            const currentActiveId = activeConversationIdRef.current;
+            const sanitized = data.conversations.map((c: Conversation) =>
+              c.id === currentActiveId ? { ...c, unreadCount: 0 } : c
+            );
             setConversations((prev) => {
-              if (prev.length === data.conversations.length) {
+              if (prev.length === sanitized.length) {
                 let hasChanges = false;
                 for (let i = 0; i < prev.length; i++) {
                   const p = prev[i];
-                  const d = data.conversations[i];
+                  const d = sanitized[i];
                   if (
                     p.id !== d.id ||
                     p.unreadCount !== d.unreadCount ||
@@ -225,7 +240,7 @@ export default function MessagesShell({
                 }
                 if (!hasChanges) return prev;
               }
-              return data.conversations;
+              return sanitized;
             });
           }
         }
