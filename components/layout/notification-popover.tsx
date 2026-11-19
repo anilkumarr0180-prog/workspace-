@@ -178,6 +178,19 @@ export default function NotificationPopover({ userId, className = '' }: Notifica
             updatedAt: newRow.updated_at,
           };
 
+          const convId = (newItem.metadata as { conversationId?: string })?.conversationId;
+          const isCurrentlyInConversation =
+            newItem.type === 'new_message' &&
+            convId &&
+            typeof window !== 'undefined' &&
+            window.location.pathname.includes(convId);
+
+          if (isCurrentlyInConversation) {
+            // Already active in live chat: mark notification as read immediately without incrementing badge
+            newItem.read = true;
+            markNotificationAsRead(newItem.id).catch(() => {});
+          }
+
           setNotifications((prev) => [newItem, ...prev.filter((n) => n.id !== newItem.id)]);
           if (!newItem.read) {
             setUnreadCount((c) => {

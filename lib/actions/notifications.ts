@@ -97,9 +97,16 @@ export async function getNotifications(
       query = query.eq('read', false);
     }
 
+    let client;
+    try {
+      client = getAdminSupabaseClient();
+    } catch {
+      client = supabase;
+    }
+
     const [notificationsResult, unreadCountResult] = await Promise.all([
       query,
-      supabase
+      client
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
@@ -148,7 +155,14 @@ export async function getUnreadNotificationCount(): Promise<{ success: boolean; 
       return { success: false, count: 0 };
     }
 
-    const { count, error } = await supabase
+    let client;
+    try {
+      client = getAdminSupabaseClient();
+    } catch {
+      client = supabase;
+    }
+
+    const { count, error } = await client
       .from('notifications')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -178,7 +192,14 @@ export async function markNotificationAsRead(id: string): Promise<NotificationAc
       return { success: false, error: 'Unauthorized' };
     }
 
-    const { error } = await supabase
+    let client;
+    try {
+      client = getAdminSupabaseClient();
+    } catch {
+      client = supabase;
+    }
+
+    const { error } = await client
       .from('notifications')
       .update({ read: true, read_at: new Date().toISOString() })
       .eq('id', id)
@@ -208,7 +229,14 @@ export async function markAllNotificationsAsRead(): Promise<NotificationActionRe
       return { success: false, error: 'Unauthorized' };
     }
 
-    const { error } = await supabase
+    let client;
+    try {
+      client = getAdminSupabaseClient();
+    } catch {
+      client = supabase;
+    }
+
+    const { error } = await client
       .from('notifications')
       .update({ read: true, read_at: new Date().toISOString() })
       .eq('user_id', user.id)
