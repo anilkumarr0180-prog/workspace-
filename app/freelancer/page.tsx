@@ -202,16 +202,32 @@ export default function FreelancerDashboardPage() {
 
     window.addEventListener('workspace-notification-received', onNotificationReceived);
 
-    // 2. Direct Supabase Realtime subscription on proposals table (UPDATE and INSERT)
+    // 2. Direct Supabase Realtime subscription on proposals & contracts tables (UPDATE and INSERT)
     const supabase = createClient();
     const channel = supabase
-      .channel('freelancer-dashboard-realtime-proposals')
+      .channel('freelancer-dashboard-realtime-events')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'proposals',
+        },
+        () => {
+          setRefreshIndex((prev) => prev + 1);
+          try {
+            sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+          } catch {
+            // Safe fallback
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contracts',
         },
         () => {
           setRefreshIndex((prev) => prev + 1);
@@ -773,12 +789,17 @@ export default function FreelancerDashboardPage() {
                               <Sparkles className="w-4 h-4" />
                             </div>
                             <div>
-                              <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5 flex-wrap">
                                 <span>🎉 Formal Contract Offer Received!</span>
-                                <span className="px-1.5 py-0.5 text-[10px] bg-emerald-200/80 text-emerald-900 rounded font-semibold">Action Required</span>
+                                {prop.offerAmount && (
+                                  <span className="px-2 py-0.5 text-xs font-extrabold bg-white text-emerald-900 border border-emerald-300 rounded shadow-2xs">
+                                    Agreed Offer: ${prop.offerAmount}{prop.offerRateType === 'hourly' ? '/hr' : ''}
+                                  </span>
+                                )}
+                                <span className="px-1.5 py-0.5 text-[10px] bg-emerald-200/80 text-emerald-900 rounded font-semibold uppercase tracking-wider">Action Required</span>
                               </p>
                               <p className="text-2xs text-emerald-800 leading-tight mt-0.5">
-                                The client sent you a contract offer. Review terms, scope, and accept to activate your escrow protection.
+                                The client sent you a contract offer{prop.offerAmount ? ` for $${prop.offerAmount}${prop.offerRateType === 'hourly' ? '/hr' : ''}` : ''}. Review terms, scope, and accept to activate your escrow protection.
                               </p>
                             </div>
                           </div>
@@ -786,7 +807,7 @@ export default function FreelancerDashboardPage() {
                             href={`/contracts/${prop.contractId}`}
                             className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.98] text-xs font-bold transition-all shrink-0 shadow-2xs cursor-pointer"
                           >
-                            <span>Review & Accept Offer</span>
+                            <span>Review &amp; Accept Offer</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </Link>
                         </div>
@@ -797,14 +818,14 @@ export default function FreelancerDashboardPage() {
                           <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                             <span className="text-xs font-bold text-emerald-900">
-                              Contract Active & Escrow Secured
+                              Contract Active &amp; Escrow Secured
                             </span>
                           </div>
                           <Link
                             href={`/contracts/${prop.contractId}`}
                             className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
                           >
-                            <span>View Contract & Work</span>
+                            <span>View Contract &amp; Work</span>
                             <ArrowRight className="w-3 h-3" />
                           </Link>
                         </div>
@@ -825,13 +846,30 @@ export default function FreelancerDashboardPage() {
                       </button>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 pt-1">
-                        <div className="flex items-center gap-4 flex-wrap">
-                          <span>
-                            Your Bid:{' '}
-                            <strong className="text-slate-800">
-                              ${prop.bidAmount} {prop.rateType === 'hourly' ? '/hr' : ''}
-                            </strong>
-                          </span>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {prop.offerAmount && prop.offerAmount !== prop.bidAmount ? (
+                            <>
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-900 px-2 py-0.5 rounded-md border border-emerald-200 font-bold">
+                                <span>Agreed Offer:</span>
+                                <strong className="text-emerald-800">${prop.offerAmount} {prop.offerRateType === 'hourly' ? '/hr' : ''}</strong>
+                              </span>
+                              <span className="text-slate-400">
+                                (Initial Bid: <span className="line-through">${prop.bidAmount}</span>)
+                              </span>
+                            </>
+                          ) : prop.offerAmount ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200 font-bold">
+                              <span>Agreed Offer:</span>
+                              <strong>${prop.offerAmount} {prop.offerRateType === 'hourly' ? '/hr' : ''}</strong>
+                            </span>
+                          ) : (
+                            <span>
+                              Your Bid:{' '}
+                              <strong className="text-slate-800">
+                                ${prop.bidAmount} {prop.rateType === 'hourly' ? '/hr' : ''}
+                              </strong>
+                            </span>
+                          )}
                           <span>•</span>
                           <span>Timeline: <strong>{prop.deliveryDays ?? 'Flexible'} days</strong></span>
                           <span>•</span>

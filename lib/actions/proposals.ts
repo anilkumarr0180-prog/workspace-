@@ -34,6 +34,9 @@ export interface ProposalRecord {
   jobStatus?: string;
   contractId?: string | null;
   contractStatus?: 'pending_offer' | 'active' | 'completed' | 'declined' | null;
+  offerAmount?: number | null;
+  offerRateType?: string | null;
+  offerMessage?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -521,9 +524,47 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
       (jbs || []).forEach((j) => jobMap.set(j.id, j));
     }
 
+    const proposalIds = rows.map((p) => p.id);
+    const contractsMap = new Map<
+      string,
+      {
+        id: string;
+        status: 'pending_offer' | 'active' | 'completed' | 'declined';
+        fixedPrice: number | null;
+        hourlyRate: number | null;
+        contractType: string | null;
+        offerMessage: string | null;
+      }
+    >();
+
+    if (proposalIds.length > 0) {
+      try {
+        const { data: cRows } = await db
+          .from('contracts')
+          .select('id, proposal_id, status, fixed_price, hourly_rate, contract_type, offer_message')
+          .in('proposal_id', proposalIds);
+        (cRows || []).forEach((c) => {
+          if (c.proposal_id) {
+            contractsMap.set(c.proposal_id, {
+              id: c.id,
+              status: c.status,
+              fixedPrice: c.fixed_price ? Number(c.fixed_price) : null,
+              hourlyRate: c.hourly_rate ? Number(c.hourly_rate) : null,
+              contractType: c.contract_type || null,
+              offerMessage: c.offer_message || null,
+            });
+          }
+        });
+      } catch {
+        // Non-blocking
+      }
+    }
+
     const mapped: ProposalRecord[] = rows.map((row) => {
       const jobObj = jobMap.get(row.job_id);
       const profileObj = profMap.get(row.freelancer_id);
+      const contractObj = contractsMap.get(row.id);
+      const offerAmt = contractObj?.fixedPrice ?? contractObj?.hourlyRate ?? null;
 
       return {
         id: row.id,
@@ -540,6 +581,11 @@ export async function getProposals(filters: GetProposalsFilters = {}): Promise<{
         deliveryDays: row.delivery_days ? Number(row.delivery_days) : null,
         coverLetter: row.cover_letter,
         status: row.status,
+        contractId: contractObj?.id || null,
+        contractStatus: contractObj?.status || null,
+        offerAmount: offerAmt,
+        offerRateType: contractObj?.contractType || null,
+        offerMessage: contractObj?.offerMessage || null,
         isShortlisted: Boolean(row.is_shortlisted),
         shortlistedAt: row.shortlisted_at || null,
         declinedReason: row.declined_reason || null,

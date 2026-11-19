@@ -21,7 +21,8 @@ import {
   XCircle,
   ArrowRight,
   FileEdit,
-  Save
+  Save,
+  Sparkles,
 } from 'lucide-react';
 
 interface ProposalDetailsModalProps {
@@ -371,15 +372,30 @@ export default function ProposalDetailsModal({
           {/* Key Proposal Metrics Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200/70 text-xs">
             <div>
-              <span className="text-slate-400 font-medium block">Proposed Bid</span>
+              <span className="text-slate-400 font-medium block">
+                {existingContract || proposal.offerAmount ? 'Agreed Offer' : 'Proposed Bid'}
+              </span>
               <div className="flex items-center gap-1 font-bold text-slate-900 text-sm sm:text-base mt-0.5">
                 <DollarSign className="w-4 h-4 text-emerald-600 shrink-0 -mr-0.5" />
-                <span>{proposal.bidAmount.toLocaleString()}</span>
-                {proposal.rateType === 'hourly' && (
+                <span>
+                  {existingContract
+                    ? (existingContract.fixedPrice || existingContract.hourlyRate || proposal.bidAmount).toLocaleString()
+                    : (proposal.offerAmount || proposal.bidAmount).toLocaleString()}
+                </span>
+                {(existingContract?.contractType === 'hourly' || proposal.rateType === 'hourly') && (
                   <span className="text-xs font-normal text-slate-500">/hr</span>
                 )}
               </div>
-              <span className="text-[11px] text-slate-500 capitalize">{proposal.rateType} rate</span>
+              <span className="text-[11px] text-slate-500 capitalize">
+                {(existingContract?.fixedPrice && existingContract.fixedPrice !== proposal.bidAmount) ||
+                (proposal.offerAmount && proposal.offerAmount !== proposal.bidAmount) ? (
+                  <span className="text-emerald-700 font-medium">
+                    Bid was: ${proposal.bidAmount}
+                  </span>
+                ) : (
+                  `${existingContract?.contractType || proposal.rateType} rate`
+                )}
+              </span>
             </div>
 
             <div>
@@ -406,6 +422,39 @@ export default function ProposalDetailsModal({
               <div>{getStatusBadge(proposal.status)}</div>
             </div>
           </div>
+
+          {/* Formal Contract Offer Extended Notice */}
+          {existingContract?.status === 'pending_offer' && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <strong className="text-xs font-bold text-emerald-950">Formal Contract Offer Active</strong>
+                    <span className="px-2 py-0.5 text-xs font-black text-emerald-900 bg-white border border-emerald-300 rounded shadow-2xs">
+                      ${existingContract.contractType === 'hourly' ? `${existingContract.hourlyRate}/hr` : existingContract.fixedPrice}
+                    </span>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded border border-amber-300">
+                      Awaiting Acceptance
+                    </span>
+                  </div>
+                  <p className="text-2xs text-emerald-800 leading-tight mt-1">
+                    {isClient
+                      ? 'You have extended a contract offer with these terms. You can review or revise the price on the contract page before the freelancer accepts.'
+                      : 'You received an official contract offer. Review terms, scope, and accept to start working with escrow protection.'}
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`/contracts/${existingContract.id}`}
+                onClick={onClose}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.98] text-xs font-bold transition-all shrink-0 shadow-2xs cursor-pointer self-start sm:self-auto"
+              >
+                <span>{isClient ? 'Manage / Revise Offer' : 'Review & Accept Offer'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          )}
 
           {/* Active Discussion / Meeting Scheduled Notice */}
           {proposal.status === 'interviewing' && existingContract?.status !== 'active' && (
@@ -528,14 +577,14 @@ export default function ProposalDetailsModal({
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-300 text-xs font-semibold flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Offer Extended (Pending Acceptance)</span>
+                    <span>Offer Extended (${existingContract.contractType === 'hourly' ? `${existingContract.hourlyRate}/hr` : existingContract.fixedPrice})</span>
                   </span>
                   <Link
                     href={`/contracts/${existingContract.id}`}
                     onClick={onClose}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-semibold transition-colors shadow-2xs"
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors shadow-2xs"
                   >
-                    View Offer
+                    Manage Offer &amp; Price
                   </Link>
                 </div>
               ) : existingContract?.status === 'active' ? (
@@ -621,7 +670,18 @@ export default function ProposalDetailsModal({
 
           {/* Freelancer Action Buttons */}
           {!isClient && (
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+              {existingContract?.status === 'pending_offer' && (
+                <Link
+                  href={`/contracts/${existingContract.id}`}
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Review &amp; Accept Offer (${existingContract.contractType === 'hourly' ? `${existingContract.hourlyRate}/hr` : existingContract.fixedPrice})</span>
+                </Link>
+              )}
+
               <Link
                 href={`/jobs/${proposal.jobId}`}
                 className="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-colors inline-flex items-center gap-1.5"

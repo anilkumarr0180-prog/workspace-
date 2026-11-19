@@ -304,19 +304,35 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
         clientJobs.forEach((j) => jobsMap.set(j.id, j));
 
         const proposalIds = rows.map((p) => p.id);
-        const contractsMap = new Map<string, { id: string; status: 'pending_offer' | 'active' | 'completed' | 'declined' }>();
+        const contractsMap = new Map<
+          string,
+          {
+            id: string;
+            status: 'pending_offer' | 'active' | 'completed' | 'declined';
+            fixedPrice: number | null;
+            hourlyRate: number | null;
+            contractType: string | null;
+            offerMessage: string | null;
+          }
+        >();
         if (proposalIds.length > 0) {
           try {
             const { data: cRows } = await supabase
               .from('contracts')
-              .select('id, proposal_id, status')
+              .select('id, proposal_id, status, fixed_price, hourly_rate, contract_type, offer_message')
               .in('proposal_id', proposalIds);
             if (cRows) {
               cRows.forEach((c) => {
-                contractsMap.set(c.proposal_id, {
-                  id: c.id,
-                  status: c.status as 'pending_offer' | 'active' | 'completed' | 'declined',
-                });
+                if (c.proposal_id) {
+                  contractsMap.set(c.proposal_id, {
+                    id: c.id,
+                    status: c.status as 'pending_offer' | 'active' | 'completed' | 'declined',
+                    fixedPrice: c.fixed_price ? Number(c.fixed_price) : null,
+                    hourlyRate: c.hourly_rate ? Number(c.hourly_rate) : null,
+                    contractType: c.contract_type || null,
+                    offerMessage: c.offer_message || null,
+                  });
+                }
               });
             }
           } catch {
@@ -331,6 +347,7 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
 
           const isHired = contractObj?.status === 'active' || contractObj?.status === 'completed' || row.status === 'accepted';
           const effectiveStatus = isHired ? 'accepted' : row.status;
+          const offerAmt = contractObj?.fixedPrice ?? contractObj?.hourlyRate ?? null;
 
           return {
             id: row.id,
@@ -348,6 +365,9 @@ export async function getClientDashboardData(): Promise<ClientDashboardResult> {
             status: effectiveStatus,
             contractId: contractObj?.id || null,
             contractStatus: contractObj?.status || null,
+            offerAmount: offerAmt,
+            offerRateType: contractObj?.contractType || null,
+            offerMessage: contractObj?.offerMessage || null,
             isShortlisted: Boolean(row.is_shortlisted),
             shortlistedAt: row.shortlisted_at || null,
             declinedReason: row.declined_reason || null,
