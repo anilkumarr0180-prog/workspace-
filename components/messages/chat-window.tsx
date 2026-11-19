@@ -677,6 +677,26 @@ export default function ChatWindow({
                 !isOptimistic &&
                 otherReadTime >= new Date(msg.createdAt).getTime();
 
+              // System activity notification rendering
+              if (msg.messageType === 'system') {
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDateDivider && (
+                      <div className="flex items-center justify-center my-5">
+                        <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 py-1 rounded-full bg-white/90 border border-slate-200/80 shadow-2xs">
+                          {formatDateDivider(msg.createdAt)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-center my-3.5 px-4">
+                      <div className="inline-flex items-center gap-2 max-w-lg px-3.5 py-2 rounded-xl bg-slate-50/90 border border-slate-200 text-xs text-slate-700 shadow-2xs font-medium text-center">
+                        <span className="leading-relaxed">{msg.content}</span>
+                      </div>
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
               return (
                 <React.Fragment key={msg.id}>
                   {showDateDivider && (

@@ -1952,6 +1952,13 @@ function ContractDetailsContent() {
                           )}
 
                           {/* FREELANCER ACTIONS */}
+                          {isFreelancer && milestone.status === 'planned' && (
+                            <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50/90 border border-amber-200/80 px-2.5 py-1.5 rounded-lg font-medium">
+                              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Awaiting client escrow deposit. Do not start work until funded.</span>
+                            </div>
+                          )}
+
                           {isFreelancer && milestone.status === 'funded' && (
                             <button
                               onClick={() => handleStartWork(milestone.id)}
@@ -2923,8 +2930,10 @@ function ContractDetailsContent() {
               </button>
             </div>
 
-            {/* Payment Method 2: Instant Simulated Funding (Development / Demo Mode Only) */}
-            {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true') && (
+            {/* Payment Method 2: Instant Simulated Funding (Test Environment & Demo) */}
+            {(process.env.NODE_ENV !== 'production' ||
+              process.env.NEXT_PUBLIC_ENABLE_SIMULATED_PAYMENTS === 'true' ||
+              Boolean(process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.startsWith('rzp_test_'))) && (
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>

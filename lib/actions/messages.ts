@@ -1519,3 +1519,64 @@ export async function getAuthorizedAttachmentUrl(
     return { success: false, error: msg };
   }
 }
+
+/**
+ * Sends an automated system activity update to the contract's workroom conversation.
+ * If no conversation exists for the contract, it initializes one.
+ */
+export async function sendContractSystemMessage({
+  contractId,
+  content,
+  senderId,
+}: {
+  contractId: string;
+  content: string;
+  senderId?: string;
+}): Promise<void> {
+  if (!contractId || !UUID_REGEX.test(contractId)) return;
+  try {
+    const admin = getAdminSupabaseClient();
+    // 1. Get or create conversation for contract
+    const { data: convId, error: rpcError } = await admin.rpc(
+      'create_or_get_contract_conversation',
+      { p_contract_id: contractId }
+    );
+
+    let targetConvId = convId as string | null;
+    if (rpcError || !targetConvId) {
+      // Fallback: search conversations table directly
+      const { data: existingConv } = await admin
+        .from('conversations')
+        .select('id')
+        .eq('contract_id', contractId)
+        .maybeSingle();
+      targetConvId = existingConv?.id || null;
+    }
+
+    if (!targetConvId) return;
+
+    // 2. Resolve a sender_id (contract participant)
+    let actualSender = senderId;
+    if (!actualSender) {
+      const { data: contract } = await admin
+        .from('contracts')
+        .select('client_id, freelancer_id')
+        .eq('id', contractId)
+        .maybeSingle();
+      actualSender = contract?.client_id || contract?.freelancer_id;
+    }
+
+    if (!actualSender) return;
+
+    // 3. Insert system message
+    await admin.from('messages').insert({
+      conversation_id: targetConvId,
+      sender_id: actualSender,
+      content,
+      message_type: 'system',
+    });
+  } catch (err) {
+    console.warn('sendContractSystemMessage notice:', err);
+  }
+}
+
