@@ -283,7 +283,7 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       // 3. Fetch Contracts for proposal status mapping & active contract counts
       supabase
         .from('contracts')
-        .select('id, proposal_id, status')
+        .select('id, proposal_id, status, fixed_price, hourly_rate, contract_type, offer_message')
         .eq('freelancer_id', user.id),
 
       // 4. Fetch Genuine Saved Jobs strictly from database
@@ -389,7 +389,17 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
       };
     }
 
-    const contractsMap = new Map<string, { id: string; status: 'pending_offer' | 'active' | 'completed' | 'declined' }>();
+    const contractsMap = new Map<
+      string,
+      {
+        id: string;
+        status: 'pending_offer' | 'active' | 'completed' | 'declined';
+        fixedPrice: number | null;
+        hourlyRate: number | null;
+        contractType: string | null;
+        offerMessage: string | null;
+      }
+    >();
     let totalDirectActiveContracts = 0;
     const fContracts = contractsRes.data;
     if (fContracts) {
@@ -399,6 +409,10 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
           contractsMap.set(c.proposal_id, {
             id: c.id,
             status: c.status as 'pending_offer' | 'active' | 'completed' | 'declined',
+            fixedPrice: c.fixed_price ? Number(c.fixed_price) : null,
+            hourlyRate: c.hourly_rate ? Number(c.hourly_rate) : null,
+            contractType: c.contract_type || null,
+            offerMessage: c.offer_message || null,
           });
         }
       });
@@ -407,6 +421,7 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
     const proposals: ProposalRecord[] = ((rawProposals as unknown as ProposalRawRow[]) || []).map((row) => {
       const jobObj = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs;
       const contractObj = contractsMap.get(row.id);
+      const offerAmt = contractObj?.fixedPrice ?? contractObj?.hourlyRate ?? null;
 
       return {
         id: row.id,
@@ -424,6 +439,9 @@ export async function getFreelancerDashboardData(): Promise<FreelancerDashboardR
         status: row.status,
         contractId: contractObj?.id || null,
         contractStatus: contractObj?.status || null,
+        offerAmount: offerAmt,
+        offerRateType: contractObj?.contractType || null,
+        offerMessage: contractObj?.offerMessage || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };

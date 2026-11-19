@@ -51,6 +51,38 @@ export default function HireOfferModal({
   const [allowManualTime, setAllowManualTime] = useState(true);
   const [offerMessage, setOfferMessage] = useState('');
 
+  const [prevProposalId, setPrevProposalId] = useState<string | null>(null);
+
+  if (proposal && proposal.id !== prevProposalId) {
+    setPrevProposalId(proposal.id);
+    setContractType(proposal.rateType || 'fixed');
+    setTitle(proposal.jobTitle || 'Contract');
+    if (proposal.rateType === 'hourly') {
+      setHourlyRate(String(proposal.bidAmount || 45));
+    } else {
+      setFixedPrice(String(proposal.bidAmount || 500));
+    }
+  }
+
+  const handleQuickAdjust = (delta: number) => {
+    if (contractType === 'fixed') {
+      const cur = Number(fixedPrice) || 0;
+      setFixedPrice(String(Math.max(5, cur + delta)));
+    } else {
+      const cur = Number(hourlyRate) || 0;
+      setHourlyRate(String(Math.max(1, cur + delta)));
+    }
+  };
+
+  const handleResetToBid = () => {
+    if (!proposal) return;
+    if (contractType === 'fixed') {
+      setFixedPrice(String(proposal.bidAmount || 500));
+    } else {
+      setHourlyRate(String(proposal.bidAmount || 45));
+    }
+  };
+
   if (!isOpen || !proposal) return null;
 
   const freelancerInitials = (proposal.freelancerName || 'F')
@@ -270,6 +302,28 @@ export default function HireOfferModal({
                     / hr
                   </span>
                 </div>
+                <div className="flex items-center gap-1.5 flex-wrap pt-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 mr-1">Adjust:</span>
+                  {[-10, -5, 5, 10, 25].map((delta) => (
+                    <button
+                      key={delta}
+                      type="button"
+                      onClick={() => handleQuickAdjust(delta)}
+                      className="px-2 py-0.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer"
+                    >
+                      {delta > 0 ? `+ $${delta}` : `- $${Math.abs(delta)}`}
+                    </button>
+                  ))}
+                  {proposal.bidAmount && (
+                    <button
+                      type="button"
+                      onClick={handleResetToBid}
+                      className="px-2 py-0.5 rounded-lg border border-emerald-200 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer"
+                    >
+                      Reset (${proposal.bidAmount}/hr)
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -326,6 +380,35 @@ export default function HireOfferModal({
                   <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-medium">
                     USD
                   </span>
+                </div>
+
+                {/* Quick Increment/Decrement Chips */}
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-semibold text-slate-500 mr-1">Adjust:</span>
+                    {[-100, -50, 50, 100, 200].map((delta) => (
+                      <button
+                        key={delta}
+                        type="button"
+                        onClick={() => handleQuickAdjust(delta)}
+                        className="px-2 py-0.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer"
+                      >
+                        {delta > 0 ? `+ $${delta}` : `- $${Math.abs(delta)}`}
+                      </button>
+                    ))}
+                    {proposal.bidAmount && (
+                      <button
+                        type="button"
+                        onClick={handleResetToBid}
+                        className="px-2 py-0.5 rounded-lg border border-emerald-200 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer"
+                      >
+                        Reset to Bid (${proposal.bidAmount})
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 italic">
+                    💡 Discussed new terms in your meeting? You can increase or decrease this price to match what you finalized with {proposal.freelancerName || 'the specialist'}.
+                  </p>
                 </div>
               </div>
 

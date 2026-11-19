@@ -7,6 +7,7 @@ import {
   getContractById,
   acceptContractOffer,
   declineContractOffer,
+  updateContractOfferPrice,
 } from '@/lib/actions/contracts';
 import {
   getContractMilestones,
@@ -69,6 +70,7 @@ import {
   Star,
   Paperclip,
   Download,
+  Edit3,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
 import EndContractModal from '@/components/contracts/end-contract-modal';
@@ -176,6 +178,70 @@ function ContractDetailsContent() {
   const [isDecliningOffer, setIsDecliningOffer] = useState(false);
   const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
   const [declineReasonText, setDeclineReasonText] = useState('');
+
+  // Revise Offer Price State (Client)
+  const [isEditOfferModalOpen, setIsEditOfferModalOpen] = useState(false);
+  const [editOfferPrice, setEditOfferPrice] = useState<string>('');
+  const [editOfferMemo, setEditOfferMemo] = useState<string>('');
+  const [isUpdatingOfferPrice, setIsUpdatingOfferPrice] = useState(false);
+  const [editOfferError, setEditOfferError] = useState<string | null>(null);
+
+  const handleOpenEditOfferModal = () => {
+    if (!contract) return;
+    const initialPrice = contract.contractType === 'fixed'
+      ? String(contract.fixedPrice ?? '')
+      : String(contract.hourlyRate ?? '');
+    setEditOfferPrice(initialPrice);
+    setEditOfferMemo(contract.offerMessage ?? '');
+    setEditOfferError(null);
+    setIsEditOfferModalOpen(true);
+  };
+
+  const handleQuickAdjustPrice = (delta: number) => {
+    const current = Number(editOfferPrice) || 0;
+    const next = Math.max(1, current + delta);
+    setEditOfferPrice(String(next));
+  };
+
+  const handleSubmitOfferPriceRevision = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contract) return;
+
+    const num = Number(editOfferPrice);
+    if (!num || num <= 0) {
+      setEditOfferError('Please enter a valid price greater than $0.');
+      return;
+    }
+
+    setIsUpdatingOfferPrice(true);
+    setEditOfferError(null);
+
+    try {
+      const isFixed = contract.contractType === 'fixed';
+      const res = await updateContractOfferPrice({
+        contractId: contract.id,
+        fixedPrice: isFixed ? num : null,
+        hourlyRate: !isFixed ? num : null,
+        offerMessage: editOfferMemo.trim() || undefined,
+      });
+
+      if (!res.success) {
+        setEditOfferError(res.error || 'Failed to update offer price.');
+        setIsUpdatingOfferPrice(false);
+        return;
+      }
+
+      setIsEditOfferModalOpen(false);
+      setActionSuccessMessage(`Contract offer price successfully updated to $${num}${!isFixed ? '/hr' : ''}!`);
+      setTimeout(() => setActionSuccessMessage(null), 5000);
+      loadData(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unexpected error updating price.';
+      setEditOfferError(msg);
+    } finally {
+      setIsUpdatingOfferPrice(false);
+    }
+  };
 
   // Load contract, milestones, and ledger (for refresh triggers)
   const loadData = useCallback(async (isRefresh = false) => {
@@ -1055,6 +1121,17 @@ function ContractDetailsContent() {
                     {contract.weeklyHourLimit ? `Limit: ${contract.weeklyHourLimit} hrs / week` : 'No weekly limit'}
                   </span>
                 )}
+                {isClient && (
+                  <button
+                    type="button"
+                    onClick={handleOpenEditOfferModal}
+                    className="mt-2 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                    title="Revise the agreed price discussed in your meeting"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Revise Offer Price</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1064,6 +1141,36 @@ function ContractDetailsContent() {
                   Memo from Client:
                 </span>
                 <p className="leading-relaxed whitespace-pre-line text-slate-700">{contract.offerMessage}</p>
+              </div>
+            )}
+
+            {/* Client Offer Actions */}
+            {isClient && (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-emerald-200/80">
+                <div className="flex items-center gap-2 text-xs text-emerald-950">
+                  <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    Agreed on new terms in your meeting? You can increase or decrease this offer price before the specialist accepts.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenEditOfferModal}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                  >
+                    <DollarSign className="w-3.5 h-3.5" />
+                    <span>Revise Offer Price</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenMessages}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <span>Discuss in Messages</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2781,6 +2888,139 @@ function ContractDetailsContent() {
                   className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {isDecliningOffer ? 'Declining...' : 'Confirm Decline'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Revise Offer Price Modal (Client) */}
+      {isEditOfferModalOpen && contract && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+            <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Revise Contract Offer Price</h3>
+                  <p className="text-xs text-slate-500">Update agreed pricing finalized with specialist</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsEditOfferModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Close dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitOfferPriceRevision} className="p-6 space-y-4">
+              {editOfferError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{editOfferError}</span>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 flex items-center justify-between">
+                <div>
+                  <span className="block font-bold text-slate-800">Specialist: {contract.freelancerName || 'Candidate'}</span>
+                  <span className="text-[11px] text-slate-500">Contract Type: {contract.contractType === 'hourly' ? 'Hourly Rate' : 'Fixed Price (Escrow)'}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-400 block">Current Offer</span>
+                  <span className="text-sm font-extrabold text-slate-900">
+                    ${contract.contractType === 'hourly' ? `${contract.hourlyRate}/hr` : contract.fixedPrice}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {contract.contractType === 'hourly' ? 'Revised Hourly Rate ($/hr)' : 'Revised Total Fixed Price ($ USD)'}{' '}
+                  <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-2.5 text-sm font-bold text-slate-500">$</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step={contract.contractType === 'hourly' ? '0.5' : '1'}
+                    value={editOfferPrice}
+                    onChange={(e) => setEditOfferPrice(e.target.value)}
+                    required
+                    placeholder="e.g. 1200"
+                    className="w-full pl-8 pr-16 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                  <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-medium">
+                    {contract.contractType === 'hourly' ? '/ hr' : 'USD'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Stepper Adjustments */}
+              <div>
+                <span className="block text-[11px] font-semibold text-slate-500 mb-1.5">
+                  Quick adjustments (discussed in meeting):
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[-100, -50, 50, 100, 200].map((delta) => (
+                    <button
+                      key={delta}
+                      type="button"
+                      onClick={() => handleQuickAdjustPrice(delta)}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer"
+                    >
+                      {delta > 0 ? `+ $${delta}` : `- $${Math.abs(delta)}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Reason / Memo to Freelancer (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editOfferMemo}
+                  onChange={(e) => setEditOfferMemo(e.target.value)}
+                  placeholder="e.g. Adjusted price to match expanded project deliverables agreed during our consultation."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditOfferModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingOfferPrice}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-2xs flex items-center gap-1.5"
+                >
+                  {isUpdatingOfferPrice ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating...</span>
+                    </>
+                  ) : (
+                    <span>Save &amp; Revise Offer</span>
+                  )}
                 </button>
               </div>
             </form>

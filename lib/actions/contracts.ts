@@ -986,3 +986,194 @@ export async function getContractOfferForProposal(
     return { success: false, error: message };
   }
 }
+
+export interface UpdateContractOfferPriceInput {
+  contractId: string;
+  fixedPrice?: number | null;
+  hourlyRate?: number | null;
+  weeklyHourLimit?: number | null;
+  offerMessage?: string | null;
+}
+
+export interface UpdateContractOfferPriceResult {
+  success: boolean;
+  error?: string;
+  code?: string;
+}
+
+/**
+ * Revise or update the price and terms of a pending contract offer.
+ * Allows client and freelancer to adjust terms finalized during consultations or meetings.
+ */
+export async function updateContractOfferPrice(
+  input: UpdateContractOfferPriceInput
+): Promise<UpdateContractOfferPriceResult> {
+  if (!input.contractId || !UUID_REGEX.test(input.contractId.trim())) {
+    return { success: false, error: 'Invalid contract ID format.', code: 'INVALID_ID' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return {
+      success: false,
+      error: 'Authentication required to revise offer terms.',
+      code: 'UNAUTHENTICATED',
+    };
+  }
+
+  try {
+    let admin: SupabaseClient;
+    try {
+      admin = getAdminSupabaseClient();
+    } catch {
+      admin = supabase;
+    }
+
+    // 1. Fetch existing contract to verify status and ownership
+    const { data: contract, error: cErr } = await admin
+      .from('contracts')
+      .select('id, proposal_id, job_id, client_id, company_id, freelancer_id, contract_type, title, status, fixed_price, hourly_rate')
+      .eq('id', input.contractId.trim())
+      .single();
+
+    if (cErr || !contract) {
+      return { success: false, error: 'Contract not found.', code: 'NOT_FOUND' };
+    }
+
+    // 2. Authorization check
+    let isClientAuthorized = contract.client_id === user.id;
+    if (!isClientAuthorized && contract.company_id) {
+      const { data: member } = await admin
+        .from('company_members')
+        .select('id, role')
+        .eq('company_id', contract.company_id)
+        .eq('user_id', user.id)
+        .single();
+      if (member && ['owner', 'admin', 'hiring_manager'].includes(member.role)) {
+        isClientAuthorized = true;
+      }
+    }
+
+    if (!isClientAuthorized) {
+      return {
+        success: false,
+        error: 'Only the client who created this job offer can revise its terms.',
+        code: 'UNAUTHORIZED',
+      };
+    }
+
+    // 3. Status check: Only pending_offer can be revised
+    if (contract.status !== 'pending_offer') {
+      return {
+        success: false,
+        error: `Only pending offers can be revised. This contract is currently "${contract.status}".`,
+        code: 'INVALID_STATUS',
+      };
+    }
+
+    // 4. Validate revised pricing
+    const isFixed = contract.contract_type === 'fixed';
+    const fixedNum = isFixed ? Number(input.fixedPrice) : null;
+    const hourlyNum = !isFixed ? Number(input.hourlyRate) : null;
+
+    if (isFixed && (!fixedNum || fixedNum <= 0)) {
+      return {
+        success: false,
+        error: 'Please specify a valid fixed price greater than $0.',
+        code: 'INVALID_PRICE',
+      };
+    }
+
+    if (!isFixed && (!hourlyNum || hourlyNum <= 0)) {
+      return {
+        success: false,
+        error: 'Please specify a valid hourly rate greater than $0.',
+        code: 'INVALID_RATE',
+      };
+    }
+
+    // 5. Update contracts table
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isFixed) {
+      updatePayload.fixed_price = fixedNum;
+    } else {
+      updatePayload.hourly_rate = hourlyNum;
+      if (input.weeklyHourLimit !== undefined) {
+        updatePayload.weekly_hour_limit = input.weeklyHourLimit ? Number(input.weeklyHourLimit) : null;
+      }
+    }
+
+    if (input.offerMessage !== undefined) {
+      updatePayload.offer_message = input.offerMessage?.trim() || null;
+    }
+
+    const { error: updateErr } = await admin
+      .from('contracts')
+      .update(updatePayload)
+      .eq('id', contract.id);
+
+    if (updateErr) {
+      return {
+        success: false,
+        error: `Failed to update contract offer: ${updateErr.message}`,
+        code: updateErr.code,
+      };
+    }
+
+    // 6. If fixed price, also synchronize planned milestone in contract_milestones
+    if (isFixed && fixedNum) {
+      const { error: msErr } = await admin
+        .from('contract_milestones')
+        .update({
+          amount: fixedNum,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('contract_id', contract.id)
+        .eq('status', 'planned');
+
+      if (msErr) {
+        console.warn('contract_milestones sync notice on price revision:', msErr.message);
+      }
+    }
+
+    // 7. Deliver notification to freelancer
+    try {
+      const formattedPrice = isFixed ? `$${fixedNum}` : `$${hourlyNum}/hr`;
+      await admin.from('notifications').insert({
+        user_id: contract.freelancer_id,
+        type: 'contract_offer',
+        title: 'Contract Offer Revised',
+        message: `The client revised the agreed offer price to ${formattedPrice} for "${contract.title}".`,
+        data: {
+          contractId: contract.id,
+          proposalId: contract.proposal_id,
+          amount: isFixed ? fixedNum : hourlyNum,
+          contractType: contract.contract_type,
+        },
+      });
+    } catch {
+      // Non-blocking notification insert
+    }
+
+    // 8. Revalidate paths for real-time synchronization
+    revalidatePath(`/contracts/${contract.id}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+
+    return {
+      success: true,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unexpected error updating offer price.';
+    return { success: false, error: message };
+  }
+}
