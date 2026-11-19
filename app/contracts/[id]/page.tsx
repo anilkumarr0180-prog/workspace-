@@ -19,6 +19,7 @@ import {
   approveAndReleaseMilestone,
   cancelMilestone,
   createMilestone,
+  updateMilestone,
   uploadMilestoneAttachment,
 } from '@/lib/actions/milestones';
 import {
@@ -154,6 +155,17 @@ function ContractDetailsContent() {
   const [newMilestoneAmount, setNewMilestoneAmount] = useState('');
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState('');
   const [isCreatingMilestone, setIsCreatingMilestone] = useState(false);
+  const [expandContractBudget, setExpandContractBudget] = useState(false);
+
+  // Edit Milestone state
+  const [isEditMilestoneModalOpen, setIsEditMilestoneModalOpen] = useState(false);
+  const [selectedMilestoneForEdit, setSelectedMilestoneForEdit] = useState<ContractMilestone | null>(null);
+  const [editMilestoneTitle, setEditMilestoneTitle] = useState('');
+  const [editMilestoneDesc, setEditMilestoneDesc] = useState('');
+  const [editMilestoneAmount, setEditMilestoneAmount] = useState('');
+  const [editMilestoneDueDate, setEditMilestoneDueDate] = useState('');
+  const [isUpdatingMilestone, setIsUpdatingMilestone] = useState(false);
+  const [editMilestoneExpandBudget, setEditMilestoneExpandBudget] = useState(false);
 
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [selectedMilestoneForFund, setSelectedMilestoneForFund] = useState<ContractMilestone | null>(null);
@@ -410,8 +422,20 @@ function ContractDetailsContent() {
     setNewMilestoneDesc('');
     setNewMilestoneAmount(unallocatedBudget > 0 ? unallocatedBudget.toFixed(2) : '');
     setNewMilestoneDueDate('');
+    setExpandContractBudget(unallocatedBudget <= 0);
     setActionErrorMessage(null);
     setIsCreateMilestoneModalOpen(true);
+  };
+
+  const openEditMilestoneModal = (milestone: ContractMilestone) => {
+    setSelectedMilestoneForEdit(milestone);
+    setEditMilestoneTitle(milestone.title);
+    setEditMilestoneDesc(milestone.description || '');
+    setEditMilestoneAmount(String(milestone.amount));
+    setEditMilestoneDueDate(milestone.dueDate ? milestone.dueDate.split('T')[0] : '');
+    setEditMilestoneExpandBudget(false);
+    setActionErrorMessage(null);
+    setIsEditMilestoneModalOpen(true);
   };
 
   // Handlers for Milestone Operations
@@ -862,9 +886,10 @@ function ContractDetailsContent() {
       return;
     }
 
-    if (unallocatedBudget > 0 && amount > unallocatedBudget + 0.009) {
+    const willExceed = unallocatedBudget < amount;
+    if (willExceed && !expandContractBudget) {
       setActionErrorMessage(
-        `Milestone amount ($${amount.toFixed(2)}) exceeds remaining unallocated budget ($${unallocatedBudget.toFixed(2)}).`
+        `Milestone amount ($${amount.toFixed(2)}) exceeds remaining unallocated budget ($${unallocatedBudget.toFixed(2)}). Please check "Increase contract budget" to cover this additional deliverable.`
       );
       return;
     }
@@ -877,6 +902,7 @@ function ContractDetailsContent() {
       description: newMilestoneDesc.trim(),
       amount,
       dueDate: newMilestoneDueDate || null,
+      expandContractBudget: willExceed || expandContractBudget,
     });
 
     setIsCreatingMilestone(false);
@@ -887,10 +913,48 @@ function ContractDetailsContent() {
       setNewMilestoneDesc('');
       setNewMilestoneAmount('');
       setNewMilestoneDueDate('');
-      setActionSuccessMessage('New milestone added successfully! You can fund it when ready.');
+      setActionSuccessMessage(
+        willExceed
+          ? `New milestone added and total contract budget expanded by $${amount.toFixed(2)}!`
+          : 'New milestone added successfully! You can fund it when ready.'
+      );
       loadData(true);
     } else {
       setActionErrorMessage(res.error || 'Failed to create milestone.');
+    }
+  };
+
+  const handleUpdateMilestone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMilestoneForEdit) return;
+
+    const amount = Number(editMilestoneAmount);
+    if (!editMilestoneTitle.trim() || isNaN(amount) || amount <= 0) {
+      setActionErrorMessage('Please enter a valid milestone title and positive amount.');
+      return;
+    }
+
+    setIsUpdatingMilestone(true);
+    setActionErrorMessage(null);
+
+    const res = await updateMilestone({
+      milestoneId: selectedMilestoneForEdit.id,
+      title: editMilestoneTitle.trim(),
+      description: editMilestoneDesc.trim(),
+      amount,
+      dueDate: editMilestoneDueDate || null,
+      expandContractBudget: editMilestoneExpandBudget,
+    });
+
+    setIsUpdatingMilestone(false);
+
+    if (res.success) {
+      setIsEditMilestoneModalOpen(false);
+      setSelectedMilestoneForEdit(null);
+      setActionSuccessMessage('Milestone updated successfully!');
+      loadData(true);
+    } else {
+      setActionErrorMessage(res.error || 'Failed to update milestone.');
     }
   };
 
@@ -1864,6 +1928,19 @@ function ContractDetailsContent() {
                             </>
                           )}
 
+                          {isClient && milestone.status === 'planned' && (
+                            <button
+                              type="button"
+                              onClick={() => openEditMilestoneModal(milestone)}
+                              disabled={isBusy}
+                              className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer py-1 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-medium"
+                              title="Edit milestone title, deliverables, or amount"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Edit Milestone</span>
+                            </button>
+                          )}
+
                           {isClient && (milestone.status === 'planned' || milestone.status === 'funded') && (
                             <button
                               onClick={() => handleCancel(milestone.id)}
@@ -2534,11 +2611,35 @@ function ContractDetailsContent() {
                 <span className="font-mono font-bold text-emerald-950">${unallocatedBudget.toFixed(2)}</span>
               </div>
             ) : (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
-                <span className="font-bold">Agreed Fixed Budget Fully Allocated</span>
-                <p className="text-[11px] text-amber-800">
-                  All ${(contract.fixedPrice || 0).toFixed(2)} of this contract&apos;s agreed budget has been assigned to milestones.
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
+                <span className="font-bold flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Adding Scope / Additional Milestone</span>
+                </span>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  All ${(contract.fixedPrice || 0).toFixed(2)} of the initial budget is assigned to existing milestones. Adding this milestone will expand your total contract budget.
                 </p>
+              </div>
+            )}
+
+            {/* Budget Expansion Notice & Checkbox when amount exceeds unallocated */}
+            {(unallocatedBudget <= 0 || (Number(newMilestoneAmount) > 0 && Number(newMilestoneAmount) > unallocatedBudget + 0.009)) && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1.5 animate-fadeIn">
+                <div className="flex items-center justify-between font-semibold">
+                  <span>New Total Contract Budget:</span>
+                  <span className="font-mono font-bold text-blue-950">
+                    ${((contract.fixedPrice || 0) + (Number(newMilestoneAmount) || 0) - Math.min(unallocatedBudget, Number(newMilestoneAmount) || 0)).toFixed(2)}
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 font-medium text-blue-950 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={expandContractBudget}
+                    onChange={(e) => setExpandContractBudget(e.target.checked)}
+                    className="rounded border-blue-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span>Expand contract budget to accommodate this additional milestone</span>
+                </label>
               </div>
             )}
 
@@ -2568,10 +2669,9 @@ function ContractDetailsContent() {
                       type="number"
                       step="0.01"
                       min="1"
-                      max={unallocatedBudget > 0 ? unallocatedBudget : undefined}
                       value={newMilestoneAmount}
                       onChange={(e) => setNewMilestoneAmount(e.target.value)}
-                      placeholder={unallocatedBudget > 0 ? unallocatedBudget.toFixed(2) : "250.00"}
+                      placeholder={unallocatedBudget > 0 ? unallocatedBudget.toFixed(2) : "100.00"}
                       className="w-full text-xs pl-7 pr-3 py-2.5 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden font-mono"
                       required
                     />
@@ -2590,7 +2690,7 @@ function ContractDetailsContent() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">Scope & Expected Deliverables</label>
+                <label className="block text-xs font-bold text-slate-700">Scope &amp; Expected Deliverables</label>
                 <textarea
                   rows={3}
                   value={newMilestoneDesc}
@@ -2615,6 +2715,100 @@ function ContractDetailsContent() {
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
                   <span>{isCreatingMilestone ? 'Creating...' : 'Create Milestone'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT PLANNED MILESTONE (CLIENT) */}
+      {isEditMilestoneModalOpen && selectedMilestoneForEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Edit Milestone Deliverables &amp; Amount</h3>
+                <p className="text-xs text-slate-500">Update planned deliverables before funding escrow</p>
+              </div>
+              <button
+                onClick={() => setIsEditMilestoneModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateMilestone} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  Milestone Title <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editMilestoneTitle}
+                  onChange={(e) => setEditMilestoneTitle(e.target.value)}
+                  placeholder="e.g. Milestone 1: Core Design System"
+                  className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Amount ($ USD) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      value={editMilestoneAmount}
+                      onChange={(e) => setEditMilestoneAmount(e.target.value)}
+                      className="w-full text-xs pl-7 pr-3 py-2.5 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden font-mono font-bold"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Due Date (Optional)</label>
+                  <input
+                    type="date"
+                    value={editMilestoneDueDate}
+                    onChange={(e) => setEditMilestoneDueDate(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Scope &amp; Expected Deliverables</label>
+                <textarea
+                  rows={3}
+                  value={editMilestoneDesc}
+                  onChange={(e) => setEditMilestoneDesc(e.target.value)}
+                  placeholder="Outline acceptance criteria and completion goals..."
+                  className="w-full text-xs p-3 rounded-lg border border-slate-200 focus:border-emerald-600 outline-hidden"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditMilestoneModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingMilestone}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm cursor-pointer"
+                >
+                  {isUpdatingMilestone ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

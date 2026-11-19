@@ -1,5 +1,7 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { payoutEngine } from '@/lib/services/payout-engine';
@@ -358,7 +360,7 @@ export async function getMilestoneDeliveries(milestoneId: string): Promise<Deliv
 }
 
 /**
- * Create a new planned milestone for a fixed-price contract within remaining budget.
+ * Create a new planned milestone for a fixed-price contract within remaining budget or expanding budget.
  */
 export async function createMilestone(
   contractId: string,
@@ -367,6 +369,7 @@ export async function createMilestone(
     description?: string;
     amount: number;
     dueDate?: string | null;
+    expandContractBudget?: boolean;
   }
 ): Promise<MilestoneResult> {
   if (!contractId || !UUID_REGEX.test(contractId.trim())) {
@@ -420,7 +423,7 @@ export async function createMilestone(
       };
     }
 
-    // 2. Budget cap validation: prevent milestone totals from exceeding agreed fixed budget
+    // 2. Budget cap validation: prevent milestone totals from exceeding agreed fixed budget unless client expands
     const { data: existingMilestones } = await supabase
       .from('contract_milestones')
       .select('amount, status')
@@ -432,11 +435,34 @@ export async function createMilestone(
     const remainingBudget = Math.max(0, fixedBudget - totalAllocated);
 
     if (fixedBudget > 0 && totalAllocated + amount > fixedBudget + 0.009) {
-      return {
-        success: false,
-        error: `Milestone amount ($${amount.toFixed(2)}) exceeds remaining contract budget ($${remainingBudget.toFixed(2)} remaining of $${fixedBudget.toFixed(2)}).`,
-        code: 'BUDGET_EXCEEDED',
-      };
+      if (input.expandContractBudget) {
+        // Expand contract budget automatically to accommodate additional milestone
+        const newBudget = Math.round((totalAllocated + amount) * 100) / 100;
+        let admin: SupabaseClient;
+        try {
+          admin = getAdminSupabaseClient();
+        } catch {
+          admin = supabase;
+        }
+
+        const { error: updErr } = await admin
+          .from('contracts')
+          .update({
+            fixed_price: newBudget,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', contractId.trim());
+
+        if (updErr) {
+          console.warn('Failed to expand contract budget in createMilestone:', updErr.message);
+        }
+      } else {
+        return {
+          success: false,
+          error: `Milestone amount ($${amount.toFixed(2)}) exceeds remaining contract budget ($${remainingBudget.toFixed(2)} remaining of $${fixedBudget.toFixed(2)}).`,
+          code: 'BUDGET_EXCEEDED',
+        };
+      }
     }
 
     const { data, error } = await supabase.rpc('create_milestone', {
@@ -450,6 +476,11 @@ export async function createMilestone(
     if (error) {
       return { success: false, error: error.message, code: error.code };
     }
+
+    revalidatePath(`/contracts/${contractId.trim()}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
 
     const raw = data as RawMilestoneRow;
     return {
@@ -473,6 +504,185 @@ export async function createMilestone(
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to create milestone.';
+    return { success: false, error: message };
+  }
+}
+
+export interface UpdateMilestoneInput {
+  milestoneId: string;
+  title?: string;
+  description?: string;
+  amount?: number;
+  dueDate?: string | null;
+  expandContractBudget?: boolean;
+}
+
+/**
+ * Edit an existing planned milestone's title, scope description, amount, or due date.
+ * Permitted only when the milestone is in 'planned' (unfunded) status.
+ */
+export async function updateMilestone(
+  input: UpdateMilestoneInput
+): Promise<MilestoneResult> {
+  if (!input.milestoneId || !UUID_REGEX.test(input.milestoneId.trim())) {
+    return { success: false, error: 'Invalid milestone ID format.', code: 'INVALID_ID' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required to edit milestones.', code: 'UNAUTHENTICATED' };
+  }
+
+  try {
+    let admin: SupabaseClient;
+    try {
+      admin = getAdminSupabaseClient();
+    } catch {
+      admin = supabase;
+    }
+
+    // 1. Fetch milestone
+    const { data: milestone, error: mErr } = await admin
+      .from('contract_milestones')
+      .select('id, contract_id, client_id, freelancer_id, title, description, amount, currency, sequence_order, due_date, status, created_at, updated_at')
+      .eq('id', input.milestoneId.trim())
+      .single();
+
+    if (mErr || !milestone) {
+      return { success: false, error: 'Milestone not found.', code: 'NOT_FOUND' };
+    }
+
+    // 2. Fetch contract
+    const { data: contract, error: cErr } = await admin
+      .from('contracts')
+      .select('id, client_id, company_id, fixed_price, status')
+      .eq('id', milestone.contract_id)
+      .single();
+
+    if (cErr || !contract) {
+      return { success: false, error: 'Parent contract not found.', code: 'NOT_FOUND' };
+    }
+
+    // 3. Authorization check
+    let isAuthorized = milestone.client_id === user.id || contract.client_id === user.id;
+    if (!isAuthorized && contract.company_id) {
+      const { data: member } = await admin
+        .from('company_members')
+        .select('id, role')
+        .eq('company_id', contract.company_id)
+        .eq('user_id', user.id)
+        .single();
+      if (member && ['owner', 'admin', 'hiring_manager'].includes(member.role)) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return { success: false, error: 'Only the client can edit milestones.', code: 'UNAUTHORIZED' };
+    }
+
+    // 4. Status check: Only 'planned' milestones can have their deliverables/amounts modified
+    if (milestone.status !== 'planned') {
+      return {
+        success: false,
+        error: `Only planned (unfunded) milestones can be edited. This milestone is currently "${milestone.status}".`,
+        code: 'INVALID_STATUS',
+      };
+    }
+
+    // 5. Update payload
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (input.title && input.title.trim().length >= 3) {
+      updatePayload.title = input.title.trim();
+    }
+
+    if (input.description !== undefined) {
+      updatePayload.description = input.description?.trim() || '';
+    }
+
+    if (input.dueDate !== undefined) {
+      updatePayload.due_date = input.dueDate || null;
+    }
+
+    if (input.amount !== undefined) {
+      const newAmount = Number(input.amount);
+      if (isNaN(newAmount) || newAmount <= 0) {
+        return { success: false, error: 'Milestone amount must be a positive number.', code: 'INVALID_AMOUNT' };
+      }
+
+      // Check if new amount causes total to exceed contract budget
+      const { data: otherMilestones } = await admin
+        .from('contract_milestones')
+        .select('amount, status')
+        .eq('contract_id', milestone.contract_id)
+        .neq('id', milestone.id)
+        .neq('status', 'cancelled');
+
+      const otherTotal = (otherMilestones || []).reduce((acc: number, m: { amount: unknown }) => acc + Number(m.amount || 0), 0);
+      const fixedBudget = Number(contract.fixed_price) || 0;
+
+      if (fixedBudget > 0 && otherTotal + newAmount > fixedBudget + 0.009) {
+        if (input.expandContractBudget) {
+          const newBudget = Math.round((otherTotal + newAmount) * 100) / 100;
+          await admin
+            .from('contracts')
+            .update({
+              fixed_price: newBudget,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', milestone.contract_id);
+        }
+      }
+
+      updatePayload.amount = newAmount;
+    }
+
+    const { data: updated, error: updErr } = await admin
+      .from('contract_milestones')
+      .update(updatePayload)
+      .eq('id', milestone.id)
+      .select('*')
+      .single();
+
+    if (updErr || !updated) {
+      return { success: false, error: updErr?.message || 'Failed to update milestone.', code: updErr?.code };
+    }
+
+    revalidatePath(`/contracts/${milestone.contract_id}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer');
+    revalidatePath('/client');
+
+    const raw = updated as RawMilestoneRow;
+    return {
+      success: true,
+      milestone: {
+        id: raw.id,
+        contractId: raw.contract_id,
+        clientId: raw.client_id,
+        freelancerId: raw.freelancer_id,
+        title: raw.title,
+        description: raw.description,
+        amount: Number(raw.amount),
+        currency: raw.currency,
+        sequenceOrder: raw.sequence_order,
+        dueDate: raw.due_date || null,
+        status: raw.status as MilestoneStatus,
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at,
+        deliveries: [],
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to update milestone.';
     return { success: false, error: message };
   }
 }
@@ -998,6 +1208,10 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
       `)
       .eq('contract_id', contractId.trim())
       .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Payment ledger fetch warning:', error.message);
+    }
 
     // Also fetch paid timesheets from DB to ensure hourly payments are dynamically reflected in the ledger
     const { data: paidTimesheets } = await admin
