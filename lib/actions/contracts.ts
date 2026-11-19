@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { createNotification } from '@/lib/actions/notifications';
-import { Contract, ContractStatus, ProjectType } from '@/lib/types';
+import { Contract, ContractMilestone, ContractStatus, PaymentLedgerEntry, ProjectType } from '@/lib/types';
+import { getContractMilestones, getContractPaymentLedger } from '@/lib/actions/milestones';
+import { getContractTimesheets, TimesheetWithDetails } from '@/lib/actions/timesheet-billing';
 import { revalidatePath } from 'next/cache';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -337,6 +339,68 @@ export async function getContractById(contractId: string): Promise<ContractDetai
     return {
       success: false,
       error: message,
+    };
+  }
+}
+
+export interface ContractDetailsBundleResult {
+  success: boolean;
+  contract?: Contract;
+  milestones?: ContractMilestone[];
+  ledgerEntries?: PaymentLedgerEntry[];
+  timesheets?: TimesheetWithDetails[];
+  error?: string;
+  code?: string;
+}
+
+/**
+ * High-performance, resilient bundle fetcher for contracts.
+ * Consolidates contract details, milestones, ledger, and timesheets into
+ * a single atomic Server Action round-trip with Promise.allSettled protection.
+ */
+export async function getContractDetailsBundle(contractId: string): Promise<ContractDetailsBundleResult> {
+  if (!contractId || !UUID_REGEX.test(contractId.trim())) {
+    return {
+      success: false,
+      error: 'Invalid contract ID format.',
+      code: 'INVALID_ID',
+    };
+  }
+
+  try {
+    const [contractRes, milestonesRes, ledgerRes, timesheetsRes] = await Promise.allSettled([
+      getContractById(contractId),
+      getContractMilestones(contractId),
+      getContractPaymentLedger(contractId),
+      getContractTimesheets(contractId),
+    ]);
+
+    const contractData = contractRes.status === 'fulfilled' ? contractRes.value : null;
+    if (!contractData?.success || !contractData.contract) {
+      return {
+        success: false,
+        error: contractData?.error || 'Contract could not be retrieved or unauthorized.',
+        code: contractData?.code || 'NOT_FOUND',
+      };
+    }
+
+    const milestonesData = milestonesRes.status === 'fulfilled' ? milestonesRes.value : null;
+    const ledgerData = ledgerRes.status === 'fulfilled' ? ledgerRes.value : null;
+    const timesheetsData = timesheetsRes.status === 'fulfilled' ? timesheetsRes.value : null;
+
+    return {
+      success: true,
+      contract: contractData.contract,
+      milestones: milestonesData?.milestones || [],
+      ledgerEntries: ledgerData?.entries || [],
+      timesheets: timesheetsData?.timesheets || [],
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An error occurred while fetching contract bundle.';
+    return {
+      success: false,
+      error: message,
+      code: 'SERVER_ERROR',
     };
   }
 }
