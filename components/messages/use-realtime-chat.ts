@@ -158,19 +158,7 @@ export function useRealtimeChat({
     const supabase = createClient();
     const channelName = `conversation-${conversationId}`;
 
-    // Ensure Realtime WebSocket connection is authenticated
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          await supabase.realtime.setAuth(session.access_token);
-        }
-      } catch {
-        // non-blocking
-      }
-    })();
+    let isSubscribed = false;
 
     const channel = supabase.channel(channelName, {
       config: {
@@ -200,6 +188,14 @@ export function useRealtimeChat({
     channel.on('broadcast', { event: 'new_message' }, (payload: { payload: Message }) => {
       const newMsg = payload?.payload;
       if (!newMsg || !newMsg.id) return;
+
+      // Cancel typing immediately upon incoming message
+      setIsTyping(false);
+      setTypingUser(null);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
 
       // Prevent duplicate processing if already processed
       if (processedMessageIdsRef.current.has(newMsg.id)) {
@@ -248,6 +244,14 @@ export function useRealtimeChat({
         const row = payload.new as Record<string, unknown>;
         const messageId = row.id as string;
         const senderId = row.sender_id as string;
+
+        // Cancel typing immediately upon incoming message
+        setIsTyping(false);
+        setTypingUser(null);
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
 
         // Prevent duplicate processing
         if (processedMessageIdsRef.current.has(messageId)) {
@@ -486,31 +490,47 @@ export function useRealtimeChat({
       window.addEventListener('workspace:presence-leave', handleGlobalPresenceLeave);
     }
 
-    // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
-    channel.subscribe(async (status: string) => {
-      if (status === 'SUBSCRIBED') {
-        isConnectedRef.current = true;
-        setIsConnected(true);
-        stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
-        await channel.track({
-          userId: currentUserId,
-          userName: currentUserName,
-          onlineAt: new Date().toISOString(),
-        });
-
-        // Immediate recovery after connect or reconnect
-        fetchMissedMessages();
-      } else if (
-        status === 'CHANNEL_ERROR' ||
-        status === 'TIMED_OUT' ||
-        status === 'CLOSED'
-      ) {
-        isConnectedRef.current = false;
-        setIsConnected(false);
-        // Start fallback recovery polling only when disconnected or recovering
-        startFallbackPolling();
+    // Ensure Realtime WebSocket connection is authenticated before subscribing
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await supabase.realtime.setAuth(session.access_token);
+        }
+      } catch {
+        // non-blocking
       }
-    });
+
+      if (isSubscribed) return;
+
+      // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
+      channel.subscribe(async (status: string) => {
+        if (status === 'SUBSCRIBED') {
+          isConnectedRef.current = true;
+          setIsConnected(true);
+          stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
+          await channel.track({
+            userId: currentUserId,
+            userName: currentUserName,
+            onlineAt: new Date().toISOString(),
+          });
+
+          // Immediate recovery after connect or reconnect
+          fetchMissedMessages();
+        } else if (
+          status === 'CHANNEL_ERROR' ||
+          status === 'TIMED_OUT' ||
+          status === 'CLOSED'
+        ) {
+          isConnectedRef.current = false;
+          setIsConnected(false);
+          // Start fallback recovery polling only when disconnected or recovering
+          startFallbackPolling();
+        }
+      });
+    })();
 
     channelRef.current = channel;
 
@@ -531,6 +551,7 @@ export function useRealtimeChat({
     }
 
     return () => {
+      isSubscribed = true;
       stopFallbackPolling();
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onWindowFocusOrVisible);

@@ -77,6 +77,57 @@ export default function MessagesShell({
     );
   }, [conversations, activeConversation]);
 
+  // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
+  const {
+    messages,
+    isTyping,
+    typingUser,
+    isUserOnline,
+    otherParticipantLastRead,
+    sendTypingStatus,
+    broadcastMessage,
+    addOptimisticMessage,
+    replaceOptimisticMessage,
+    removeOptimisticMessage,
+    setMessages,
+  } = useRealtimeChat({
+    conversationId: activeConversationId || '',
+    initialMessages,
+    conversation: activeConversation,
+    currentUserId,
+    currentUserName,
+    onMessageReceived: (newMsg) => {
+      // If we are currently actively viewing this conversation, mark as read
+      if (activeConversationId === newMsg.conversationId) {
+        fetch(`/api/messages/${newMsg.conversationId}/read`, { method: 'POST' });
+      }
+
+      // Update conversations inbox preview and ordering
+      setConversations((prev) => {
+        const convIndex = prev.findIndex((c) => c.id === newMsg.conversationId);
+        if (convIndex === -1) return prev;
+
+        const target = prev[convIndex];
+        const isCurrentActive = activeConversationId === newMsg.conversationId;
+        const isFromMe = newMsg.senderId === currentUserId;
+
+        const updated: Conversation = {
+          ...target,
+          lastMessageAt: newMsg.createdAt,
+          lastMessage: newMsg,
+          unreadCount: isCurrentActive || isFromMe ? 0 : target.unreadCount + 1,
+        };
+
+        const others = prev.filter((_, idx) => idx !== convIndex);
+        return [updated, ...others];
+      });
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
+      }
+    },
+  });
+
   // Fetch messages and mark as read when active conversation changes
   useEffect(() => {
     if (!activeConversationId) return;
@@ -135,58 +186,7 @@ export default function MessagesShell({
     return () => {
       isCancelled = true;
     };
-  }, [activeConversationId, selectedConversationId]);
-
-  // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
-  const {
-    messages,
-    isTyping,
-    typingUser,
-    isUserOnline,
-    otherParticipantLastRead,
-    sendTypingStatus,
-    broadcastMessage,
-    addOptimisticMessage,
-    replaceOptimisticMessage,
-    removeOptimisticMessage,
-    setMessages,
-  } = useRealtimeChat({
-    conversationId: activeConversationId || '',
-    initialMessages,
-    conversation: activeConversation,
-    currentUserId,
-    currentUserName,
-    onMessageReceived: (newMsg) => {
-      // If we are currently actively viewing this conversation, mark as read
-      if (activeConversationId === newMsg.conversationId) {
-        fetch(`/api/messages/${newMsg.conversationId}/read`, { method: 'POST' });
-      }
-
-      // Update conversations inbox preview and ordering
-      setConversations((prev) => {
-        const convIndex = prev.findIndex((c) => c.id === newMsg.conversationId);
-        if (convIndex === -1) return prev;
-
-        const target = prev[convIndex];
-        const isCurrentActive = activeConversationId === newMsg.conversationId;
-        const isFromMe = newMsg.senderId === currentUserId;
-
-        const updated: Conversation = {
-          ...target,
-          lastMessageAt: newMsg.createdAt,
-          lastMessage: newMsg,
-          unreadCount: isCurrentActive || isFromMe ? 0 : target.unreadCount + 1,
-        };
-
-        const others = prev.filter((_, idx) => idx !== convIndex);
-        return [updated, ...others];
-      });
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
-      }
-    },
-  });
+  }, [activeConversationId, selectedConversationId, setMessages]);
 
   // Background polling and focus sync for conversation sidebar list
   useEffect(() => {

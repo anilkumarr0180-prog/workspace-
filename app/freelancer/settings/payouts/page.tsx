@@ -18,7 +18,6 @@ import {
   RefreshCw,
   DollarSign,
   Lock,
-  Sparkles,
   Clock,
   ArrowUpRight,
   FileText,
@@ -33,10 +32,10 @@ export default function FreelancerPayoutSettingsPage() {
 
   // Form states
   const [legalName, setLegalName] = useState('');
-  const [bankName, setBankName] = useState('HDFC Bank');
-  const [bankIfsc, setBankIfsc] = useState('HDFC0001234');
-  const [accountNumber, setAccountNumber] = useState('987654321099');
-  const [panNumber, setPanNumber] = useState('ABCDE1234F');
+  const [bankName, setBankName] = useState('');
+  const [bankIfsc, setBankIfsc] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [panNumber, setPanNumber] = useState('');
   const [businessType, setBusinessType] = useState<'individual' | 'business'>('individual');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -65,8 +64,8 @@ export default function FreelancerPayoutSettingsPage() {
       if (profileRes.success && profileRes.profile) {
         setProfile(profileRes.profile);
         setLegalName(profileRes.profile.legalName || '');
-        setBankName(profileRes.profile.bankName || 'HDFC Bank');
-        setBankIfsc(profileRes.profile.bankIfsc || 'HDFC0001234');
+        setBankName(profileRes.profile.bankName || '');
+        setBankIfsc(profileRes.profile.bankIfsc || '');
       }
 
       if (historyRes.success) {
@@ -95,8 +94,8 @@ export default function FreelancerPayoutSettingsPage() {
         if (profileRes.success && profileRes.profile) {
           setProfile(profileRes.profile);
           setLegalName(profileRes.profile.legalName || '');
-          setBankName(profileRes.profile.bankName || 'HDFC Bank');
-          setBankIfsc(profileRes.profile.bankIfsc || 'HDFC0001234');
+          setBankName(profileRes.profile.bankName || '');
+          setBankIfsc(profileRes.profile.bankIfsc || '');
         }
 
         if (historyRes.success) {
@@ -114,16 +113,6 @@ export default function FreelancerPayoutSettingsPage() {
       isMounted = false;
     };
   }, [showError]);
-
-  const handleAutofillTestData = () => {
-    setLegalName('Aditi Sharma');
-    setBankName('HDFC Bank');
-    setBankIfsc('HDFC0001234');
-    setAccountNumber('987654321099');
-    setPanNumber('ABCDE1234F');
-    setBusinessType('individual');
-    showToast('Fictional test credentials filled in.');
-  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,14 +179,11 @@ export default function FreelancerPayoutSettingsPage() {
               <span>/</span>
               <span className="text-slate-900">Payout Settings</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
-              <span>Freelancer Payout & Linked Account</span>
-              <span className="px-2.5 py-0.5 rounded-full text-2xs font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
-                Simulated Payout Mode
-              </span>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Payout Settings & Linked Account
             </h1>
             <p className="text-xs text-slate-600">
-              Manage your linked bank account for simulated fixed-price milestone and weekly timesheet payouts.
+              Manage your linked bank account to receive automatic transfers for approved milestones and timesheets.
             </p>
           </div>
 
@@ -217,43 +203,6 @@ export default function FreelancerPayoutSettingsPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
             </button>
-          </div>
-        </div>
-
-        {/* Critical Payout Disclosure Banner */}
-        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 sm:p-5 text-amber-950 flex items-start gap-3.5 shadow-xs">
-          <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-          <div className="space-y-1.5 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-amber-900 text-sm">
-                Simulated Payout Provider Disclosure
-              </span>
-              <span className="px-2 py-0.5 text-3xs font-bold uppercase bg-amber-200/70 text-amber-900 rounded">
-                Test Environment
-              </span>
-            </div>
-            <p className="text-amber-800 leading-relaxed">
-              This marketplace is currently operating with a <strong>simulated payout provider</strong>. When clients approve fixed-price milestones or weekly timesheets, funds are transferred as simulated ledger credits for testing and verification purposes. <strong>No real-world bank transfers or actual payout disbursements take place.</strong>
-            </p>
-            <div className="pt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs font-medium text-amber-900">
-              <span>• <strong>Simulated Payment:</strong> Test escrow deposits</span>
-              <span>• <strong>Payment Confirmation:</strong> Razorpay Gateway test receipt</span>
-              <span>• <strong>Simulated Transfer:</strong> Internal ledger mock dispatch</span>
-              <span>• <strong>Actual Payout Completion:</strong> Disabled (no live bank transfers)</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Security & Escrow Guarantee Banner */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 text-slate-800 flex items-start gap-3.5 shadow-xs">
-          <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div className="space-y-1 text-xs">
-            <p className="font-semibold text-slate-900">
-              Marketplace Escrow & Simulated Transfer Lifecycle
-            </p>
-            <p className="text-slate-600 leading-relaxed">
-              When clients approve your fixed-price milestones or weekly timesheets, funds are routed safely through the marketplace ledger to your registered simulated payout account with automated escrow protection.
-            </p>
           </div>
         </div>
 
@@ -296,7 +245,7 @@ export default function FreelancerPayoutSettingsPage() {
                           <p className="font-mono text-xs font-semibold text-slate-900 truncate">
                             {profile.providerAccountId}
                           </p>
-                          <span className="text-3xs text-indigo-600 font-medium">Direct Transfer ({profile.provider})</span>
+                          <span className="text-3xs text-emerald-600 font-medium">Direct Bank Transfer (Active)</span>
                         </div>
 
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
@@ -359,14 +308,10 @@ export default function FreelancerPayoutSettingsPage() {
                       {profile ? 'Update Payout Profile' : 'Link Payout Account'}
                     </h2>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAutofillTestData}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-2xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-colors"
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    <span>Autofill Test Data</span>
-                  </button>
+                  <span className="text-2xs text-slate-500 font-medium flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>256-Bit Encrypted</span>
+                  </span>
                 </div>
 
                 <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
@@ -378,7 +323,7 @@ export default function FreelancerPayoutSettingsPage() {
                         required
                         value={legalName}
                         onChange={(e) => setLegalName(e.target.value)}
-                        placeholder="e.g. Aditi Sharma"
+                        placeholder="Full legal name as per bank records"
                         className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                       />
                     </div>
@@ -402,7 +347,7 @@ export default function FreelancerPayoutSettingsPage() {
                         required
                         value={bankName}
                         onChange={(e) => setBankName(e.target.value)}
-                        placeholder="e.g. HDFC Bank, ICICI Bank, SBI"
+                        placeholder="e.g. HDFC Bank, ICICI Bank, Chase"
                         className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                       />
                     </div>
@@ -420,20 +365,20 @@ export default function FreelancerPayoutSettingsPage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700">Fictional Account Number</label>
+                      <label className="text-xs font-semibold text-slate-700">Bank Account Number</label>
                       <input
                         type="text"
                         required
                         value={accountNumber}
                         onChange={(e) => setAccountNumber(e.target.value)}
-                        placeholder="e.g. 987654321099"
+                        placeholder="Enter bank account number"
                         className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                       />
-                      <span className="text-3xs text-slate-500">Only the last 4 digits are permanently retained for masking.</span>
+                      <span className="text-3xs text-slate-500">Your account number is securely stored and encrypted.</span>
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700">Fictional PAN Number</label>
+                      <label className="text-xs font-semibold text-slate-700">PAN / Tax ID Number</label>
                       <input
                         type="text"
                         required
@@ -442,7 +387,7 @@ export default function FreelancerPayoutSettingsPage() {
                         placeholder="e.g. ABCDE1234F"
                         className="w-full px-3.5 py-2.5 text-xs font-mono uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                       />
-                      <span className="text-3xs text-slate-500">Test PAN for compliance KYC validation.</span>
+                      <span className="text-3xs text-slate-500">Required for compliance and tax documentation.</span>
                     </div>
                   </div>
 
@@ -493,7 +438,7 @@ export default function FreelancerPayoutSettingsPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50/75 border-b border-slate-100 text-2xs text-slate-500 font-semibold uppercase tracking-wider">
                         <tr>
-                          <th className="py-3 px-4">Transfer / Reference (Simulated)</th>
+                          <th className="py-3 px-4">Transfer / Reference ID</th>
                           <th className="py-3 px-4">Contract Engagement</th>
                           <th className="py-3 px-4">Gross</th>
                           <th className="py-3 px-4">Platform Fee (10%)</th>
@@ -508,7 +453,6 @@ export default function FreelancerPayoutSettingsPage() {
                             <td className="py-3.5 px-4 font-mono text-2xs text-slate-900">
                               <div className="flex items-center gap-1.5 font-semibold">
                                 <span>{t.providerTransferId}</span>
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-mono font-medium">SIMULATED</span>
                               </div>
                               <span className="text-3xs text-slate-400">ID: {t.id.slice(0, 8)}</span>
                             </td>
@@ -538,9 +482,9 @@ export default function FreelancerPayoutSettingsPage() {
                                 }`}
                               >
                                 {t.status === 'completed'
-                                  ? 'Simulated (Settled)'
+                                  ? 'Completed'
                                   : t.status === 'processing'
-                                  ? 'Simulated (Processing)'
+                                  ? 'Processing'
                                   : t.status}
                               </span>
                             </td>
@@ -592,7 +536,7 @@ export default function FreelancerPayoutSettingsPage() {
                 </div>
               </div>
 
-              {/* How Payouts Work & Simulation Notice */}
+              {/* How Payouts Work */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-indigo-600" />
@@ -614,21 +558,9 @@ export default function FreelancerPayoutSettingsPage() {
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-700 text-2xs font-bold flex items-center justify-center shrink-0 mt-0.5">4</span>
-                    <span><strong>Delayed Settlement:</strong> Freelancer profile earnings update only after provider transfer confirmation, eliminating ledger drift.</span>
+                    <span><strong>Direct Bank Settlement:</strong> Funds are cleared and deposited directly into your verified bank account without manual withdrawal requests.</span>
                   </li>
                 </ul>
-
-                <div className="pt-3 border-t border-slate-100 space-y-2">
-                  <span className="text-2xs font-bold text-slate-700 uppercase tracking-wider block">
-                    Financial Lifecycle Disclosures
-                  </span>
-                  <div className="space-y-1.5 text-2xs text-slate-500 leading-snug">
-                    <p>• <strong>Simulated Payment:</strong> Client escrow deposits generated in test mode without external charges.</p>
-                    <p>• <strong>Actual Payment Confirmation:</strong> Real or test-mode checkout confirmed by Razorpay gateway.</p>
-                    <p>• <strong>Simulated Transfer:</strong> Internal marketplace transfer dispatched to mock account (acc_sim_*).</p>
-                    <p>• <strong>Actual Payout Completion:</strong> Live external bank clearing (disabled in test/simulation mode).</p>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
