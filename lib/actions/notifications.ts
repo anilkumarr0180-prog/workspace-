@@ -294,9 +294,9 @@ export async function createNotification(
       return { success: false, error: error.message };
     }
 
-    // Trigger transactional notification email non-blockingly
-    dispatchNotificationEmail(input).catch((e) => {
-      console.warn('[EMAIL NOTIFICATION] Non-blocking delivery notice:', e);
+    // Trigger transactional notification email safely
+    await dispatchNotificationEmail(input).catch((e) => {
+      console.warn('[EMAIL NOTIFICATION] Delivery notice:', e);
     });
 
     return { success: true, id: data?.id };

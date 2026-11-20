@@ -14,6 +14,7 @@ import {
   EyeOff,
   Loader2,
   AlertCircle,
+  CheckCircle2,
   ArrowLeft,
   Edit2,
 } from 'lucide-react';
@@ -240,6 +241,19 @@ function LoginForm() {
         Log in to Workspace
       </h1>
 
+      {/* Password Reset Success Banner */}
+      {searchParams.get('reset') === 'success' && !errorMessage && (
+        <div
+          role="status"
+          className="mt-5 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs sm:text-sm flex items-start gap-2.5 animate-fadeIn"
+        >
+          <CheckCircle2 className="w-4 h-4 text-[#14a800] shrink-0 mt-0.5" />
+          <p className="flex-1 leading-relaxed font-medium">
+            Password reset successfully. Please sign in with your new password.
+          </p>
+        </div>
+      )}
+
       {/* Error Banner */}
       {errorMessage && (
         <div
@@ -383,17 +397,12 @@ function LoginForm() {
                 <span>Keep me logged in</span>
               </label>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setErrorMessage(
-                    'Password reset: please contact your administrator or check your registered email.'
-                  )
-                }
+              <Link
+                href="/forgot-password"
                 className="text-[#14a800] hover:underline font-medium cursor-pointer"
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
 
             <button

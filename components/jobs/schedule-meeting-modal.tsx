@@ -131,7 +131,29 @@ export default function ScheduleMeetingModal({
         throw new Error(msgData.error || 'Failed to dispatch meeting invitation to candidate.');
       }
 
-      setSuccessMessage('Meeting invitation dispatched successfully! Redirecting to conversation...');
+      // 4. Immediately trigger calendar invitation email dispatch to specialist & client
+      try {
+        await fetch('/api/meetings/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proposalId: proposal.id,
+            topic: topic.trim(),
+            date,
+            time,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            durationMinutes: duration,
+            platform,
+            meetingLink: meetingLink.trim(),
+            notes: notes.trim(),
+            conversationId: msgData.conversationId,
+          }),
+        });
+      } catch (emailErr) {
+        console.warn('[MEETING SCHEDULE] Non-blocking email dispatch notice:', emailErr);
+      }
+
+      setSuccessMessage('Meeting invitation and calendar notification dispatched successfully! Redirecting to conversation...');
 
       setTimeout(() => {
         if (onMeetingScheduled) {

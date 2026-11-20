@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { createNotification } from '@/lib/actions/notifications';
+import { queueAndDispatchEmail, triggerOutboxDrain } from '@/lib/email/queue';
 import { Contract, ContractMilestone, ContractStatus, PaymentLedgerEntry, ProjectType } from '@/lib/types';
 import { getContractMilestones, getContractPaymentLedger } from '@/lib/actions/milestones';
 import { getContractTimesheets, TimesheetWithDetails } from '@/lib/actions/timesheet-billing';
@@ -490,6 +491,9 @@ export async function createContractOffer(
       revalidatePath('/client');
       revalidatePath('/contracts');
       revalidatePath('/freelancer');
+      if (fallbackResult.contractId) {
+        dispatchContractOfferEmail(fallbackResult.contractId, input.offerMessage).catch(() => {});
+      }
       return fallbackResult;
     }
 
@@ -497,9 +501,14 @@ export async function createContractOffer(
     revalidatePath('/contracts');
     revalidatePath('/freelancer');
 
+    const createdId = contractId as string;
+    if (createdId) {
+      dispatchContractOfferEmail(createdId, input.offerMessage).catch(() => {});
+    }
+
     return {
       success: true,
-      contractId: contractId as string,
+      contractId: createdId,
     };
   } catch (err: unknown) {
     console.warn('RPC create_contract_offer exception, falling back to direct server action:', err);
@@ -519,6 +528,9 @@ export async function createContractOffer(
     revalidatePath('/client');
     revalidatePath('/contracts');
     revalidatePath('/freelancer');
+    if (fallbackResult.contractId) {
+      dispatchContractOfferEmail(fallbackResult.contractId, input.offerMessage).catch(() => {});
+    }
     return fallbackResult;
   }
 }
@@ -772,6 +784,8 @@ export async function acceptContractOffer(
     revalidatePath('/freelancer');
     revalidatePath('/client');
 
+    dispatchContractStartedEmail(contractId.trim()).catch(() => {});
+
     return { success: true };
   } catch (err: unknown) {
     console.warn('RPC accept_contract_offer error, using fallback:', err);
@@ -784,7 +798,147 @@ export async function acceptContractOffer(
     revalidatePath('/contracts');
     revalidatePath('/freelancer');
     revalidatePath('/client');
+
+    dispatchContractStartedEmail(contractId.trim()).catch(() => {});
+
     return { success: true };
+  }
+}
+
+async function dispatchContractOfferEmail(
+  contractId: string,
+  offerMessage?: string | null
+): Promise<void> {
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: contract } = await admin
+      .from('contracts')
+      .select('id, title, contract_type, hourly_rate, fixed_price, client_id, freelancer_id, offer_expires_at')
+      .eq('id', contractId)
+      .single();
+
+    if (!contract || !contract.freelancer_id) return;
+
+    const { data: freelancerAuth } = await admin.auth.admin.getUserById(contract.freelancer_id);
+    const freelancerEmail = freelancerAuth?.user?.email;
+    if (!freelancerEmail) return;
+
+    const { data: freelancerProfile } = await admin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', contract.freelancer_id)
+      .maybeSingle();
+
+    const { data: clientProfile } = await admin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', contract.client_id)
+      .maybeSingle();
+
+    const freelancerName =
+      freelancerProfile?.full_name ||
+      freelancerAuth?.user?.user_metadata?.full_name ||
+      'Specialist';
+
+    const clientName = clientProfile?.full_name || 'Client';
+
+    const rateOrAmount =
+      contract.contract_type === 'hourly'
+        ? `$${contract.hourly_rate || 0}/hr`
+        : `$${contract.fixed_price || 0}`;
+
+    await queueAndDispatchEmail({
+      eventType: 'contract_offer',
+      templateKey: 'contract_offer_v1',
+      recipientEmail: freelancerEmail,
+      recipientUserId: contract.freelancer_id,
+      subject: `Offer Received: New contract proposed for "${contract.title}"`,
+      payload: {
+        freelancerName,
+        clientName,
+        jobTitle: contract.title,
+        contractId: contract.id,
+        contractType: contract.contract_type,
+        rateOrAmount,
+        offerMessage: offerMessage || undefined,
+        expiresAt: contract.offer_expires_at ? new Date(contract.offer_expires_at).toLocaleDateString() : undefined,
+        accountState: 'existing_account',
+      },
+      relatedEntityId: contract.id,
+      idempotencyKey: `email:contract_offer:${contract.id}:${contract.freelancer_id}`,
+      immediate: true,
+    });
+  } catch (err) {
+    console.warn('[CONTRACT OFFER EMAIL NOTICE]:', err);
+  }
+}
+
+async function dispatchContractStartedEmail(contractId: string): Promise<void> {
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: contract } = await admin
+      .from('contracts')
+      .select('id, title, contract_type, hourly_rate, fixed_price, client_id, freelancer_id')
+      .eq('id', contractId)
+      .single();
+
+    if (!contract) return;
+
+    const { data: clientAuth } = await admin.auth.admin.getUserById(contract.client_id);
+    const clientEmail = clientAuth?.user?.email;
+
+    const { data: clientProfile } = await admin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', contract.client_id)
+      .maybeSingle();
+
+    const { data: freelancerAuth } = await admin.auth.admin.getUserById(contract.freelancer_id);
+    const { data: freelancerProfile } = await admin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', contract.freelancer_id)
+      .maybeSingle();
+
+    const clientName = clientProfile?.full_name || 'Client';
+    const freelancerName =
+      freelancerProfile?.full_name ||
+      freelancerAuth?.user?.user_metadata?.full_name ||
+      'Specialist';
+
+    const rateOrAmount =
+      contract.contract_type === 'hourly'
+        ? `$${contract.hourly_rate || 0}/hr`
+        : `$${contract.fixed_price || 0}`;
+
+    // Send to client
+    if (clientEmail) {
+      await queueAndDispatchEmail({
+        eventType: 'contract_started',
+        templateKey: 'contract_started_v1',
+        recipientEmail: clientEmail,
+        recipientUserId: contract.client_id,
+        subject: `Contract Active: Collaboration begun for "${contract.title}"`,
+        payload: {
+          recipientName: clientName,
+          counterpartName: freelancerName,
+          jobTitle: contract.title,
+          contractId: contract.id,
+          contractType: contract.contract_type,
+          rateOrAmount,
+          role: 'client',
+          accountState: 'existing_account',
+        },
+        relatedEntityId: contract.id,
+        idempotencyKey: `email:contract_started:${contract.id}:client`,
+        immediate: true,
+      });
+    }
+
+    // Trigger outbox drain so all related trigger emails dispatch
+    triggerOutboxDrain(5).catch(() => {});
+  } catch (err) {
+    console.warn('[CONTRACT STARTED EMAIL NOTICE]:', err);
   }
 }
 

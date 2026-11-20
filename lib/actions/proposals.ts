@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { ProjectType } from '@/lib/types';
 import { createNotification } from '@/lib/actions/notifications';
+import { queueAndDispatchEmail, triggerOutboxDrain } from '@/lib/email/queue';
 
 export interface SubmitProposalInput {
   jobId: string;
@@ -197,7 +198,7 @@ export async function submitProposal(input: SubmitProposalInput): Promise<{
     // 4. Verify Freelancer Eligibility (can_work flag on profiles)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('can_work, is_suspended')
+      .select('can_work, is_suspended, full_name')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -279,6 +280,46 @@ export async function submitProposal(input: SubmitProposalInput): Promise<{
         console.warn('Proposal notification dispatch notice:', notifErr);
       });
     }
+
+    // 7. Transactional Email Dispatch: Confirmation to freelancer & drain client notification
+    if (user.email) {
+      const freelancerName =
+        profile?.full_name ||
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        'Specialist';
+
+      const clientName = (job as unknown as { profiles?: { full_name?: string } })?.profiles?.full_name || 'Client';
+
+      await queueAndDispatchEmail({
+        eventType: 'proposal_submitted',
+        templateKey: 'proposal_submitted_v1',
+        recipientEmail: user.email,
+        recipientUserId: user.id,
+        subject: `Your proposal for "${job.title}" has been submitted`,
+        payload: {
+          freelancerName,
+          jobTitle: job.title,
+          jobId: job.id,
+          proposalId: newProposal.id,
+          bidAmount: bid,
+          rateType: input.rateType,
+          deliveryDays: deliveryDays || null,
+          clientName,
+          accountState: 'existing_account',
+        },
+        relatedEntityId: newProposal.id,
+        idempotencyKey: `email:proposal_submitted:${newProposal.id}:${user.id}`,
+        immediate: true,
+      }).catch((emailErr) => {
+        console.warn('[PROPOSAL SUBMITTED EMAIL] Non-fatal dispatch notice:', emailErr);
+      });
+    }
+
+    // Drain outbox so client's proposal_received_v1 (queued via DB trigger) is sent in real time
+    triggerOutboxDrain(5).catch((drainErr) => {
+      console.warn('[OUTBOX DRAIN NOTICE]:', drainErr);
+    });
 
     return {
       success: true,
@@ -797,6 +838,67 @@ export async function updateProposalStatus(
       }).catch((notifErr) => {
         console.warn('Proposal status notification notice:', notifErr);
       });
+
+      // Dispatch "Proposal Under Review" email to freelancer
+      if (isUnderReview) {
+        try {
+          const admin = getAdminSupabaseClient();
+          const { data: freelancerAuth } = await admin.auth.admin.getUserById(proposal.freelancer_id);
+          const freelancerEmail = freelancerAuth?.user?.email;
+
+          if (freelancerEmail) {
+            const { data: freelancerProfile } = await admin
+              .from('profiles')
+              .select('full_name')
+              .eq('id', proposal.freelancer_id)
+              .maybeSingle();
+
+            const { data: clientProfile } = await admin
+              .from('profiles')
+              .select('full_name')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            const freelancerName =
+              freelancerProfile?.full_name ||
+              freelancerAuth?.user?.user_metadata?.full_name ||
+              'Candidate';
+
+            const clientName =
+              clientProfile?.full_name ||
+              user.user_metadata?.full_name ||
+              'Client';
+
+            await queueAndDispatchEmail({
+              eventType: 'proposal_under_review',
+              templateKey: 'proposal_under_review_v1',
+              recipientEmail: freelancerEmail,
+              recipientUserId: proposal.freelancer_id,
+              subject: `Good news! Your proposal for "${job?.title || 'the job'}" is under review`,
+              payload: {
+                freelancerName,
+                clientName,
+                jobTitle: job?.title || 'Job Posting',
+                jobId: proposal.job_id,
+                proposalId: proposal.id,
+                accountState: 'existing_account',
+              },
+              relatedEntityId: proposal.id,
+              idempotencyKey: `email:proposal_review:${proposal.id}:${newStatus}`,
+              immediate: true,
+            });
+          }
+        } catch (emailErr) {
+          console.warn('[PROPOSAL REVIEW EMAIL] Non-fatal dispatch notice:', emailErr);
+        }
+      }
+
+      // If transition to accepted, drain outbox to dispatch contract creation emails
+      if (newStatus === 'accepted') {
+        triggerOutboxDrain(5).catch((err) => {
+          console.warn('[OUTBOX DRAIN ACCEPTED NOTICE]:', err);
+        });
+      }
     }
 
     return {

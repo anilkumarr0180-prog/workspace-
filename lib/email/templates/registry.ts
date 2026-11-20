@@ -2,16 +2,32 @@ import { renderMilestoneFundedTemplate } from './milestone-funded';
 import { renderMilestoneReleasedTemplate } from './milestone-released';
 import { renderProposalAcceptedTemplate } from './proposal-accepted';
 import { renderProposalReceivedTemplate } from './proposal-received';
+import { renderUnreadMessageTemplate } from './unread-message';
+import { renderJobPostedTemplate } from './job-posted';
+import { renderProposalSubmittedTemplate } from './proposal-submitted';
+import { renderProposalUnderReviewTemplate } from './proposal-under-review';
+import { renderMeetingScheduledTemplate } from './meeting-scheduled';
+import { renderContractOfferTemplate } from './contract-offer';
+import { renderContractStartedTemplate } from './contract-started';
+import { renderPasswordResetTemplate } from './password-reset';
+import { renderPasswordChangedAlertTemplate } from './password-changed-alert';
 import type {
+  ContractOfferTemplateData,
+  ContractStartedTemplateData,
+  JobPostedTemplateData,
+  MeetingScheduledTemplateData,
   MilestoneFundedTemplateData,
   MilestoneReleasedTemplateData,
+  PasswordChangedAlertTemplateData,
+  PasswordResetTemplateData,
   ProposalAcceptedTemplateData,
   ProposalReceivedTemplateData,
+  ProposalSubmittedTemplateData,
+  ProposalUnderReviewTemplateData,
   RenderedEmail,
   TemplateKey,
   UnreadMessageTemplateData,
 } from './types';
-import { renderUnreadMessageTemplate } from './unread-message';
 
 if (typeof window !== 'undefined') {
   throw new Error('Security Violation: Email template registry cannot be loaded in the browser.');
@@ -32,6 +48,14 @@ const REGISTRY: {
   milestone_funded_v1: TemplateRegistryEntry<MilestoneFundedTemplateData>;
   milestone_released_v1: TemplateRegistryEntry<MilestoneReleasedTemplateData>;
   unread_message_v1: TemplateRegistryEntry<UnreadMessageTemplateData>;
+  job_posted_v1: TemplateRegistryEntry<JobPostedTemplateData>;
+  proposal_submitted_v1: TemplateRegistryEntry<ProposalSubmittedTemplateData>;
+  proposal_under_review_v1: TemplateRegistryEntry<ProposalUnderReviewTemplateData>;
+  meeting_scheduled_v1: TemplateRegistryEntry<MeetingScheduledTemplateData>;
+  contract_offer_v1: TemplateRegistryEntry<ContractOfferTemplateData>;
+  contract_started_v1: TemplateRegistryEntry<ContractStartedTemplateData>;
+  password_reset_v1: TemplateRegistryEntry<PasswordResetTemplateData>;
+  password_changed_alert_v1: TemplateRegistryEntry<PasswordChangedAlertTemplateData>;
 } = {
   proposal_received_v1: {
     key: 'proposal_received_v1',
@@ -57,6 +81,46 @@ const REGISTRY: {
     key: 'unread_message_v1',
     description: 'Privacy-first notification sent when an offline user receives direct messages.',
     render: renderUnreadMessageTemplate,
+  },
+  job_posted_v1: {
+    key: 'job_posted_v1',
+    description: 'Confirmation email sent to clients when their job posting is published and live.',
+    render: renderJobPostedTemplate,
+  },
+  proposal_submitted_v1: {
+    key: 'proposal_submitted_v1',
+    description: 'Confirmation email sent to freelancers when their job proposal is submitted.',
+    render: renderProposalSubmittedTemplate,
+  },
+  proposal_under_review_v1: {
+    key: 'proposal_under_review_v1',
+    description: 'Notification sent to freelancers when a client moves their proposal to under review.',
+    render: renderProposalUnderReviewTemplate,
+  },
+  meeting_scheduled_v1: {
+    key: 'meeting_scheduled_v1',
+    description: 'Meeting invitation and details sent when a project consultation is scheduled.',
+    render: renderMeetingScheduledTemplate,
+  },
+  contract_offer_v1: {
+    key: 'contract_offer_v1',
+    description: 'Notification sent to freelancers when a client extends an official contract offer.',
+    render: renderContractOfferTemplate,
+  },
+  contract_started_v1: {
+    key: 'contract_started_v1',
+    description: 'Confirmation sent when a contract offer is accepted and contract becomes active.',
+    render: renderContractStartedTemplate,
+  },
+  password_reset_v1: {
+    key: 'password_reset_v1',
+    description: 'Security email sent to users with a time-limited password recovery link.',
+    render: renderPasswordResetTemplate,
+  },
+  password_changed_alert_v1: {
+    key: 'password_changed_alert_v1',
+    description: 'Security notification alert sent immediately when an account password is changed.',
+    render: renderPasswordChangedAlertTemplate,
   },
 };
 
@@ -109,6 +173,30 @@ export function renderTemplate(templateKey: string, data: unknown): RenderedEmai
 
     case 'unread_message_v1':
       return REGISTRY.unread_message_v1.render(data as UnreadMessageTemplateData);
+
+    case 'job_posted_v1':
+      return REGISTRY.job_posted_v1.render(data as JobPostedTemplateData);
+
+    case 'proposal_submitted_v1':
+      return REGISTRY.proposal_submitted_v1.render(data as ProposalSubmittedTemplateData);
+
+    case 'proposal_under_review_v1':
+      return REGISTRY.proposal_under_review_v1.render(data as ProposalUnderReviewTemplateData);
+
+    case 'meeting_scheduled_v1':
+      return REGISTRY.meeting_scheduled_v1.render(data as MeetingScheduledTemplateData);
+
+    case 'contract_offer_v1':
+      return REGISTRY.contract_offer_v1.render(data as ContractOfferTemplateData);
+
+    case 'contract_started_v1':
+      return REGISTRY.contract_started_v1.render(data as ContractStartedTemplateData);
+
+    case 'password_reset_v1':
+      return REGISTRY.password_reset_v1.render(data as PasswordResetTemplateData);
+
+    case 'password_changed_alert_v1':
+      return REGISTRY.password_changed_alert_v1.render(data as PasswordChangedAlertTemplateData);
 
     default:
       throw new Error(`Template Error: Unhandled template_key="${templateKey}".`);
