@@ -4,6 +4,7 @@ import { createClient } from '../supabase/server';
 import { Job, ProjectType, ExperienceLevel, ProjectDuration, ClientInfo } from '../types';
 import { INITIAL_JOBS } from '../mock-data';
 import { createNotification } from './notifications';
+import { queueAndDispatchEmail } from '../email/queue';
 
 export interface CreateJobInput {
   title: string;
@@ -638,6 +639,43 @@ export async function createJob(input: CreateJobInput): Promise<{
       message: `Your job listing "${input.title}" is now published and open for proposals.`,
       link: `/jobs/${insertedJob.id}`,
     }).catch(() => {});
+
+    // Dispatch transactional confirmation email to client
+    if (user.email) {
+      const budgetDisplay =
+        input.projectType === 'hourly'
+          ? `$${input.budgetMin || 0} - $${input.budgetMax || 0}/hr`
+          : `$${input.fixedAmount || input.budgetMax || 0}`;
+
+      const clientName =
+        input.clientName ||
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        'Client';
+
+      await queueAndDispatchEmail({
+        eventType: 'job_posted',
+        templateKey: 'job_posted_v1',
+        recipientEmail: user.email,
+        recipientUserId: user.id,
+        subject: `Your job posting "${input.title}" is now live on Workspace`,
+        payload: {
+          clientName,
+          jobTitle: input.title,
+          jobId: insertedJob.id,
+          category: input.category,
+          projectType: input.projectType,
+          budget: budgetDisplay,
+          skills: input.skills,
+          accountState: 'existing_account',
+        },
+        relatedEntityId: insertedJob.id,
+        idempotencyKey: `email:job_posted:${insertedJob.id}:${user.id}`,
+        immediate: true,
+      }).catch((emailErr) => {
+        console.warn('[JOB POSTED EMAIL] Non-fatal dispatch notice:', emailErr);
+      });
+    }
 
     return {
       success: true,
