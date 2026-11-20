@@ -28,6 +28,10 @@ import {
   verifyAndFundMilestoneRazorpay,
 } from '@/lib/actions/payments';
 import {
+  createMilestoneStripePaymentIntent,
+} from '@/lib/actions/stripe';
+import StripeCheckoutModal from '@/components/contracts/stripe-checkout-modal';
+import {
   getContractTimesheets,
   submitTimesheet,
   approveTimesheet,
@@ -73,6 +77,7 @@ import {
   Paperclip,
   Download,
   Edit3,
+  Globe,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
 import EndContractModal from '@/components/contracts/end-contract-modal';
@@ -171,6 +176,15 @@ function ContractDetailsContent() {
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [selectedMilestoneForFund, setSelectedMilestoneForFund] = useState<ContractMilestone | null>(null);
   const [isFundingWithRazorpay, setIsFundingWithRazorpay] = useState(false);
+  const [isFundingWithStripe, setIsFundingWithStripe] = useState(false);
+  const [isStripeModalOpen, setIsStripeModalOpen] = useState(false);
+  const [stripeCheckoutData, setStripeCheckoutData] = useState<{
+    clientSecret: string;
+    paymentIntentId: string;
+    publishableKey: string;
+    amount: number;
+    currency: string;
+  } | null>(null);
   const [isFundingSimulated, setIsFundingSimulated] = useState(false);
 
   const [busyMilestoneId, setBusyMilestoneId] = useState<string | null>(null);
@@ -553,6 +567,35 @@ function ContractDetailsContent() {
       const msg = err instanceof Error ? err.message : 'Error launching Razorpay Checkout.';
       setActionErrorMessage(msg);
       setIsFundingWithRazorpay(false);
+    }
+  };
+
+  const handleStripeCheckout = async (milestone: ContractMilestone) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsFundingWithStripe(true);
+
+    try {
+      const res = await createMilestoneStripePaymentIntent(milestone.id);
+      if (!res.success || !res.clientSecret || !res.paymentIntentId || !res.publishableKey) {
+        throw new Error(res.error || 'Failed to initialize Stripe checkout session.');
+      }
+
+      setStripeCheckoutData({
+        clientSecret: res.clientSecret,
+        paymentIntentId: res.paymentIntentId,
+        publishableKey: res.publishableKey,
+        amount: res.amount || milestone.amount,
+        currency: res.currency || milestone.currency || 'USD',
+      });
+
+      setIsFundModalOpen(false);
+      setIsStripeModalOpen(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to launch Stripe checkout.';
+      setActionErrorMessage(msg);
+    } finally {
+      setIsFundingWithStripe(false);
     }
   };
 
@@ -2940,7 +2983,51 @@ function ContractDetailsContent() {
               </p>
             </div>
 
-            {/* Payment Method 1: Razorpay Test Mode */}
+            {/* Payment Method 1: Stripe Card Checkout (International USD) */}
+            <div className="p-4 rounded-xl border-2 border-indigo-500/30 bg-indigo-50/20 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900">Pay with Stripe</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      <Globe className="w-2.5 h-2.5 text-indigo-600" />
+                      GLOBAL USD
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Pay with international Credit or Debit cards in USD (Stripe Test Mode).
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-white/80 rounded-lg border border-slate-200/60 text-[11px] text-slate-600 space-y-1">
+                <span className="font-semibold text-slate-800 block">Stripe Test Card:</span>
+                <p>
+                  Use test number <code className="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-mono font-bold">4242 4242 4242 4242</code> with any future expiry date &amp; CVV <code className="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-mono font-bold">123</code>.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleStripeCheckout(selectedMilestoneForFund)}
+                disabled={isFundingWithStripe || isFundingWithRazorpay || isFundingSimulated}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                {isFundingWithStripe ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Preparing Stripe Checkout...</span>
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Launch Stripe Card Checkout (USD)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Payment Method 2: Razorpay Test Mode */}
             <div className="p-4 rounded-xl border-2 border-emerald-500/30 bg-emerald-50/20 space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-0.5">
@@ -2952,7 +3039,7 @@ function ContractDetailsContent() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
-                    Live checkout simulation using cards, UPI, or Netbanking (no real money charged).
+                    Checkout simulation using UPI, Netbanking, or domestic Indian cards.
                   </p>
                 </div>
               </div>
@@ -2960,7 +3047,7 @@ function ContractDetailsContent() {
               <div className="p-2.5 bg-white/80 rounded-lg border border-slate-200/60 text-[11px] text-slate-600 space-y-1">
                 <span className="font-semibold text-slate-800 block">Test Payment Tip:</span>
                 <p>
-                  In the Razorpay modal, select <strong>Card</strong> and enter test number <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">4111 1111 1111 1111</code> with any future expiry &amp; CVV <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">123</code>, or click <strong>Success</strong> for instant simulation.
+                  Use UPI ID <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">success@razorpay</code> or domestic test card <code className="bg-slate-100 px-1 py-0.5 rounded text-emerald-700 font-mono font-bold">4012 0000 0000 0002</code> (CVV 123, OTP 1234).
                 </p>
               </div>
 
@@ -2968,7 +3055,7 @@ function ContractDetailsContent() {
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 animate-in fade-in">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div className="flex-1 space-y-0.5">
-                    <span className="font-bold text-rose-950 block">Gateway Error</span>
+                    <span className="font-bold text-rose-950 block">Gateway Notice</span>
                     <p className="leading-relaxed">{actionErrorMessage}</p>
                   </div>
                   <button
@@ -2984,7 +3071,7 @@ function ContractDetailsContent() {
               <button
                 type="button"
                 onClick={() => handleRazorpayCheckout(selectedMilestoneForFund)}
-                disabled={isFundingWithRazorpay || isFundingSimulated}
+                disabled={isFundingWithRazorpay || isFundingWithStripe || isFundingSimulated}
                 className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {isFundingWithRazorpay ? (
@@ -2995,7 +3082,7 @@ function ContractDetailsContent() {
                 ) : (
                   <>
                     <Lock className="w-3.5 h-3.5" />
-                    <span>Launch Razorpay Test Checkout</span>
+                    <span>Launch Razorpay Checkout</span>
                   </>
                 )}
               </button>
@@ -3034,6 +3121,33 @@ function ContractDetailsContent() {
             )}
           </div>
         </div>
+      )}
+
+      {/* MODAL 4B: STRIPE SECURE CARD CHECKOUT */}
+      {isStripeModalOpen && selectedMilestoneForFund && stripeCheckoutData && (
+        <StripeCheckoutModal
+          isOpen={isStripeModalOpen}
+          onClose={() => {
+            setIsStripeModalOpen(false);
+            setStripeCheckoutData(null);
+          }}
+          milestoneId={selectedMilestoneForFund.id}
+          milestoneTitle={selectedMilestoneForFund.title}
+          sequenceOrder={selectedMilestoneForFund.sequenceOrder}
+          amount={stripeCheckoutData.amount}
+          currency={stripeCheckoutData.currency}
+          clientSecret={stripeCheckoutData.clientSecret}
+          paymentIntentId={stripeCheckoutData.paymentIntentId}
+          publishableKey={stripeCheckoutData.publishableKey}
+          onSuccess={(paymentIntentId) => {
+            setIsStripeModalOpen(false);
+            setStripeCheckoutData(null);
+            setActionSuccessMessage(
+              `Milestone funded successfully via Stripe! Payment ID: ${paymentIntentId}. Funds are locked in escrow.`
+            );
+            loadData(true);
+          }}
+        />
       )}
 
       {/* MODAL 5: DISPUTE TIMESHEET */}
