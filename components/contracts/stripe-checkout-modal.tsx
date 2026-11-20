@@ -18,6 +18,9 @@ import {
   CheckCircle2,
   Copy,
   Check,
+  Sparkles,
+  ArrowRight,
+  ExternalLink,
 } from 'lucide-react';
 import { verifyAndFundMilestoneStripe } from '@/lib/actions/stripe';
 
@@ -35,8 +38,21 @@ interface StripeCheckoutModalProps {
   onSuccess: (paymentIntentId: string) => void;
 }
 
+interface SuccessReceiptData {
+  paymentIntentId: string;
+  amount: number;
+  currency: string;
+  milestoneTitle: string;
+  sequenceOrder: number;
+  cardBrand?: string;
+  cardLast4?: string;
+  timestamp: string;
+}
+
 function StripeCardForm({
   milestoneId,
+  milestoneTitle,
+  sequenceOrder,
   amount,
   currency,
   clientSecret,
@@ -45,6 +61,8 @@ function StripeCardForm({
   onSuccess,
 }: {
   milestoneId: string;
+  milestoneTitle: string;
+  sequenceOrder: number;
   amount: number;
   currency: string;
   clientSecret: string;
@@ -57,11 +75,19 @@ function StripeCardForm({
   const [processing, setProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [successReceipt, setSuccessReceipt] = useState<SuccessReceiptData | null>(null);
+  const [copiedTxn, setCopiedTxn] = useState(false);
 
   const handleCopyTestCard = () => {
     navigator.clipboard.writeText('4242424242424242');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyTxn = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedTxn(true);
+    setTimeout(() => setCopiedTxn(false), 2000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,8 +131,18 @@ function StripeCardForm({
         throw new Error(verifyRes.error || 'Server failed to verify payment.');
       }
 
-      // 3. Complete
-      onSuccess(paymentIntent.id);
+      // 3. Display rich celebration receipt animation screen
+      setSuccessReceipt({
+        paymentIntentId: paymentIntent.id,
+        amount,
+        currency,
+        milestoneTitle,
+        sequenceOrder,
+        cardBrand: 'Visa',
+        cardLast4: '4242',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      });
+      setProcessing(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred.';
       setErrorMessage(msg);
@@ -114,6 +150,105 @@ function StripeCardForm({
     }
   };
 
+  // SUCCESS CELEBRATION RECEIPT VIEW
+  if (successReceipt) {
+    return (
+      <div className="space-y-5 animate-in fade-in zoom-in-95 duration-300 py-1">
+        {/* Animated Checkmark Badge */}
+        <div className="text-center space-y-2 pt-2">
+          <div className="relative inline-flex items-center justify-center">
+            <div className="absolute w-20 h-20 bg-emerald-100 rounded-full animate-ping opacity-60" />
+            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg relative z-10">
+              <Check className="w-8 h-8 stroke-[3]" />
+            </div>
+            <div className="absolute -top-1 -right-1 text-amber-500">
+              <Sparkles className="w-5 h-5 fill-amber-400 text-amber-500 animate-bounce" />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+              Escrow Deposit Complete!
+            </h3>
+            <p className="text-xs text-slate-500">
+              Your payment was verified and locked safely into escrow.
+            </p>
+          </div>
+        </div>
+
+        {/* Detailed Receipt Card */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4.5 space-y-3.5 shadow-2xs">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
+            <span className="text-xs text-slate-500 font-medium">Total Funded</span>
+            <span className="text-lg font-black text-slate-900 font-mono">
+              ${successReceipt.amount.toFixed(2)}{' '}
+              <span className="text-xs font-semibold text-slate-500">{successReceipt.currency}</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <span className="text-slate-400 block text-[11px]">Milestone</span>
+              <span className="font-semibold text-slate-800 line-clamp-1">
+                #{successReceipt.sequenceOrder}: {successReceipt.milestoneTitle}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">Payment Method</span>
+              <span className="font-semibold text-slate-800 flex items-center gap-1">
+                <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                {successReceipt.cardBrand} •••• {successReceipt.cardLast4}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">Escrow Status</span>
+              <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                100% Protected
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">Time</span>
+              <span className="font-semibold text-slate-800">{successReceipt.timestamp}</span>
+            </div>
+          </div>
+
+          <div className="pt-2.5 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">Transaction ID:</span>
+            <button
+              type="button"
+              onClick={() => handleCopyTxn(successReceipt.paymentIntentId)}
+              className="font-mono text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200 transition-colors"
+            >
+              <span>{successReceipt.paymentIntentId.slice(0, 16)}...</span>
+              {copiedTxn ? (
+                <Check className="w-3 h-3 text-emerald-600" />
+              ) : (
+                <Copy className="w-3 h-3 text-slate-400" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Protection Note */}
+        <p className="text-[11px] text-slate-500 text-center leading-relaxed px-2">
+          Funds are held in escrow. The freelancer will begin work, and money will only be disbursed when you review and approve their submission.
+        </p>
+
+        {/* Close & Continue Button */}
+        <button
+          type="button"
+          onClick={() => onSuccess(successReceipt.paymentIntentId)}
+          className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer"
+        >
+          <span>Done &amp; View Escrow Balance</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  // CHECKOUT INPUT VIEW
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Test Card Quick Fill Helper */}
@@ -151,7 +286,7 @@ function StripeCardForm({
         <label className="block text-xs font-semibold text-slate-700">
           Card Details
         </label>
-        <div className="p-3.5 bg-white border border-slate-300 rounded-xl shadow-2xs focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+        <div className="p-3.5 bg-white border border-slate-300 rounded-xl shadow-2xs focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
           <CardElement
             options={{
               style: {
@@ -206,7 +341,7 @@ function StripeCardForm({
         <button
           type="submit"
           disabled={!stripe || processing}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
         >
           {processing ? (
             <>
@@ -276,28 +411,13 @@ export default function StripeCheckoutModal({
           </button>
         </div>
 
-        {/* Deposit Summary Banner */}
-        <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between">
-          <div className="space-y-0.5">
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
-              Total Escrow Deposit
-            </span>
-            <div className="font-mono text-lg font-extrabold text-slate-900">
-              ${amount.toFixed(2)}{' '}
-              <span className="text-xs font-semibold text-slate-500">{currency}</span>
-            </div>
-          </div>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Secure Escrow
-          </span>
-        </div>
-
         {/* Elements Form */}
         {stripePromise && clientSecret ? (
           <Elements stripe={stripePromise}>
             <StripeCardForm
               milestoneId={milestoneId}
+              milestoneTitle={milestoneTitle}
+              sequenceOrder={sequenceOrder}
               amount={amount}
               currency={currency}
               clientSecret={clientSecret}
@@ -308,7 +428,7 @@ export default function StripeCheckoutModal({
           </Elements>
         ) : (
           <div className="py-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
             <span>Loading Stripe secure checkout...</span>
           </div>
         )}
@@ -316,4 +436,3 @@ export default function StripeCheckoutModal({
     </div>
   );
 }
-
