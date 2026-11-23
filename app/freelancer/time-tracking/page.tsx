@@ -529,7 +529,7 @@ export default function FreelancerTimeTrackingPage() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-slate-200 gap-6">
+      <div className="flex border-b border-slate-200 gap-4 sm:gap-6 overflow-x-auto scrollbar-none whitespace-nowrap pb-0.5">
         <button
           type="button"
           onClick={() => setActiveMainTab('timer')}

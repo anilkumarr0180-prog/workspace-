@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
+import { loadStripe, Stripe } from '@stripe/stripe-js';
 import {
   Elements,
   CardElement,
@@ -360,7 +360,7 @@ function StripeCardForm({
   );
 }
 
-let stripePromiseCache: Promise<any> | null = null;
+let stripePromiseCache: Promise<Stripe | null> | null = null;
 function getStripePromise(publishableKey: string) {
   if (!stripePromiseCache && publishableKey) {
     stripePromiseCache = loadStripe(publishableKey);
@@ -386,8 +386,8 @@ export default function StripeCheckoutModal({
   const stripePromise = getStripePromise(publishableKey);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">

@@ -521,7 +521,7 @@ export async function verifyAndPayTimesheet(
     const expectedSubunits = Math.round(Number(timesheet.total_amount) * 100);
 
     // Verify server-persisted payment attempt exists for this timesheet
-    let rawAttempt: any = null;
+    let rawAttempt: Record<string, unknown> | null = null;
     const { data: rpcAttempt, error: attemptError } = await supabase.rpc('get_payment_attempt_for_timesheet', {
       p_timesheet_id: timesheet.id,
       p_razorpay_order_id: razorpayOrderId.trim(),
@@ -563,8 +563,20 @@ export async function verifyAndPayTimesheet(
     }
 
     // Fund timesheet atomically in database via privileged service_role client
+    interface DbTimesheetRow {
+      id: string;
+      contract_id: string;
+      client_id: string;
+      freelancer_id: string;
+      week_start_date: string;
+      total_minutes: number;
+      total_amount: number | string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    }
     const adminClient = getAdminSupabaseClient();
-    let paidTimesheet: any = null;
+    let paidTimesheet: DbTimesheetRow | null = null;
     const { data: rpcPaid, error: fundError } = await adminClient.rpc('fund_timesheet_with_payment', {
       p_timesheet_id: timesheet.id,
       p_razorpay_payment_id: razorpayPaymentId.trim(),

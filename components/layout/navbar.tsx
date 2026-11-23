@@ -520,6 +520,18 @@ export default function Navbar() {
     router.push('/login');
   };
 
+  // Reset job form handler
+  const handlePostJobClick = () => {
+    setActiveDropdown(null);
+    setMobileMenuOpen(false);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+    }
+    if (pathname === '/client/jobs/new' && typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // Hide Navbar completely on auth flows (after all hooks)
   if (pathname === '/login' || pathname.startsWith('/signup') || pathname.includes('/popout')) {
     return null;
@@ -567,7 +579,7 @@ export default function Navbar() {
                       <div className="bg-white rounded-2xl border border-slate-200/90 p-2 shadow-xl space-y-1">
                         <NextLink
                           href="/client/jobs/new"
-                          onClick={() => setActiveDropdown(null)}
+                          onClick={handlePostJobClick}
                           className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
                         >
                           <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-700">
@@ -1105,6 +1117,7 @@ export default function Navbar() {
               <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 2xl:gap-2 text-[13.5px] xl:text-[14px] font-medium text-slate-800 whitespace-nowrap shrink-0">
                 <NextLink
                   href="/client/jobs/new"
+                  onClick={handlePostJobClick}
                   className={`px-2.5 xl:px-3 py-1.5 rounded-lg transition-colors font-semibold shrink-0 ${
                     pathname === '/client/jobs/new'
                       ? 'text-[#14a800] bg-emerald-50/80'
@@ -1671,6 +1684,27 @@ export default function Navbar() {
               className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
             >
               <span>Freelancer Hub & Proposals</span>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
+              href="/freelancer/time-tracking"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <span>Time Tracker &amp; Work Diary</span>
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+            </NextLink>
+
+            <NextLink
+              href="/client/jobs/new"
+              onClick={handlePostJobClick}
+              className="flex items-center justify-between p-2.5 rounded-lg text-slate-800 font-medium hover:bg-slate-50"
+            >
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-[#14a800]" />
+                <span>Post a Job</span>
+              </div>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </NextLink>
 

@@ -821,6 +821,11 @@ function ClientDashboardContent() {
             </button>
             <Link
               href="/client/jobs/new"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                }
+              }}
               className="inline-flex items-center gap-2.5 px-5 sm:px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all duration-200 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4 stroke-[2.5]" />
@@ -1081,6 +1086,11 @@ function ClientDashboardContent() {
 
               <Link
                 href="/client/jobs/new"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80 text-xs font-bold transition-colors shrink-0 self-end sm:self-center"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
@@ -1113,6 +1123,11 @@ function ClientDashboardContent() {
                         <div className="pt-2">
                           <Link
                             href="/client/jobs/new"
+                            onClick={() => {
+                              if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                              }
+                            }}
                             className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
                           >
                             <PlusCircle className="w-4 h-4" />
@@ -1685,6 +1700,11 @@ function ClientDashboardContent() {
                         <div className="pt-2">
                           <Link
                             href="/client/jobs/new"
+                            onClick={() => {
+                              if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                              }
+                            }}
                             className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
                           >
                             <PlusCircle className="w-4 h-4" />
@@ -1862,6 +1882,11 @@ function ClientDashboardContent() {
               <div className="pt-2">
                 <Link
                   href="/client/jobs/new"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                    }
+                  }}
                   className="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-slate-950 font-bold text-xs rounded-xl hover:bg-emerald-50 transition-all duration-150 shadow-md active:scale-95"
                 >
                   <PlusCircle className="w-4 h-4 text-emerald-600" />

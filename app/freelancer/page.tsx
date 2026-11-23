@@ -288,6 +288,9 @@ export default function FreelancerDashboardPage() {
         );
 
         showToast('Proposal withdrawn successfully.');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace:proposals-refresh'));
+        }
       } else {
         showError(data.error || 'Failed to withdraw proposal.');
       }

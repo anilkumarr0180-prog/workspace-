@@ -22,9 +22,16 @@ interface ProposalModalProps {
 }
 
 export default function ProposalModal({ job, isOpen, onClose }: ProposalModalProps) {
-  const { hasAppliedToJob, proposals } = useMarketplace();
-  const alreadyApplied = hasAppliedToJob(job.id);
-  const existingProposal = proposals.find((p) => p.jobId === job.id);
+  const { proposals, refreshProposals } = useMarketplace();
+  // Only proposals that are not withdrawn or rejected count as currently active
+  const activeProposal = proposals.find(
+    (p) => p.jobId === job.id && !['withdrawn', 'rejected'].includes(p.status)
+  );
+  const alreadyApplied = Boolean(activeProposal);
+  const existingProposal = activeProposal || proposals.find((p) => p.jobId === job.id);
+  const hasPreviouslyWithdrawn = proposals.some(
+    (p) => p.jobId === job.id && p.status === 'withdrawn'
+  );
 
   const defaultBid =
     job.budget.type === 'fixed'
@@ -37,8 +44,17 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isWithdrawing, setIsWithdrawing] = useState<boolean>(false);
   const [apiErrorMessage, setApiErrorMessage] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const handleClose = React.useCallback(() => {
+    setIsSubmitted(false);
+    setApiErrorMessage(null);
+    setErrors({});
+    setIsWithdrawing(false);
+    onClose();
+  }, [onClose]);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -114,6 +130,12 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
 
       if (res.ok && data.success && data.proposal) {
         setIsSubmitted(true);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace:proposals-refresh'));
+        }
+        if (refreshProposals) {
+          refreshProposals();
+        }
       } else if (res.status === 409) {
         setApiErrorMessage(data.error || 'You already have an active proposal submitted for this job.');
       } else if (res.status === 401) {
@@ -135,6 +157,34 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
     }
   };
 
+  const handleWithdrawActiveProposal = async () => {
+    if (!activeProposal) return;
+    setIsWithdrawing(true);
+    setApiErrorMessage(null);
+    try {
+      const res = await fetch(`/api/proposals/${activeProposal.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'withdrawn' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace:proposals-refresh'));
+        }
+        if (refreshProposals) {
+          await refreshProposals();
+        }
+      } else {
+        setApiErrorMessage(data.error || 'Failed to withdraw proposal.');
+      }
+    } catch {
+      setApiErrorMessage('Network error while withdrawing proposal.');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
@@ -149,7 +199,7 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
             </h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             type="button"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             aria-label="Close modal"
@@ -174,14 +224,14 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-amber-200/60">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 hover:bg-amber-100 transition-colors"
                 >
                   Close
                 </button>
                 <Link
                   href="/client"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 transition-colors"
                 >
                   Go to Client Dashboard
@@ -196,7 +246,7 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
                   <h4 className="font-semibold text-sm">Active Proposal On File</h4>
                   <p className="text-xs text-amber-700 leading-relaxed">
                     You have already submitted a proposal for this job. You can review and manage your proposal status in your{' '}
-                    <Link href="/freelancer#proposals" onClick={onClose} className="underline font-semibold text-amber-900 hover:text-emerald-800">
+                    <Link href="/freelancer#proposals" onClick={handleClose} className="underline font-semibold text-amber-900 hover:text-emerald-800">
                       Freelancer Hub
                     </Link>
                     .
@@ -239,16 +289,26 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
               </div>
 
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-3">
+                {activeProposal && ['submitted', 'under_review', 'interviewing'].includes(activeProposal.status) && (
+                  <button
+                    type="button"
+                    disabled={isWithdrawing}
+                    onClick={handleWithdrawActiveProposal}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isWithdrawing ? 'Withdrawing...' : 'Withdraw Proposal'}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
                 >
                   Close
                 </button>
                 <Link
                   href="/freelancer#proposals"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-xs"
                 >
                   <span>Manage in Freelancer Hub</span>
@@ -288,14 +348,14 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
               <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link
                   href="/freelancer"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 shadow-xs"
                 >
                   <span>View in Freelancer Hub</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   type="button"
                   className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50"
                 >
@@ -305,6 +365,16 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
             </div>
           ) : !isJobOwner ? (
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Prior withdrawal notice banner */}
+              {hasPreviouslyWithdrawn && !alreadyApplied && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-900 text-xs flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    You previously withdrew a proposal for this job. You can submit a new proposal with revised terms below.
+                  </span>
+                </div>
+              )}
+
               {/* Client budget reference banner */}
               <div className="bg-emerald-50/70 border border-emerald-200/70 rounded-xl p-3.5 flex items-center justify-between text-xs">
                 <div>
@@ -421,7 +491,7 @@ export default function ProposalModal({ job, isOpen, onClose }: ProposalModalPro
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
                 >
                   Cancel

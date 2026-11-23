@@ -68,13 +68,13 @@ export default function UpworkHero() {
       <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent sm:hidden pointer-events-none z-10" />
 
       {/* Content Container - Positioned on left with ample breathing room */}
-      <div className="relative z-20 w-full px-6 py-8 sm:px-10 sm:py-10 lg:px-14 xl:px-16 max-w-[580px]">
+      <div className="relative z-20 w-full px-5 py-7 sm:px-10 sm:py-10 lg:px-14 xl:px-16 max-w-[580px]">
         {/* Hire / Work Toggle Pill */}
-        <div className="inline-flex items-center p-1 rounded-full bg-black/40 backdrop-blur-md border border-white/20 mb-5 sm:mb-6 shadow-xs">
+        <div className="inline-flex items-center p-1 rounded-full bg-black/40 backdrop-blur-md border border-white/20 mb-4 sm:mb-6 shadow-xs">
           <button
             type="button"
             onClick={() => setActiveTab('hire')}
-            className={`px-5 py-1.5 sm:px-6 sm:py-2 rounded-full text-[13px] sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
+            className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
               activeTab === 'hire'
                 ? 'bg-[#222222] text-white shadow-xs'
                 : 'text-white/80 hover:text-white'
@@ -85,7 +85,7 @@ export default function UpworkHero() {
           <button
             type="button"
             onClick={() => setActiveTab('work')}
-            className={`px-5 py-1.5 sm:px-6 sm:py-2 rounded-full text-[13px] sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
+            className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
               activeTab === 'work'
                 ? 'bg-[#222222] text-white shadow-xs'
                 : 'text-white/80 hover:text-white'
@@ -96,16 +96,16 @@ export default function UpworkHero() {
         </div>
 
         {/* Dynamic Headline Based on Toggle - Exact Upwork editorial typography with crisp drop shadow */}
-        <h1 className="font-serif text-[34px] sm:text-[44px] md:text-[50px] lg:text-[54px] font-normal tracking-tight text-white leading-[1.08] sm:leading-[1.1] transition-all duration-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)]">
+        <h1 className="font-serif text-[28px] xs:text-[34px] sm:text-[44px] md:text-[50px] lg:text-[54px] font-normal tracking-tight text-white leading-[1.12] sm:leading-[1.1] transition-all duration-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)]">
           {activeTab === 'hire' ? (
             <>
-              <span className="whitespace-nowrap">Work at the speed</span> <br />
-              <span className="whitespace-nowrap">of your ambition</span>
+              <span className="break-words sm:whitespace-nowrap">Work at the speed</span> <br className="hidden sm:inline" />
+              <span className="break-words sm:whitespace-nowrap">of your ambition</span>
             </>
           ) : (
             <>
-              <span className="whitespace-nowrap">Find great work and</span> <br />
-              <span className="whitespace-nowrap">scale your career</span>
+              <span className="break-words sm:whitespace-nowrap">Find great work and</span> <br className="hidden sm:inline" />
+              <span className="break-words sm:whitespace-nowrap">scale your career</span>
             </>
           )}
         </h1>
@@ -121,6 +121,11 @@ export default function UpworkHero() {
         <div className="mt-6 sm:mt-8">
           <Link
             href={activeTab === 'hire' ? '/client/jobs/new' : '/jobs'}
+            onClick={() => {
+              if (activeTab === 'hire' && typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+              }
+            }}
             className="group/btn relative inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] text-white font-medium text-[15px] sm:text-[16px] transition-all duration-200 shadow-[0_0_28px_rgba(20,168,0,0.55),0_4px_16px_rgba(20,168,0,0.35)] hover:shadow-[0_0_38px_rgba(20,168,0,0.7),0_6px_22px_rgba(20,168,0,0.45)] cursor-pointer"
           >
             <span>{activeTab === 'hire' ? 'Get started' : 'Find opportunities'}</span>

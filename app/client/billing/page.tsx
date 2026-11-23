@@ -430,6 +430,11 @@ export default function ClientBillingPage() {
 
               <Link
                 href="/client/jobs/new"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm"
               >
                 <Sparkles className="w-3.5 h-3.5" />
