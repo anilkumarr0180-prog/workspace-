@@ -50,11 +50,6 @@ export default function HomePage() {
             <div className="pt-8">
               <Link
                 href="/client/jobs/new"
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
-                  }
-                }}
                 className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-[#14a800] hover:bg-[#108a00] font-medium text-[15px] text-white transition-all shadow-md cursor-pointer"
               >
                 <span>Post a Job Free</span>
