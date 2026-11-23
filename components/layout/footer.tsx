@@ -54,7 +54,15 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/client/jobs/new" className="hover:text-white transition-colors">
+                <Link
+                  href="/client/jobs/new"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                    }
+                  }}
+                  className="hover:text-white transition-colors"
+                >
                   Post a Project
                 </Link>
               </li>
@@ -133,9 +141,9 @@ export default function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400 text-center sm:text-left">
           <p>© 2026 Workspace Inc. All rights reserved. Original frontend implementation.</p>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 sm:gap-6">
             <span className="hover:text-slate-300">Privacy Policy</span>
             <span className="hover:text-slate-300">Terms of Service</span>
             <span className="hover:text-slate-300">Security</span>

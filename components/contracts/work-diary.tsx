@@ -363,7 +363,7 @@ export default function WorkDiary({
         </div>
 
         {/* Week Day Tabs (Mon to Sun) */}
-        <div className="grid grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 gap-1 sm:gap-2">
           {weekDays.map((d) => {
             const isSelected = d.iso === selectedDate;
             const hasActivity = activeDates.includes(d.iso);
@@ -377,31 +377,31 @@ export default function WorkDiary({
                   setLoading(true);
                   setSelectedDate(d.iso);
                 }}
-                className={`p-2.5 rounded-xl text-center transition-all cursor-pointer border ${
+                className={`p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl text-center transition-all cursor-pointer border ${
                   isSelected
                     ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200/80 text-slate-700'
                 }`}
               >
-                <span className={`block text-[11px] font-bold uppercase tracking-wider ${
+                <span className={`block text-[9px] sm:text-[11px] font-bold uppercase tracking-wider ${
                   isSelected ? 'text-slate-300' : 'text-slate-400'
                 }`}>
                   {d.dayName}
                 </span>
-                <span className="block text-sm font-extrabold mt-0.5">
+                <span className="block text-xs sm:text-sm font-extrabold mt-0.5">
                   {d.dayNum}
                 </span>
                 <div className="flex items-center justify-center gap-1 mt-1">
                   {hasActivity ? (
                     <span
-                      className={`inline-block w-2 h-2 rounded-full ${
+                      className={`inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
                         isSelected ? 'bg-emerald-400 ring-2 ring-emerald-500/50' : 'bg-emerald-600'
                       }`}
                       title="Work session recorded on this date"
                     />
                   ) : isToday ? (
                     <span
-                      className={`inline-block w-1.5 h-1.5 rounded-full ${
+                      className={`inline-block w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${
                         isSelected ? 'bg-slate-400' : 'bg-slate-300'
                       }`}
                       title="Today"
@@ -747,8 +747,8 @@ export default function WorkDiary({
 
       {/* High-Resolution Screenshot / Slot Detail Modal */}
       {previewSlot && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-4 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">

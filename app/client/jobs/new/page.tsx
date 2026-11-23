@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { CATEGORIES } from '@/lib/mock-data';
 import { ProjectType, ExperienceLevel, ProjectDuration } from '@/lib/types';
@@ -37,6 +37,55 @@ export default function PostJobPage() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Memoized form reset function
+  const resetForm = useCallback(() => {
+    setSubmittedJobId(null);
+    setTitle('');
+    setCategory(CATEGORIES[0]?.name || 'Development & IT');
+    setDescription('');
+    setDeliverablesInput('');
+    setDeliverables([]);
+    setSkillInput('');
+    setSkills([]);
+    setProjectType('fixed');
+    setFixedAmount('');
+    setHourlyMin('');
+    setHourlyMax('');
+    setExperienceLevel('expert');
+    setDuration('1_to_3_months');
+    setCompanyName('');
+    setErrors({});
+    setIsSubmitting(false);
+  }, []);
+
+  // Listen for reset events (e.g. clicking "Post a Job" from header or dashboard)
+  useEffect(() => {
+    const handleResetEvent = () => {
+      resetForm();
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+
+    const handlePopState = () => {
+      resetForm();
+    };
+
+    window.addEventListener('workspace:reset-post-job-form', handleResetEvent);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('workspace:reset-post-job-form', handleResetEvent);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [resetForm]);
+
+  // Clean up submitted state on unmount
+  useEffect(() => {
+    return () => {
+      setSubmittedJobId(null);
+    };
+  }, []);
 
   // Pre-populate client and company name from authenticated user profile
   useEffect(() => {
@@ -221,14 +270,10 @@ export default function PostJobPage() {
             </Link>
             <button
               onClick={() => {
-                setSubmittedJobId(null);
-                setTitle('');
-                setDescription('');
-                setSkills([]);
-                setDeliverables([]);
-                setFixedAmount('');
-                setHourlyMin('');
-                setHourlyMax('');
+                resetForm();
+                if (typeof window !== 'undefined') {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
               }}
               type="button"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 active:scale-[0.99] text-slate-700 font-semibold text-sm shadow-xs transition-all cursor-pointer"

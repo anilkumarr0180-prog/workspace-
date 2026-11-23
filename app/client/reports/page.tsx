@@ -137,6 +137,11 @@ export default function ClientReportsPage() {
             </button>
             <Link
               href="/client/jobs/new"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                }
+              }}
               className="inline-flex items-center gap-2.5 px-5 sm:px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all duration-200 cursor-pointer"
             >
               <span>Post a Job</span>

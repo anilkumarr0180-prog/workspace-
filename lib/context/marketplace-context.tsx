@@ -14,6 +14,7 @@ interface MarketplaceContextType {
   addProposal: (proposal: Omit<ProposalSubmission, 'id' | 'submittedAt' | 'status'>) => void;
   addJob: (newJob: Omit<Job, 'id' | 'postedAt' | 'proposalCount' | 'client'> & { clientName?: string; companyName?: string }) => string;
   hasAppliedToJob: (jobId: string) => boolean;
+  refreshProposals?: () => Promise<void>;
   sendContactMessage: (username: string, subject: string, message: string) => void;
   contactMessagesCount: number;
 }
@@ -49,6 +50,43 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       // Safe fallback
     }
     isMountedRef.current = true;
+  }, []);
+
+  // Fetch and sync active proposals from API
+  const refreshProposals = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/proposals');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.proposals)) {
+          setProposals(
+            data.proposals.map((p: {
+              id: string;
+              jobId: string;
+              jobTitle: string;
+              bidAmount: number;
+              rateType: ProposalSubmission['rateType'];
+              coverLetter: string;
+              deliveryDays?: number;
+              createdAt: string;
+              status: ProposalSubmission['status'];
+            }) => ({
+              id: p.id,
+              jobId: p.jobId,
+              jobTitle: p.jobTitle,
+              bidAmount: Number(p.bidAmount),
+              rateType: p.rateType,
+              coverLetter: p.coverLetter,
+              deliveryDays: p.deliveryDays || 14,
+              submittedAt: p.createdAt,
+              status: p.status,
+            }))
+          );
+        }
+      }
+    } catch {
+      // Safe fallback
+    }
   }, []);
 
   // Fetch genuine data strictly from Supabase API on mount
@@ -117,7 +155,15 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         }
       })
       .catch(() => {});
-  }, []);
+
+    const handleProposalsRefresh = () => {
+      refreshProposals();
+    };
+    window.addEventListener('workspace:proposals-refresh', handleProposalsRefresh);
+    return () => {
+      window.removeEventListener('workspace:proposals-refresh', handleProposalsRefresh);
+    };
+  }, [refreshProposals]);
 
   // Reactively sync saved job IDs to localStorage
   React.useEffect(() => {
@@ -153,7 +199,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const isJobSaved = (jobId: string) => savedJobIds.includes(jobId);
 
   const hasAppliedToJob = (jobId: string) => {
-    return proposals.some((p) => p.jobId === jobId);
+    return proposals.some(
+      (p) => p.jobId === jobId && !['withdrawn', 'rejected'].includes(p.status)
+    );
   };
 
   // Pure state updater: add proposal
@@ -233,6 +281,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         addProposal,
         addJob,
         hasAppliedToJob,
+        refreshProposals,
         sendContactMessage,
         contactMessagesCount
       }}

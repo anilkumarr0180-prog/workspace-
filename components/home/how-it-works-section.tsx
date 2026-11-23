@@ -20,11 +20,11 @@ export default function HowItWorksSection() {
           </p>
 
           {/* Toggle Tabs */}
-          <div className="inline-flex p-1 bg-slate-100 rounded-full mt-6 sm:mt-7 border border-slate-200/60">
+          <div className="flex flex-col sm:inline-flex sm:flex-row p-1 bg-slate-100 rounded-2xl sm:rounded-full mt-6 sm:mt-7 border border-slate-200/60 max-w-full gap-1">
             <button
               onClick={() => setHowItWorksTab('clients')}
               type="button"
-              className={`px-5 sm:px-6 py-2 text-[13px] sm:text-sm font-medium rounded-full transition-all cursor-pointer ${
+              className={`px-4 sm:px-6 py-2 text-xs sm:text-sm font-medium rounded-xl sm:rounded-full transition-all cursor-pointer ${
                 howItWorksTab === 'clients'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -35,7 +35,7 @@ export default function HowItWorksSection() {
             <button
               onClick={() => setHowItWorksTab('freelancers')}
               type="button"
-              className={`px-5 sm:px-6 py-2 text-[13px] sm:text-sm font-medium rounded-full transition-all cursor-pointer ${
+              className={`px-4 sm:px-6 py-2 text-xs sm:text-sm font-medium rounded-xl sm:rounded-full transition-all cursor-pointer ${
                 howItWorksTab === 'freelancers'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'

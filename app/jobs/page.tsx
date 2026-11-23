@@ -425,6 +425,11 @@ function JobsContent() {
                 ) : (
                   <Link
                     href="/client/jobs/new"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('workspace:reset-post-job-form'));
+                      }
+                    }}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-2xs"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />

@@ -1373,7 +1373,7 @@ function ContractDetailsContent() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 md:flex md:items-center">
                 <div>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Fixed Budget</span>
                   <div className="text-xl font-black text-slate-900">${stats.totalBudget.toFixed(2)}</div>
@@ -1430,7 +1430,7 @@ function ContractDetailsContent() {
         )}
 
         {/* Tab Navigation */}
-        <div className="border-b border-slate-200 flex items-center gap-8">
+        <div className="border-b border-slate-200 flex items-center gap-4 sm:gap-8 overflow-x-auto scrollbar-none whitespace-nowrap pb-0.5">
           <button
             onClick={() => setActiveTab('milestones')}
             className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
@@ -2425,8 +2425,8 @@ function ContractDetailsContent() {
 
       {/* MODAL 1: SUBMIT WORK (FREELANCER) */}
       {isSubmitModalOpen && selectedMilestoneForSubmit && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-4 sm:p-6 space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
@@ -2573,8 +2573,8 @@ function ContractDetailsContent() {
 
       {/* MODAL 2: CLIENT REVIEW & ESCROW RELEASE */}
       {isReviewModalOpen && selectedMilestoneForReview && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-4 sm:p-6 space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Review Milestone Deliverables</h3>
@@ -2711,8 +2711,8 @@ function ContractDetailsContent() {
 
       {/* MODAL 3: CREATE MILESTONE (CLIENT) */}
       {isCreateMilestoneModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Add Next Contract Milestone</h3>
@@ -2845,8 +2845,8 @@ function ContractDetailsContent() {
 
       {/* MODAL: EDIT PLANNED MILESTONE (CLIENT) */}
       {isEditMilestoneModalOpen && selectedMilestoneForEdit && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Edit Milestone Deliverables &amp; Amount</h3>
@@ -2939,8 +2939,8 @@ function ContractDetailsContent() {
 
       {/* MODAL 4: FUND ESCROW (RAZORPAY TEST MODE & SIMULATION) */}
       {isFundModalOpen && selectedMilestoneForFund && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
@@ -3152,8 +3152,8 @@ function ContractDetailsContent() {
 
       {/* MODAL 5: DISPUTE TIMESHEET */}
       {isDisputeModalOpen && selectedTimesheetForDispute && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">

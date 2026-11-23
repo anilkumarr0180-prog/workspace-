@@ -493,7 +493,7 @@ function JobDetailContent() {
       </div>
 
       {/* Interactive Proposal Modal */}
-      {!isJobOwner && (
+      {!isJobOwner && isProposalOpen && (
         <ProposalModal
           job={job}
           isOpen={isProposalOpen}
