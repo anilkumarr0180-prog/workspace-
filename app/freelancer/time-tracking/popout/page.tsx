@@ -83,8 +83,17 @@ function PopoutTrackerContent() {
             }
           } else if (urlContractId) {
             setSelectedContractId(urlContractId);
+            const memoCandidate = res.contractStats?.[urlContractId]?.lastMemo;
+            if (memoCandidate) {
+              setWorkMemo((prev) => prev || memoCandidate);
+            }
           } else if (res.eligibleContracts.length > 0) {
-            setSelectedContractId((prev) => prev || res.eligibleContracts[0].id);
+            const firstId = res.eligibleContracts[0].id;
+            setSelectedContractId((prev) => prev || firstId);
+            const memoCandidate = res.contractStats?.[firstId]?.lastMemo;
+            if (memoCandidate) {
+              setWorkMemo((prev) => prev || memoCandidate);
+            }
           }
         } else {
           showError(res.error || 'Failed to load tracker.');
@@ -152,12 +161,31 @@ function PopoutTrackerContent() {
   }, [data?.activeSession?.startTime]);
 
   const isTimerRunning = Boolean(data?.activeSession?.startTime);
-  const displaySeconds = isTimerRunning ? elapsedSeconds : 0;
 
   const activeContract: Contract | undefined = useMemo(() => {
     if (data?.activeSession?.contract) return data.activeSession.contract;
     return data?.eligibleContracts.find((c) => c.id === selectedContractId);
   }, [data?.activeSession, data?.eligibleContracts, selectedContractId]);
+
+  // Base logged time today for this active contract (in seconds)
+  const baseTodaySeconds = activeContract?.id && data?.contractStats
+    ? (data.contractStats[activeContract.id]?.todaySeconds ??
+       (data.contractStats[activeContract.id]?.todayMinutes || 0) * 60)
+    : 0;
+
+  // Total running today seconds: base logged today + current active session seconds
+  const totalTodaySeconds = baseTodaySeconds + (isTimerRunning ? elapsedSeconds : 0);
+
+  // Clock view mode: 'today' (Upwork default) or 'session'
+  const [clockMode, setClockMode] = useState<'today' | 'session'>('today');
+
+  const displaySeconds = !isTimerRunning
+    ? (clockMode === 'session' ? 0 : baseTodaySeconds)
+    : (clockMode === 'session' ? elapsedSeconds : totalTodaySeconds);
+
+  const contractRate = activeContract?.hourlyRate || 0;
+  const todayTotalEarnings = (totalTodaySeconds / 3600) * contractRate;
+  const sessionEarnings = (elapsedSeconds / 3600) * contractRate;
 
   const formatTimeHHMMSS = (totalSec: number) => {
     const hours = Math.floor(totalSec / 3600);
@@ -211,7 +239,7 @@ function PopoutTrackerContent() {
         } else {
           showToast('Session under 1m discarded.');
         }
-        setWorkMemo('');
+        // Retain workMemo so freelancer can seamlessly resume work like Upwork Desktop Tracker
         broadcastSync('TIMER_STOPPED');
         await refreshTrackerData();
       } else {
@@ -236,7 +264,6 @@ function PopoutTrackerContent() {
       const res = await discardTimerSession();
       if (res.success) {
         showToast('Session discarded.');
-        setWorkMemo('');
         broadcastSync('TIMER_STOPPED');
         await refreshTrackerData();
       } else {
@@ -249,8 +276,15 @@ function PopoutTrackerContent() {
     }
   };
 
-  const todayHours = Number(((data?.stats?.todayMinutes || 0) / 60).toFixed(1));
-  const thisWeekHours = Number(((data?.stats?.thisWeekMinutes || 0) / 60).toFixed(1));
+  const todayMinutesTotal =
+    (data?.contractStats?.[activeContract?.id || '']?.todayMinutes ?? data?.stats?.todayMinutes ?? 0) +
+    (isTimerRunning ? Math.floor(elapsedSeconds / 60) : 0);
+  const todayHours = Number((todayMinutesTotal / 60).toFixed(1));
+
+  const thisWeekMinutesTotal =
+    (data?.contractStats?.[activeContract?.id || '']?.thisWeekMinutes ?? data?.stats?.thisWeekMinutes ?? 0) +
+    (isTimerRunning ? Math.floor(elapsedSeconds / 60) : 0);
+  const thisWeekHours = Number((thisWeekMinutesTotal / 60).toFixed(1));
   const weeklyLimit = activeContract?.weeklyHourLimit || 40;
   const weeklyProgress = Math.min(100, (thisWeekHours / weeklyLimit) * 100);
 
@@ -328,7 +362,15 @@ function PopoutTrackerContent() {
               <select
                 id="popout-contract"
                 value={selectedContractId}
-                onChange={(e) => setSelectedContractId(e.target.value)}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedContractId(nextId);
+                  setContractError(null);
+                  if (!workMemo.trim()) {
+                    const prevMemo = data?.contractStats?.[nextId]?.lastMemo;
+                    if (prevMemo) setWorkMemo(prevMemo);
+                  }
+                }}
                 disabled={isTimerRunning || isStarting || loading}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-[#14a800] truncate disabled:opacity-60 cursor-pointer shadow-2xs"
               >
@@ -392,24 +434,55 @@ function PopoutTrackerContent() {
 
               {/* Digital Clock & Earnings */}
               <div className="text-right flex-1 min-w-0">
+                {/* Mode Toggle Button */}
+                <div className="flex items-center justify-end gap-1 mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setClockMode((prev) => (prev === 'today' ? 'session' : 'today'))}
+                    className="text-[9px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                    title="Toggle between Today Total and Session Stopwatch"
+                  >
+                    {clockMode === 'today' ? "Today's Time" : 'Session Stopwatch'}
+                  </button>
+                </div>
+
                 <div
                   className={`font-mono text-3xl font-black tracking-tight leading-none ${
-                    isTimerRunning ? 'text-slate-900' : 'text-slate-400'
+                    isTimerRunning ? 'text-slate-900' : 'text-slate-700'
                   }`}
                 >
                   {formatTimeHHMMSS(displaySeconds)}
                 </div>
+
                 {isTimerRunning && activeContract ? (
-                  <div className="flex items-center justify-end gap-1.5 mt-1">
+                  <div className="flex items-center justify-end gap-1.5 mt-1 flex-wrap">
                     <span className="text-xs font-black text-emerald-600 font-mono">
-                      +${((elapsedSeconds / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)}
+                      +${(clockMode === 'today' ? todayTotalEarnings : sessionEarnings).toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-medium">earned</span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {clockMode === 'today' ? 'today' : 'session'}
+                    </span>
+                    {clockMode === 'today' && elapsedSeconds > 0 && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        ({formatTimeHHMMSS(elapsedSeconds)} session)
+                      </span>
+                    )}
                   </div>
                 ) : (
-                  <span className="text-[10px] text-slate-400 block mt-1">
-                    Session duration
-                  </span>
+                  <div className="mt-1">
+                    {baseTodaySeconds > 0 ? (
+                      <div className="flex items-center justify-end gap-1 text-[10px]">
+                        <span className="font-bold text-emerald-600 font-mono">
+                          +${((baseTodaySeconds / 3600) * contractRate).toFixed(2)}
+                        </span>
+                        <span className="text-slate-400">logged today • Slide ON to resume</span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 block">
+                        Ready • Slide ON to start
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
