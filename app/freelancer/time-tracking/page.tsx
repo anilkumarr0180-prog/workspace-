@@ -123,7 +123,7 @@ export default function FreelancerTimeTrackingPage() {
     const popout = window.open(
       `/freelancer/time-tracking/popout${contractParam}`,
       'WorkspaceTrackerWidget',
-      'width=380,height=680,menubar=no,toolbar=no,location=no,status=no,resizable=no'
+      'width=400,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes'
     );
     if (popout) {
       popout.focus();

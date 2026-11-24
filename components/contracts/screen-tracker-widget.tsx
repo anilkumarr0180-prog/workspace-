@@ -550,7 +550,7 @@ export default function ScreenTrackerWidget({
 
                 <div
                   onClick={() => setPreviewOpen(true)}
-                  className={`relative aspect-video rounded-2xl overflow-hidden border bg-slate-950 shadow-sm group cursor-pointer transition-all ${
+                  className={`relative aspect-video ${compact ? 'max-h-36' : ''} rounded-2xl overflow-hidden border bg-slate-950 shadow-sm group cursor-pointer transition-all ${
                     justCaptured ? 'ring-4 ring-emerald-400 scale-[1.01]' : 'border-slate-300 hover:border-emerald-500'
                   }`}
                   title="Click to view full-size snapshot"
@@ -620,17 +620,24 @@ export default function ScreenTrackerWidget({
           </div>
         ) : (
           /* STANDBY STATE */
-          <div className="space-y-4">
-            <div className="p-4 bg-gradient-to-br from-emerald-50/70 to-teal-50/40 rounded-2xl border border-emerald-100 space-y-2 text-xs text-emerald-950">
-              <div className="flex items-center gap-2 font-bold text-emerald-900">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Upwork Hourly Payment Protection</span>
+          <div className="space-y-3">
+            {!compact ? (
+              <div className="p-4 bg-gradient-to-br from-emerald-50/70 to-teal-50/40 rounded-2xl border border-emerald-100 space-y-2 text-xs text-emerald-950">
+                <div className="flex items-center gap-2 font-bold text-emerald-900">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Upwork Hourly Payment Protection</span>
+                </div>
+                <p className="text-[11px] text-emerald-800/90 leading-relaxed">
+                  When screen capture is enabled, your browser takes randomized snapshots every 5 to 10 minutes,
+                  logging active keystrokes and mouse movement into your client&apos;s verified Work Diary.
+                </p>
               </div>
-              <p className="text-[11px] text-emerald-800/90 leading-relaxed">
-                When screen capture is enabled, your browser takes randomized snapshots every 5 to 10 minutes,
-                logging active keystrokes and mouse movement into your client&apos;s verified Work Diary.
-              </p>
-            </div>
+            ) : (
+              <div className="p-2.5 bg-emerald-50/80 rounded-xl border border-emerald-100 flex items-center gap-2 text-xs text-emerald-900">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="text-[11px] font-semibold">Randomized 10-min snapshots &amp; activity scores logged to Work Diary.</span>
+              </div>
+            )}
 
             {/* Show Last Captured snapshot even in standby if available */}
             {lastThumbnailUrl && (
@@ -640,7 +647,7 @@ export default function ScreenTrackerWidget({
                 </span>
                 <div
                   onClick={() => setPreviewOpen(true)}
-                  className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 cursor-pointer group"
+                  className={`relative aspect-video ${compact ? 'max-h-32' : ''} rounded-xl overflow-hidden border border-slate-200 cursor-pointer group`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img

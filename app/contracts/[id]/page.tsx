@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'reac
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import {
-  getContractById,
   getContractDetailsBundle,
   acceptContractOffer,
   declineContractOffer,
@@ -12,8 +11,6 @@ import {
   updateHourlyContractTerms,
 } from '@/lib/actions/contracts';
 import {
-  getContractMilestones,
-  getContractPaymentLedger,
   fundMilestone,
   startMilestoneWork,
   submitMilestoneDelivery,
@@ -34,7 +31,6 @@ import {
 } from '@/lib/actions/stripe';
 import StripeCheckoutModal from '@/components/contracts/stripe-checkout-modal';
 import {
-  getContractTimesheets,
   submitTimesheet,
   approveTimesheet,
   disputeTimesheet,
@@ -2446,7 +2442,22 @@ function ContractDetailsContent() {
                                 <span>Simulated Transfer</span>
                               </span>
                             )}
-                            {entry.metadata && typeof entry.metadata === 'object' && 'provider' in entry.metadata && (entry.metadata as { provider?: string }).provider === 'razorpay' && (
+                            {/* Stripe USD Badge */}
+                            {entry.metadata && typeof entry.metadata === 'object' && (
+                              (entry.metadata as { provider?: string }).provider === 'stripe' ||
+                              Boolean((entry.metadata as { stripe_payment_intent_id?: string }).stripe_payment_intent_id) ||
+                              (entry.currency === 'USD' && (entry.metadata as { provider?: string }).provider !== 'razorpay')
+                            ) && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                                <Globe className="w-2.5 h-2.5 text-indigo-600" />
+                                <span>Stripe USD</span>
+                              </span>
+                            )}
+                            {/* Razorpay Test Badge */}
+                            {entry.metadata && typeof entry.metadata === 'object' &&
+                              (entry.metadata as { provider?: string }).provider === 'razorpay' &&
+                              !Boolean((entry.metadata as { stripe_payment_intent_id?: string }).stripe_payment_intent_id) &&
+                              entry.currency !== 'USD' && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                                 <Zap className="w-2.5 h-2.5 text-amber-600" />
                                 <span>Razorpay Test</span>

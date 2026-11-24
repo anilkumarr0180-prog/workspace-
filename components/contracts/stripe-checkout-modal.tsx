@@ -15,12 +15,10 @@ import {
   ShieldCheck,
   AlertCircle,
   Loader2,
-  CheckCircle2,
   Copy,
   Check,
   Sparkles,
   ArrowRight,
-  ExternalLink,
 } from 'lucide-react';
 import { verifyAndFundMilestoneStripe, verifyAndPayTimesheetStripe } from '@/lib/actions/stripe';
 
@@ -61,7 +59,6 @@ function StripeCardForm({
   amount,
   currency,
   clientSecret,
-  paymentIntentId,
   onClose,
   onSuccess,
 }: {

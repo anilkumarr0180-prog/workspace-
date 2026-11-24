@@ -1495,6 +1495,7 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
         total_amount: number;
         total_minutes: number;
         week_start_date: string;
+        status?: string;
         created_at: string;
         updated_at: string;
         client?: { full_name?: string } | Array<{ full_name?: string }>;
@@ -1509,10 +1510,26 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
         if (!alreadyRecorded) {
           const clObj = Array.isArray(ts.client) ? ts.client[0] : ts.client;
           const flObj = Array.isArray(ts.freelancer) ? ts.freelancer[0] : ts.freelancer;
-          const matchedAttempt = (paymentAttempts || []).find(
-            (a: { timesheet_id?: string; metadata?: { week_start_date?: string } }) =>
+
+          const timesheetAttempts = (paymentAttempts || []).filter(
+            (a: { timesheet_id?: string; metadata?: { week_start_date?: string; stripe_payment_intent_id?: string } }) =>
               a.timesheet_id === ts.id || a.metadata?.week_start_date === ts.week_start_date
           );
+
+          // Find captured or stripe attempt first
+          const stripeAttempt = timesheetAttempts.find(
+            (a: { provider?: string; metadata?: { stripe_payment_intent_id?: string }; razorpay_order_id?: string }) =>
+              a.provider === 'stripe' ||
+              Boolean(a.metadata?.stripe_payment_intent_id) ||
+              (typeof a.razorpay_order_id === 'string' && a.razorpay_order_id.startsWith('pi_'))
+          );
+          const capturedAttempt = timesheetAttempts.find((a: { status?: string }) => a.status === 'captured');
+          const matchedAttempt = stripeAttempt || capturedAttempt || timesheetAttempts[timesheetAttempts.length - 1];
+
+          // Determine provider: if stripeAttempt exists, or timesheet is paid on a USD hourly contract, it's stripe
+          const effectiveProvider = (stripeAttempt || (!capturedAttempt && ts.status === 'paid') || matchedAttempt?.currency === 'USD')
+            ? 'stripe'
+            : (matchedAttempt?.provider || 'stripe');
 
           mapped.unshift({
             id: `ts-ledger-${ts.id}`,
@@ -1524,13 +1541,14 @@ export async function getContractPaymentLedger(contractId: string): Promise<Ledg
             toUserId: ts.freelancer_id,
             toUserName: flObj?.full_name || 'Freelancer',
             amount: Number(ts.total_amount),
-            currency: 'INR',
+            currency: 'USD',
             eventType: 'hourly_funded',
             status: 'succeeded',
             description: `Hourly Invoice Payment for Week of ${ts.week_start_date} (${ts.total_minutes} mins)`,
             metadata: {
-              provider: matchedAttempt?.provider || 'razorpay',
+              provider: effectiveProvider,
               environment: matchedAttempt?.environment || 'test',
+              stripe_payment_intent_id: matchedAttempt?.metadata?.stripe_payment_intent_id || (matchedAttempt?.provider === 'stripe' ? matchedAttempt?.razorpay_order_id : undefined),
               razorpay_payment_id: matchedAttempt?.razorpay_payment_id,
               razorpay_order_id: matchedAttempt?.razorpay_order_id,
               timesheet_id: ts.id,
