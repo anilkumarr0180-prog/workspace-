@@ -337,6 +337,15 @@ export async function getTimeEntries(contractId: string): Promise<TimeEntriesRes
   }
 }
 
+export interface ContractDailyStats {
+  todayMinutes: number;
+  todaySeconds: number;
+  todayEarnings: number;
+  thisWeekMinutes: number;
+  thisWeekEarnings: number;
+  lastMemo?: string;
+}
+
 export interface FreelancerTimeDashboardData {
   success: boolean;
   activeSession?: (ActiveTimerSession & { contract?: Contract }) | null;
@@ -349,6 +358,7 @@ export interface FreelancerTimeDashboardData {
     thisWeekEarnings: number;
     totalHoursAllTime: number;
   };
+  contractStats?: Record<string, ContractDailyStats>;
   error?: string;
   code?: string;
 }
@@ -590,14 +600,16 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
     // Fetch entries for this week calculation
     const { data: weekEntries } = await supabase
       .from('time_entries')
-      .select('duration_minutes, start_time, contract_id, contracts (hourly_rate)')
+      .select('duration_minutes, start_time, contract_id, memo, contracts (hourly_rate)')
       .eq('freelancer_id', user.id)
-      .gte('start_time', startOfWeek.toISOString());
+      .gte('start_time', startOfWeek.toISOString())
+      .order('start_time', { ascending: false });
 
     interface StatEntryRow {
       duration_minutes: number;
       start_time: string;
       contract_id: string;
+      memo?: string | null;
       contracts?: { hourly_rate?: number | null } | Array<{ hourly_rate?: number | null }> | null;
     }
 
@@ -605,6 +617,19 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
     let todayEarnings = 0;
     let thisWeekMinutes = 0;
     let thisWeekEarnings = 0;
+
+    // Per-contract continuous accumulators
+    const contractStats: Record<string, ContractDailyStats> = {};
+    for (const c of eligibleContracts) {
+      contractStats[c.id] = {
+        todayMinutes: 0,
+        todaySeconds: 0,
+        todayEarnings: 0,
+        thisWeekMinutes: 0,
+        thisWeekEarnings: 0,
+        lastMemo: undefined,
+      };
+    }
 
     for (const entry of (weekEntries as unknown as StatEntryRow[]) || []) {
       const entryDate = new Date(entry.start_time);
@@ -616,9 +641,30 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
       thisWeekMinutes += minutes;
       thisWeekEarnings += earnings;
 
+      if (contractStats[entry.contract_id]) {
+        contractStats[entry.contract_id].thisWeekMinutes += minutes;
+        contractStats[entry.contract_id].thisWeekEarnings += earnings;
+        if (!contractStats[entry.contract_id].lastMemo && entry.memo) {
+          contractStats[entry.contract_id].lastMemo = entry.memo;
+        }
+      }
+
       if (entryDate >= startOfToday) {
         todayMinutes += minutes;
         todayEarnings += earnings;
+
+        if (contractStats[entry.contract_id]) {
+          contractStats[entry.contract_id].todayMinutes += minutes;
+          contractStats[entry.contract_id].todaySeconds += minutes * 60;
+          contractStats[entry.contract_id].todayEarnings += earnings;
+        }
+      }
+    }
+
+    // If an active session exists, prioritize its memo for that contract
+    if (activeSession && contractStats[activeSession.contractId]) {
+      if (activeSession.memo) {
+        contractStats[activeSession.contractId].lastMemo = activeSession.memo;
       }
     }
 
@@ -643,6 +689,7 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
         thisWeekEarnings: Math.round(thisWeekEarnings * 100) / 100,
         totalHoursAllTime,
       },
+      contractStats,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'An unexpected error occurred while loading time tracking data.';

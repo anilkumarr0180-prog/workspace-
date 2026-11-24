@@ -149,7 +149,12 @@ export default function FreelancerTimeTrackingPage() {
             setWorkMemo(res.activeSession.memo);
           }
         } else if (res.eligibleContracts.length > 0) {
-          setSelectedContractId((prev) => prev || res.eligibleContracts[0].id);
+          const firstId = res.eligibleContracts[0].id;
+          setSelectedContractId((prev) => prev || firstId);
+          const memoCandidate = res.contractStats?.[firstId]?.lastMemo;
+          if (memoCandidate) {
+            setWorkMemo((prev) => prev || memoCandidate);
+          }
         }
       } else {
         showError(res.error || 'Failed to load time tracking data.');
@@ -202,7 +207,12 @@ export default function FreelancerTimeTrackingPage() {
               setWorkMemo(res.activeSession.memo);
             }
           } else if (res.eligibleContracts.length > 0) {
-            setSelectedContractId((prev) => prev || res.eligibleContracts[0].id);
+            const firstId = res.eligibleContracts[0].id;
+            setSelectedContractId((prev) => prev || firstId);
+            const memoCandidate = res.contractStats?.[firstId]?.lastMemo;
+            if (memoCandidate) {
+              setWorkMemo((prev) => prev || memoCandidate);
+            }
           }
         } else {
           showError(res.error || 'Failed to load time tracking data.');
@@ -280,6 +290,27 @@ export default function FreelancerTimeTrackingPage() {
     return data?.eligibleContracts.find((c) => c.id === selectedContractId);
   }, [data?.activeSession, data?.eligibleContracts, selectedContractId]);
 
+  const isTimerRunning = Boolean(data?.activeSession?.startTime);
+
+  // Base logged time today for this active contract (in seconds)
+  const baseTodaySeconds = activeContract?.id && data?.contractStats
+    ? (data.contractStats[activeContract.id]?.todaySeconds ??
+       (data.contractStats[activeContract.id]?.todayMinutes || 0) * 60)
+    : 0;
+
+  // Total running today seconds: base logged today + current active session seconds
+  const totalTodaySeconds = baseTodaySeconds + (isTimerRunning ? elapsedSeconds : 0);
+
+  // Clock view mode: 'today' (Upwork cumulative standard) or 'session' (isolated stopwatch)
+  const [clockMode, setClockMode] = useState<'today' | 'session'>('today');
+
+  const displaySeconds = !isTimerRunning
+    ? (clockMode === 'session' ? 0 : baseTodaySeconds)
+    : (clockMode === 'session' ? elapsedSeconds : totalTodaySeconds);
+
+  const contractRate = activeContract?.hourlyRate || 0;
+  const sessionEarnings = (elapsedSeconds / 3600) * contractRate;
+
   // Format seconds to HH:MM:SS
   const formatTimeHHMMSS = (totalSec: number) => {
     const hours = Math.floor(totalSec / 3600);
@@ -344,7 +375,7 @@ export default function FreelancerTimeTrackingPage() {
         } else {
           showToast('Timer session was under 1 minute and was discarded without billing.');
         }
-        setWorkMemo('');
+        // Retain workMemo so freelancer can resume work seamlessly without retyping
         broadcastTrackerSync('TIMER_STOPPED');
         await loadDashboardData(true);
       } else {
@@ -375,7 +406,6 @@ export default function FreelancerTimeTrackingPage() {
       const res = await discardTimerSession();
       if (res.success) {
         showToast('Active timer session cancelled and discarded.');
-        setWorkMemo('');
         broadcastTrackerSync('TIMER_STOPPED');
         await loadDashboardData(true);
       } else {
@@ -387,9 +417,6 @@ export default function FreelancerTimeTrackingPage() {
       setIsDiscarding(false);
     }
   };
-
-  const isTimerRunning = Boolean(data?.activeSession?.startTime);
-  const sessionEarnings = activeContract ? (elapsedSeconds / 3600) * (activeContract.hourlyRate || 0) : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -614,11 +641,15 @@ export default function FreelancerTimeTrackingPage() {
               <div className="flex items-center gap-2.5">
                 <div
                   className={`w-3.5 h-3.5 rounded-full ${
-                    isTimerRunning ? 'bg-emerald-500 animate-ping' : 'bg-slate-300'
+                    isTimerRunning ? 'bg-emerald-500 animate-ping' : baseTodaySeconds > 0 ? 'bg-emerald-500' : 'bg-slate-300'
                   }`}
                 />
                 <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-                  {isTimerRunning ? 'Timer Active & Logging' : 'Timer Idle'}
+                  {isTimerRunning
+                    ? 'Timer Active & Logging'
+                    : baseTodaySeconds > 0
+                    ? 'Tracker Paused • Resume Anytime'
+                    : 'Timer Idle'}
                 </span>
               </div>
 
@@ -650,26 +681,77 @@ export default function FreelancerTimeTrackingPage() {
                 ? 'bg-gradient-to-b from-slate-950 to-slate-900 text-white shadow-xl border border-emerald-500/30'
                 : 'bg-slate-50 border border-slate-200/80 text-slate-900'
             }`}>
+              {/* Upwork Toggle: Today's Cumulative vs Session Stopwatch */}
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setClockMode('today')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    clockMode === 'today'
+                      ? isTimerRunning
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : isTimerRunning
+                      ? 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Today&apos;s Cumulative Time (Upwork Mode)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClockMode('session')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    clockMode === 'session'
+                      ? isTimerRunning
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : isTimerRunning
+                      ? 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Current Session Stopwatch
+                </button>
+              </div>
+
               <div className={`font-mono text-5xl sm:text-7xl font-black tracking-tight select-all ${
-                isTimerRunning ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.35)]' : 'text-slate-900'
+                isTimerRunning
+                  ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.35)]'
+                  : baseTodaySeconds > 0
+                  ? 'text-slate-900'
+                  : 'text-slate-400'
               }`}>
-                {formatTimeHHMMSS(elapsedSeconds)}
+                {formatTimeHHMMSS(displaySeconds)}
               </div>
 
               {isTimerRunning && activeContract ? (
                 <div className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    +${((elapsedSeconds / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} earned this session
+                    +${(((clockMode === 'today' ? totalTodaySeconds : elapsedSeconds) / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} {clockMode === 'today' ? 'earned today' : 'earned this session'}
                   </span>
+                  {clockMode === 'today' && elapsedSeconds > 0 && (
+                    <span className="text-xs text-slate-400 font-mono">
+                      ({formatTimeHHMMSS(elapsedSeconds)} this session)
+                    </span>
+                  )}
                   <span className="text-xs text-slate-400 font-mono">
                     (${activeContract.hourlyRate}/hr)
                   </span>
                 </div>
               ) : (
-                <p className="text-xs text-slate-400 font-medium mt-2">
-                  Select an active hourly project below and describe your task
-                </p>
+                <div className="mt-2">
+                  {baseTodaySeconds > 0 && activeContract ? (
+                    <p className="text-xs font-semibold text-emerald-700">
+                      +${((baseTodaySeconds / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} logged today • Click Resume below to continue where you left off
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400 font-medium">
+                      Select an active hourly project below and describe your task
+                    </p>
+                  )}
+                </div>
               )}
 
               {/* Weekly Limit Progress Bar */}
@@ -733,7 +815,15 @@ export default function FreelancerTimeTrackingPage() {
                   <select
                     id="contract-selector"
                     value={selectedContractId}
-                    onChange={(e) => setSelectedContractId(e.target.value)}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedContractId(nextId);
+                      setContractError(null);
+                      if (!workMemo.trim()) {
+                        const prevMemo = data?.contractStats?.[nextId]?.lastMemo;
+                        if (prevMemo) setWorkMemo(prevMemo);
+                      }
+                    }}
                     disabled={isTimerRunning || isStarting || loading}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-800 bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 disabled:text-slate-500 cursor-pointer"
                   >
@@ -828,6 +918,11 @@ export default function FreelancerTimeTrackingPage() {
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>Starting Timer Session...</span>
+                        </>
+                      ) : baseTodaySeconds > 0 ? (
+                        <>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Resume Tracking Time ({formatDurationMinutes(Math.floor(baseTodaySeconds / 60))} Logged Today)</span>
                         </>
                       ) : (
                         <>
