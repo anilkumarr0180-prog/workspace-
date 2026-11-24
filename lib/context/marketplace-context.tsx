@@ -155,7 +155,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         }
       })
       .catch(() => {});
+  }, []);
 
+  // Listen for proposal refresh events
+  React.useEffect(() => {
     const handleProposalsRefresh = () => {
       refreshProposals();
     };

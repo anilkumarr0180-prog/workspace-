@@ -539,10 +539,10 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-2xs w-full">
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
         <div className="flex items-center justify-between h-16 gap-4">
           {/* ================= LEFT: Brand & Navigation ================= */}
-          <div className="flex items-center gap-2.5 lg:gap-3.5 xl:gap-6 shrink-0">
+          <div className="flex items-center gap-4 lg:gap-6 xl:gap-8 shrink-0">
             <NextLink
               href={user ? (isClientMode ? '/client' : '/freelancer') : '/'}
               className="flex items-center shrink-0 mr-1"
@@ -553,10 +553,10 @@ export default function Navbar() {
 
             {/* ---------- NAVIGATION (UPWORK MARKETING NAV WHEN LOGGED OUT) ---------- */}
             {!user ? (
-              /* Upwork Marketing Navigation matching Screenshot 1 */
+              /* Upwork Marketing Navigation matching Screenshot 2 */
               <nav
                 ref={navDropdownRef}
-                className="hidden lg:flex items-center gap-0.5 xl:gap-1 text-[13.5px] xl:text-[14px] font-medium text-[#001e00]"
+                className="hidden lg:flex items-center gap-1 xl:gap-2.5 2xl:gap-4 text-[14px] xl:text-[14.5px] 2xl:text-[15px] font-medium text-[#001e00]"
               >
                 {/* 1. Hire talent Dropdown */}
                 <div
@@ -869,7 +869,7 @@ export default function Navbar() {
               /* ---------- AUTHENTICATED FREELANCER NAVIGATION (ON DASHBOARDS) ---------- */
               <nav
                 ref={navDropdownRef}
-                className="hidden lg:flex items-center gap-1 xl:gap-2 text-[14px] font-medium text-slate-800"
+                className="hidden lg:flex items-center gap-1 xl:gap-2.5 2xl:gap-4 text-[14px] xl:text-[14.5px] 2xl:text-[15px] font-medium text-slate-800 whitespace-nowrap"
               >
                 {/* Find Work Dropdown */}
                 <div
@@ -1114,7 +1114,7 @@ export default function Navbar() {
               </nav>
             ) : (
               /* ---------- AUTHENTICATED CLIENT NAVIGATION (ON DASHBOARDS) ---------- */
-              <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 2xl:gap-2 text-[13.5px] xl:text-[14px] font-medium text-slate-800 whitespace-nowrap shrink-0">
+              <nav className="hidden lg:flex items-center gap-1 xl:gap-2 2xl:gap-3 text-[14px] xl:text-[14.5px] font-medium text-slate-800 whitespace-nowrap">
                 <NextLink
                   href="/client/jobs/new"
                   onClick={handlePostJobClick}
@@ -1273,10 +1273,10 @@ export default function Navbar() {
           </div>
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
-          <div className="flex items-center gap-2 sm:gap-2.5 xl:gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 xl:gap-3.5 shrink-0">
             {/* Unified Upwork Search Component on tablet & desktop (ONLY WHEN AUTHENTICATED) */}
             {user && (
-              <NavbarSearch className="hidden sm:block w-36 md:w-44 lg:w-40 xl:w-52 2xl:w-60 shrink-0" />
+              <NavbarSearch className="hidden sm:block w-44 md:w-52 lg:w-48 xl:w-60 2xl:w-72 shrink-0" />
             )}
 
             {/* Mobile Search Toggle on screens < sm (ONLY WHEN AUTHENTICATED) */}
@@ -1286,7 +1286,7 @@ export default function Navbar() {
                 onClick={() => setMobileSearchOpen(!mobileSearchOpen)}
                 aria-label="Toggle search bar"
                 aria-expanded={mobileSearchOpen}
-                className="p-1.5 sm:hidden text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer shrink-0"
+                className="p-2 sm:hidden text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer shrink-0"
               >
                 <Search className="w-5 h-5" />
               </button>
@@ -1296,12 +1296,12 @@ export default function Navbar() {
             {user && (
               <NextLink
                 href="/saved"
-                className="relative p-1.5 xl:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+                className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block shrink-0"
                 title="Saved jobs"
               >
-                <Bookmark className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
+                <Bookmark className="w-5 h-5" />
                 {savedJobIds.length > 0 && (
-                  <span className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                     {savedJobIds.length}
                   </span>
                 )}
@@ -1316,30 +1316,30 @@ export default function Navbar() {
                 {/* Help Icon */}
                 <NextLink
                   href="/jobs"
-                  className="p-1.5 xl:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block"
+                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors hidden sm:block shrink-0"
                   title="Help & Support"
                 >
-                  <HelpCircle className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
+                  <HelpCircle className="w-5 h-5" />
                 </NextLink>
 
                 {/* Real-time Notifications Popover */}
                 <NotificationPopover userId={user?.id} />
 
-                {/* Direct Messages / Chat Link */}
+                {/* Direct Messages / Chat Link (shown on sm/md when center nav is hidden; hidden on lg+ to prevent redundancy with nav Messages link) */}
                 <NextLink
                   href="/messages"
-                  className={`relative p-1.5 xl:p-2 rounded-full transition-colors hidden sm:block ${
+                  className={`relative p-2 rounded-full transition-colors hidden sm:block lg:hidden shrink-0 ${
                     pathname.startsWith('/messages')
                       ? 'text-[#14a800] bg-emerald-50'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
                   title="Messages"
                 >
-                  <MessageSquare className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
+                  <MessageSquare className="w-5 h-5" />
                   {unreadMessageCount > 0 && (
                     <span
                       id="navbar-unread-messages-badge"
-                      className="absolute top-0 right-0 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+                      className="absolute top-0.5 right-0.5 w-4 h-4 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center"
                     >
                       {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
                     </span>
@@ -1347,13 +1347,13 @@ export default function Navbar() {
                 </NextLink>
 
                 {/* Profile Avatar & Dark Upwork-Style Dropdown */}
-                <div className="relative" ref={profileDropdownRef}>
+                <div className="relative shrink-0" ref={profileDropdownRef}>
                   <button
                     type="button"
                     onClick={() => setProfileMenuOpen(!profileMenuOpen)}
                     aria-expanded={profileMenuOpen}
                     aria-haspopup="true"
-                    className="flex items-center gap-1.5 p-1 rounded-full hover:ring-2 hover:ring-[#14a800]/30 transition-all cursor-pointer select-none"
+                    className="flex items-center p-0.5 rounded-full hover:ring-2 hover:ring-[#14a800]/30 transition-all cursor-pointer select-none"
                     title="Account profile & settings"
                   >
                     <div className="relative">
@@ -1361,17 +1361,17 @@ export default function Navbar() {
                         <Image
                           src={profile.avatar_url}
                           alt={displayName}
-                          width={36}
-                          height={36}
+                          width={40}
+                          height={40}
                           unoptimized
-                          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover border border-slate-300"
+                          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border border-slate-200 shadow-xs"
                         />
                       ) : (
-                        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-[#14a800] text-white font-bold flex items-center justify-center text-xs sm:text-sm shadow-2xs">
+                        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-[#14a800] text-white font-bold flex items-center justify-center text-xs sm:text-sm shadow-xs border border-emerald-400">
                           {initials}
                         </div>
                       )}
-                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-[#14a800] border-2 border-white rounded-full" />
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#14a800] border-2 border-white rounded-full" />
                     </div>
                   </button>
 
@@ -1552,14 +1552,14 @@ export default function Navbar() {
               <>
                 <NextLink
                   href="/login"
-                  className="hidden sm:inline-flex items-center justify-center px-4 h-9 sm:h-[38px] rounded-full text-[14px] font-medium text-[#141414] hover:text-[#14a800] hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="hidden sm:inline-flex items-center justify-center px-4 h-9 sm:h-[40px] rounded-full text-[14.5px] font-medium text-[#141414] hover:text-[#14a800] hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   Log in
                 </NextLink>
 
                 <NextLink
                   href="/signup"
-                  className="inline-flex items-center justify-center px-5 sm:px-6 h-9 sm:h-[38px] rounded-full text-[14px] font-medium text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0 cursor-pointer"
+                  className="inline-flex items-center justify-center px-5 sm:px-6 h-9 sm:h-[40px] rounded-full text-[14.5px] font-semibold text-white bg-[#14a800] hover:bg-[#108a00] active:scale-[0.98] transition-all shadow-xs shrink-0 cursor-pointer"
                 >
                   <span>Sign up</span>
                 </NextLink>

@@ -197,7 +197,7 @@ export default function ContractsIndexPage() {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                   <div className="text-slate-500">
                     {c.clientName && <span>Client: <strong className="text-slate-800">{c.clientName}</strong></span>}
                   </div>

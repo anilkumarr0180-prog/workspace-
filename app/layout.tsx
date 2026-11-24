@@ -5,6 +5,7 @@ import { Suspense } from 'react';
 import { MarketplaceProvider } from '@/lib/context/marketplace-context';
 import Navbar from '@/components/layout/navbar';
 import Footer from '@/components/layout/footer';
+import { ToastContainer } from '@/components/ui/toast';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -44,6 +45,7 @@ export default function RootLayout({
             <Navbar />
           </Suspense>
           <main className="flex-1">{children}</main>
+          <ToastContainer />
           <Suspense fallback={null}>
             <Footer />
           </Suspense>

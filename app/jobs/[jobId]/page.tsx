@@ -172,7 +172,7 @@ function JobDetailContent() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 pb-24 lg:pb-8">
       {/* Back button & Breadcrumb */}
       <div className="flex items-center justify-between">
         <Link
@@ -219,7 +219,7 @@ function JobDetailContent() {
             </div>
 
             {/* Key Specs Card */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50/80 border border-slate-100 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 p-4 rounded-xl bg-slate-50/80 border border-slate-100 text-xs">
               <div>
                 <span className="text-slate-400 font-medium block">Budget</span>
                 <span className="text-base font-bold text-slate-900 mt-0.5 block">
@@ -240,7 +240,7 @@ function JobDetailContent() {
                 </span>
               </div>
 
-              <div className="col-span-2 sm:col-span-1">
+              <div className="col-span-1">
                 <span className="text-slate-400 font-medium block">Estimated Project Duration</span>
                 <span className="text-base font-bold text-slate-900 mt-0.5 block">
                   {formatDuration(job.duration)}
@@ -346,7 +346,7 @@ function JobDetailContent() {
         </div>
 
         {/* Client & Actions Sidebar */}
-        <div className="space-y-6">
+        <div className="space-y-6 lg:sticky lg:top-24">
           {/* Action Box */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
             {isJobOwner ? (
@@ -490,6 +490,45 @@ function JobDetailContent() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Mobile Fixed Bottom Action Bar (< lg) */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex items-center gap-3">
+        {isJobOwner ? (
+          <Link
+            href="/client"
+            className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+          >
+            Manage in Client Dashboard
+          </Link>
+        ) : (
+          <>
+            <button
+              onClick={() => setIsProposalOpen(true)}
+              type="button"
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
+                applied
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{applied ? 'Proposal Submitted (View)' : 'Apply Now'}</span>
+            </button>
+            <button
+              onClick={() => toggleSaveJob(job.id)}
+              type="button"
+              className={`p-2.5 rounded-xl border flex items-center justify-center transition-colors shrink-0 ${
+                saved
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              }`}
+              aria-label={saved ? 'Saved in Your List' : 'Save Job'}
+            >
+              <Bookmark className={`w-4 h-4 ${saved ? 'fill-emerald-600' : ''}`} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Interactive Proposal Modal */}
