@@ -3,6 +3,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getStripeClient, isStripeConfigured, getStripePublishableKey } from '@/lib/stripe';
+import { payoutEngine } from '@/lib/services/payout-engine';
+import { createNotification } from '@/lib/actions/notifications';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -389,4 +391,380 @@ export async function verifyAndFundMilestoneStripe(
     };
   }
 }
+
+export interface CreateTimesheetStripePaymentIntentResult {
+  success: boolean;
+  clientSecret?: string;
+  paymentIntentId?: string;
+  publishableKey?: string;
+  amount?: number;
+  currency?: string;
+  timesheetTitle?: string;
+  error?: string;
+  code?: string;
+}
+
+export interface VerifyTimesheetStripePaymentInput {
+  timesheetId: string;
+  paymentIntentId: string;
+}
+
+export interface VerifyTimesheetStripePaymentResult {
+  success: boolean;
+  error?: string;
+  code?: string;
+  timesheet?: {
+    id: string;
+    contractId: string;
+    clientId: string;
+    freelancerId: string;
+    totalAmount: number;
+    status: string;
+    weekStartDate: string;
+  };
+}
+
+/**
+ * Creates a server-verified Stripe PaymentIntent for weekly hourly timesheet payment in USD ($).
+ */
+export async function createTimesheetStripePaymentIntent(
+  timesheetId: string
+): Promise<CreateTimesheetStripePaymentIntentResult> {
+  if (!timesheetId || !UUID_REGEX.test(timesheetId.trim())) {
+    return { success: false, error: 'Invalid timesheet ID format.', code: 'INVALID_ID' };
+  }
+
+  if (!isStripeConfigured()) {
+    return {
+      success: false,
+      error: 'Stripe is not configured on the server. Please ensure STRIPE_SECRET_KEY and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY are set.',
+      code: 'GATEWAY_NOT_CONFIGURED',
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required to pay timesheets.', code: 'UNAUTHENTICATED' };
+  }
+
+  try {
+    // 1. Fetch timesheet and associated contract
+    const { data: timesheet, error: timesheetError } = await supabase
+      .from('timesheets')
+      .select(`
+        id,
+        contract_id,
+        client_id,
+        freelancer_id,
+        total_amount,
+        status,
+        week_start_date,
+        contracts:contract_id (
+          id,
+          client_id,
+          company_id,
+          contract_type,
+          status,
+          title
+        )
+      `)
+      .eq('id', timesheetId.trim())
+      .single();
+
+    if (timesheetError || !timesheet) {
+      return { success: false, error: 'Timesheet not found.', code: 'NOT_FOUND' };
+    }
+
+    const rawContract = Array.isArray(timesheet.contracts) ? timesheet.contracts[0] : timesheet.contracts;
+
+    if (timesheet.status !== 'approved') {
+      return {
+        success: false,
+        error: `Timesheet is in status "${timesheet.status}". Only approved timesheets can be paid.`,
+        code: 'INVALID_STATUS',
+      };
+    }
+
+    // 2. Authorization check
+    const isDirectClient = timesheet.client_id === user.id || (rawContract && rawContract.client_id === user.id);
+    if (!isDirectClient) {
+      if (rawContract?.company_id) {
+        const { data: membership } = await supabase
+          .from('company_members')
+          .select('role')
+          .eq('company_id', rawContract.company_id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!membership || !['owner', 'admin', 'hiring_manager'].includes(membership.role)) {
+          return { success: false, error: 'You are not authorized to pay this timesheet.', code: 'FORBIDDEN' };
+        }
+      } else {
+        return { success: false, error: 'You are not authorized to pay this timesheet.', code: 'FORBIDDEN' };
+      }
+    }
+
+    // 3. Amount and currency
+    const totalAmount = Number(timesheet.total_amount);
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      return { success: false, error: 'Timesheet has no billable amount to charge.', code: 'ZERO_AMOUNT' };
+    }
+
+    const amountSubunits = Math.round(totalAmount * 100);
+    const currency = 'usd';
+
+    // 4. Initialize Stripe and create PaymentIntent in USD
+    const stripe = getStripeClient();
+    const publishableKey = getStripePublishableKey();
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountSubunits,
+      currency,
+      metadata: {
+        timesheet_id: timesheet.id,
+        contract_id: timesheet.contract_id,
+        client_id: user.id,
+        freelancer_id: timesheet.freelancer_id,
+        platform: 'Workspace',
+        provider: 'stripe',
+        type: 'hourly_timesheet',
+      },
+      description: `Hourly Invoice Payment: Week of ${timesheet.week_start_date} (${rawContract?.title || 'Contract'})`,
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    if (!paymentIntent.client_secret) {
+      return {
+        success: false,
+        error: 'Stripe failed to return client_secret for checkout.',
+        code: 'STRIPE_CLIENT_SECRET_MISSING',
+      };
+    }
+
+    // 5. Persist record in payment_attempts
+    try {
+      const adminClient = getAdminSupabaseClient();
+      await adminClient.from('payment_attempts').insert({
+        contract_id: timesheet.contract_id,
+        timesheet_id: timesheet.id,
+        billing_type: 'timesheet',
+        client_id: user.id,
+        provider: 'stripe',
+        environment: paymentIntent.livemode ? 'live' : 'test',
+        razorpay_order_id: paymentIntent.id,
+        amount: totalAmount,
+        amount_subunits: amountSubunits,
+        currency: 'USD',
+        status: 'created',
+        metadata: {
+          provider: 'stripe',
+          stripe_payment_intent_id: paymentIntent.id,
+          receipt: `stripe_${paymentIntent.id.slice(-12)}`,
+          week_start_date: timesheet.week_start_date,
+        },
+      });
+    } catch (attemptErr) {
+      console.warn('[STRIPE TIMESHEET ATTEMPT PERSIST NOTICE]:', attemptErr);
+    }
+
+    return {
+      success: true,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      publishableKey,
+      amount: totalAmount,
+      currency: 'USD',
+      timesheetTitle: `Week of ${timesheet.week_start_date}`,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to initialize Stripe PaymentIntent for timesheet.';
+    console.error('[STRIPE CREATE TIMESHEET INTENT ERROR]:', err);
+    return {
+      success: false,
+      error: message,
+      code: 'STRIPE_TIMESHEET_INTENT_FAILED',
+    };
+  }
+}
+
+/**
+ * Authoritatively verifies a succeeded Stripe PaymentIntent and transitions timesheet to 'paid'.
+ * Triggers freelancer payout transfer and client receipt recording.
+ */
+export async function verifyAndPayTimesheetStripe(
+  input: VerifyTimesheetStripePaymentInput
+): Promise<VerifyTimesheetStripePaymentResult> {
+  if (!input.timesheetId || !UUID_REGEX.test(input.timesheetId.trim())) {
+    return { success: false, error: 'Invalid timesheet ID format.', code: 'INVALID_ID' };
+  }
+
+  if (!input.paymentIntentId || !input.paymentIntentId.trim()) {
+    return { success: false, error: 'PaymentIntent ID is required.', code: 'INVALID_INPUT' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required to verify payment.', code: 'UNAUTHENTICATED' };
+  }
+
+  try {
+    const stripe = getStripeClient();
+    const paymentIntent = await stripe.paymentIntents.retrieve(input.paymentIntentId.trim());
+
+    if (paymentIntent.status !== 'succeeded') {
+      return {
+        success: false,
+        error: `Payment is not completed. Current status: ${paymentIntent.status}.`,
+        code: 'PAYMENT_NOT_SUCCEEDED',
+      };
+    }
+
+    const metadataTimesheetId = paymentIntent.metadata?.timesheet_id;
+    if (metadataTimesheetId && metadataTimesheetId !== input.timesheetId.trim()) {
+      return {
+        success: false,
+        error: 'PaymentIntent metadata does not match the requested timesheet.',
+        code: 'PAYMENT_METADATA_MISMATCH',
+      };
+    }
+
+    // Fetch timesheet
+    const adminClient = getAdminSupabaseClient();
+    const { data: timesheet, error: timesheetError } = await adminClient
+      .from('timesheets')
+      .select('id, contract_id, client_id, freelancer_id, total_amount, status, week_start_date')
+      .eq('id', input.timesheetId.trim())
+      .single();
+
+    if (timesheetError || !timesheet) {
+      return { success: false, error: 'Timesheet not found.', code: 'NOT_FOUND' };
+    }
+
+    // If already paid, return idempotent success
+    if (timesheet.status === 'paid') {
+      return {
+        success: true,
+        timesheet: {
+          id: timesheet.id,
+          contractId: timesheet.contract_id,
+          clientId: timesheet.client_id,
+          freelancerId: timesheet.freelancer_id,
+          totalAmount: Number(timesheet.total_amount),
+          status: 'paid',
+          weekStartDate: timesheet.week_start_date,
+        },
+      };
+    }
+
+    // 1. Transition timesheet status to 'paid'
+    const { data: updatedTimesheet, error: updateError } = await adminClient
+      .from('timesheets')
+      .update({
+        status: 'paid',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', timesheet.id)
+      .select()
+      .single();
+
+    if (updateError || !updatedTimesheet) {
+      throw new Error(updateError?.message || 'Failed to update timesheet status to paid.');
+    }
+
+    // 2. Update payment_attempts record
+    try {
+      await adminClient
+        .from('payment_attempts')
+        .update({
+          status: 'captured',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('timesheet_id', timesheet.id);
+    } catch (attErr) {
+      console.warn('[STRIPE TIMESHEET ATTEMPT UPDATE NOTICE]:', attErr);
+    }
+
+    // 3. Record in payment_ledger
+    try {
+      await adminClient.from('payment_ledger').insert({
+        contract_id: timesheet.contract_id,
+        timesheet_id: timesheet.id,
+        from_user_id: timesheet.client_id,
+        to_user_id: timesheet.freelancer_id,
+        amount: Number(timesheet.total_amount),
+        currency: 'USD',
+        event_type: 'hourly_funded',
+        status: 'succeeded',
+        description: `Hourly Timesheet Payment via Stripe (USD) for Week of ${timesheet.week_start_date}`,
+        metadata: {
+          provider: 'stripe',
+          environment: paymentIntent.livemode ? 'live' : 'test',
+          stripe_payment_intent_id: paymentIntent.id,
+          captured_amount: paymentIntent.amount,
+          captured_currency: paymentIntent.currency.toUpperCase(),
+          payment_verified_at: new Date().toISOString(),
+        },
+      });
+    } catch (ledgerErr) {
+      console.warn('[STRIPE TIMESHEET LEDGER INSERT NOTICE]:', ledgerErr);
+    }
+
+    // 4. Trigger background freelancer payout via PayoutEngine
+    payoutEngine.initiateTimesheetPayout(timesheet.id).catch((payoutErr) => {
+      console.error('Background payout transfer initiation failed:', payoutErr);
+    });
+
+    // 5. Send notification to freelancer
+    try {
+      await createNotification({
+        userId: timesheet.freelancer_id,
+        type: 'payment_processed',
+        title: 'Weekly Timesheet Paid in USD!',
+        message: `Client approved and paid $${Number(timesheet.total_amount).toFixed(2)} USD via Stripe for the week of ${timesheet.week_start_date}.`,
+        metadata: {
+          contractId: timesheet.contract_id,
+          timesheetId: timesheet.id,
+          amount: Number(timesheet.total_amount),
+          currency: 'USD',
+        },
+      });
+    } catch (notifErr) {
+      console.warn('[NOTIFICATION NOTICE]:', notifErr);
+    }
+
+    return {
+      success: true,
+      timesheet: {
+        id: updatedTimesheet.id,
+        contractId: updatedTimesheet.contract_id,
+        clientId: updatedTimesheet.client_id,
+        freelancerId: updatedTimesheet.freelancer_id,
+        totalAmount: Number(updatedTimesheet.total_amount),
+        status: 'paid',
+        weekStartDate: updatedTimesheet.week_start_date,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to verify and pay timesheet with Stripe.';
+    console.error('[STRIPE TIMESHEET VERIFY ERROR]:', err);
+    return {
+      success: false,
+      error: message,
+      code: 'STRIPE_VERIFICATION_FAILED',
+    };
+  }
+}
+
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripeClient, getStripeWebhookSecret } from '@/lib/stripe';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
+import { payoutEngine } from '@/lib/services/payout-engine';
 import type Stripe from 'stripe';
 
 export async function POST(request: NextRequest) {
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
   if (event.type === 'payment_intent.succeeded') {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const milestoneId = paymentIntent.metadata?.milestone_id;
+    const timesheetId = paymentIntent.metadata?.timesheet_id;
 
     if (milestoneId) {
       try {
@@ -114,6 +116,42 @@ export async function POST(request: NextRequest) {
         console.error('[STRIPE WEBHOOK RECONCILIATION ERROR]:', procErr);
         return NextResponse.json(
           { error: 'Internal error processing payment reconciliation.' },
+          { status: 500 }
+        );
+      }
+    } else if (timesheetId) {
+      try {
+        await adminSupabase
+          .from('timesheets')
+          .update({
+            status: 'paid',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', timesheetId)
+          .eq('status', 'approved');
+
+        // Mark webhook event as processed
+        await adminSupabase
+          .from('webhook_events')
+          .update({
+            status: 'processed',
+            metadata: {
+              reconciled_at: new Date().toISOString(),
+              timesheet_id: timesheetId,
+              payment_intent_id: paymentIntent.id,
+            },
+          })
+          .eq('event_id', event.id);
+
+        payoutEngine.initiateTimesheetPayout(timesheetId).catch((payoutErr) => {
+          console.error('[STRIPE WEBHOOK] Background payout initiation notice:', payoutErr);
+        });
+
+        console.log(`[STRIPE WEBHOOK SUCCESS]: Timesheet ${timesheetId} paid via payment_intent ${paymentIntent.id}`);
+      } catch (procErr) {
+        console.error('[STRIPE WEBHOOK TIMESHEET RECONCILIATION ERROR]:', procErr);
+        return NextResponse.json(
+          { error: 'Internal error processing timesheet payment reconciliation.' },
           { status: 500 }
         );
       }

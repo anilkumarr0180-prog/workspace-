@@ -262,6 +262,10 @@ export default function ScreenTrackerWidget({
 
         onSlotRecorded?.(slotRes.slot);
 
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('workspace-slot-recorded', { detail: slotRes.slot }));
+        }
+
         // Notify other windows/tabs (e.g. Popout window or Main dashboard)
         try {
           if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {

@@ -22,14 +22,16 @@ import {
   ArrowRight,
   ExternalLink,
 } from 'lucide-react';
-import { verifyAndFundMilestoneStripe } from '@/lib/actions/stripe';
+import { verifyAndFundMilestoneStripe, verifyAndPayTimesheetStripe } from '@/lib/actions/stripe';
 
 interface StripeCheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  milestoneId: string;
-  milestoneTitle: string;
-  sequenceOrder: number;
+  milestoneId?: string;
+  milestoneTitle?: string;
+  sequenceOrder?: number;
+  timesheetId?: string;
+  timesheetTitle?: string;
   amount: number;
   currency: string;
   clientSecret: string;
@@ -44,6 +46,7 @@ interface SuccessReceiptData {
   currency: string;
   milestoneTitle: string;
   sequenceOrder: number;
+  isTimesheet?: boolean;
   cardBrand?: string;
   cardLast4?: string;
   timestamp: string;
@@ -52,7 +55,9 @@ interface SuccessReceiptData {
 function StripeCardForm({
   milestoneId,
   milestoneTitle,
-  sequenceOrder,
+  sequenceOrder = 1,
+  timesheetId,
+  timesheetTitle,
   amount,
   currency,
   clientSecret,
@@ -60,9 +65,11 @@ function StripeCardForm({
   onClose,
   onSuccess,
 }: {
-  milestoneId: string;
-  milestoneTitle: string;
-  sequenceOrder: number;
+  milestoneId?: string;
+  milestoneTitle?: string;
+  sequenceOrder?: number;
+  timesheetId?: string;
+  timesheetTitle?: string;
   amount: number;
   currency: string;
   clientSecret: string;
@@ -121,27 +128,52 @@ function StripeCardForm({
         throw new Error(`Payment incomplete. Status: ${paymentIntent?.status}`);
       }
 
-      // 2. Authoritatively verify with server action and transition milestone
-      const verifyRes = await verifyAndFundMilestoneStripe({
-        milestoneId,
-        paymentIntentId: paymentIntent.id,
-      });
+      // 2. Authoritatively verify with server action and transition milestone or timesheet
+      if (timesheetId) {
+        const verifyRes = await verifyAndPayTimesheetStripe({
+          timesheetId,
+          paymentIntentId: paymentIntent.id,
+        });
 
-      if (!verifyRes.success) {
-        throw new Error(verifyRes.error || 'Server failed to verify payment.');
+        if (!verifyRes.success) {
+          throw new Error(verifyRes.error || 'Server failed to verify timesheet payment.');
+        }
+
+        setSuccessReceipt({
+          paymentIntentId: paymentIntent.id,
+          amount,
+          currency,
+          milestoneTitle: timesheetTitle || 'Weekly Timesheet',
+          sequenceOrder: 0,
+          isTimesheet: true,
+          cardBrand: 'Visa',
+          cardLast4: '4242',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        });
+      } else if (milestoneId) {
+        const verifyRes = await verifyAndFundMilestoneStripe({
+          milestoneId,
+          paymentIntentId: paymentIntent.id,
+        });
+
+        if (!verifyRes.success) {
+          throw new Error(verifyRes.error || 'Server failed to verify milestone payment.');
+        }
+
+        setSuccessReceipt({
+          paymentIntentId: paymentIntent.id,
+          amount,
+          currency,
+          milestoneTitle: milestoneTitle || 'Milestone',
+          sequenceOrder: sequenceOrder ?? 1,
+          isTimesheet: false,
+          cardBrand: 'Visa',
+          cardLast4: '4242',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        });
+      } else {
+        throw new Error('Neither milestoneId nor timesheetId was provided.');
       }
-
-      // 3. Display rich celebration receipt animation screen
-      setSuccessReceipt({
-        paymentIntentId: paymentIntent.id,
-        amount,
-        currency,
-        milestoneTitle,
-        sequenceOrder,
-        cardBrand: 'Visa',
-        cardLast4: '4242',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      });
       setProcessing(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred.';
@@ -168,10 +200,12 @@ function StripeCardForm({
 
           <div className="space-y-1">
             <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
-              Escrow Deposit Complete!
+              {successReceipt.isTimesheet ? 'Timesheet Payment Complete!' : 'Escrow Deposit Complete!'}
             </h3>
             <p className="text-xs text-slate-500">
-              Your payment was verified and locked safely into escrow.
+              {successReceipt.isTimesheet
+                ? 'Your payment was processed and the hourly invoice is now settled in USD.'
+                : 'Your payment was verified and locked safely into escrow.'}
             </p>
           </div>
         </div>
@@ -179,7 +213,9 @@ function StripeCardForm({
         {/* Detailed Receipt Card */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4.5 space-y-3.5 shadow-2xs">
           <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
-            <span className="text-xs text-slate-500 font-medium">Total Funded</span>
+            <span className="text-xs text-slate-500 font-medium">
+              {successReceipt.isTimesheet ? 'Total Paid' : 'Total Funded'}
+            </span>
             <span className="text-lg font-black text-slate-900 font-mono">
               ${successReceipt.amount.toFixed(2)}{' '}
               <span className="text-xs font-semibold text-slate-500">{successReceipt.currency}</span>
@@ -188,9 +224,13 @@ function StripeCardForm({
 
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
-              <span className="text-slate-400 block text-[11px]">Milestone</span>
+              <span className="text-slate-400 block text-[11px]">
+                {successReceipt.isTimesheet ? 'Invoice' : 'Milestone'}
+              </span>
               <span className="font-semibold text-slate-800 line-clamp-1">
-                #{successReceipt.sequenceOrder}: {successReceipt.milestoneTitle}
+                {successReceipt.isTimesheet
+                  ? successReceipt.milestoneTitle
+                  : `#${successReceipt.sequenceOrder}: ${successReceipt.milestoneTitle}`}
               </span>
             </div>
             <div>
@@ -201,10 +241,10 @@ function StripeCardForm({
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[11px]">Escrow Status</span>
+              <span className="text-slate-400 block text-[11px]">Status</span>
               <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                100% Protected
+                {successReceipt.isTimesheet ? 'Settled in USD' : '100% Protected'}
               </span>
             </div>
             <div>
@@ -232,7 +272,9 @@ function StripeCardForm({
 
         {/* Protection Note */}
         <p className="text-[11px] text-slate-500 text-center leading-relaxed px-2">
-          Funds are held in escrow. The freelancer will begin work, and money will only be disbursed when you review and approve their submission.
+          {successReceipt.isTimesheet
+            ? 'Timesheet invoice has been captured via Stripe. Payout disbursement to freelancer is initialized.'
+            : 'Funds are held in escrow. The freelancer will begin work, and money will only be disbursed when you review and approve their submission.'}
         </p>
 
         {/* Close & Continue Button */}
@@ -241,7 +283,7 @@ function StripeCardForm({
           onClick={() => onSuccess(successReceipt.paymentIntentId)}
           className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer"
         >
-          <span>Done &amp; View Escrow Balance</span>
+          <span>{successReceipt.isTimesheet ? 'Done & Return to Timesheets' : 'Done & View Escrow Balance'}</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -346,12 +388,12 @@ function StripeCardForm({
           {processing ? (
             <>
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Authorizing Escrow Deposit...</span>
+              <span>{timesheetId ? 'Processing Timesheet Payment...' : 'Authorizing Escrow Deposit...'}</span>
             </>
           ) : (
             <>
               <Lock className="w-3.5 h-3.5" />
-              <span>Deposit ${amount.toFixed(2)} {currency}</span>
+              <span>Pay ${amount.toFixed(2)} {currency}</span>
             </>
           )}
         </button>
@@ -373,7 +415,9 @@ export default function StripeCheckoutModal({
   onClose,
   milestoneId,
   milestoneTitle,
-  sequenceOrder,
+  sequenceOrder = 1,
+  timesheetId,
+  timesheetTitle,
   amount,
   currency,
   clientSecret,
@@ -396,10 +440,12 @@ export default function StripeCheckoutModal({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">
-                Fund via Stripe
+                {timesheetId ? 'Pay Timesheet via Stripe' : 'Fund via Stripe'}
               </h3>
               <p className="text-xs text-slate-500">
-                Milestone #{sequenceOrder}: {milestoneTitle}
+                {timesheetId
+                  ? (timesheetTitle || 'Hourly Timesheet')
+                  : `Milestone #${sequenceOrder}: ${milestoneTitle || 'Milestone'}`}
               </p>
             </div>
           </div>
@@ -418,6 +464,8 @@ export default function StripeCheckoutModal({
               milestoneId={milestoneId}
               milestoneTitle={milestoneTitle}
               sequenceOrder={sequenceOrder}
+              timesheetId={timesheetId}
+              timesheetTitle={timesheetTitle}
               amount={amount}
               currency={currency}
               clientSecret={clientSecret}
