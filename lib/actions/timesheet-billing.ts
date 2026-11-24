@@ -1,3 +1,4 @@
+
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
@@ -379,14 +380,37 @@ export async function createTimesheetRazorpayOrder(
       return { success: false, error: 'Only the client can pay this timesheet.', code: 'FORBIDDEN' };
     }
 
-    if (timesheet.status !== 'approved') {
-      return { success: false, error: `Timesheet is in status "${timesheet.status}". Only approved timesheets can be invoiced.`, code: 'INVALID_STATUS' };
+    // Query payment_ledger for settled hourly timesheet payments on this contract
+    const { data: settledLedger } = await supabase
+      .from('payment_ledger')
+      .select('timesheet_id, amount, status, metadata, description')
+      .eq('contract_id', timesheet.contract_id)
+      .eq('status', 'succeeded');
+
+    let alreadyPaid = 0;
+    for (const r of settledLedger || []) {
+      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
+      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+
+      if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
+        alreadyPaid += Number(r.amount || 0);
+      }
+    }
+    alreadyPaid = Math.round(alreadyPaid * 100) / 100;
+    const totalAmount = Number(timesheet.total_amount);
+    const balanceDue = Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
+
+    if (balanceDue <= 0.01) {
+      return { success: false, error: `Timesheet has already been fully paid ($${alreadyPaid.toFixed(2)}).`, code: 'ALREADY_PAID' };
     }
 
-    const amount = Number(timesheet.total_amount);
-    if (amount <= 0) {
-      return { success: false, error: 'Timesheet has no billable amount.', code: 'ZERO_AMOUNT' };
+    const isPayableStatus = timesheet.status === 'approved' || (['paid', 'open'].includes(timesheet.status) && balanceDue > 0.01);
+    if (!isPayableStatus) {
+      return { success: false, error: `Timesheet is in status "${timesheet.status}". Please approve the timesheet before paying.`, code: 'INVALID_STATUS' };
     }
+
+    const amount = balanceDue;
 
     const paymentProvider = getPaymentProvider();
     const orderRes = await paymentProvider.createOrder({
@@ -749,9 +773,11 @@ export async function getFreelancerTimesheets(
 
     const paidByTimesheetId = new Map<string, number>();
     const paidByWeek = new Map<string, number>();
+    let totalSettledHourly = 0;
     for (const r of ledgerRows || []) {
       const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
       const amt = Number(r.amount || 0);
+      totalSettledHourly += amt;
       if (tsId) {
         paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
       }
@@ -793,10 +819,13 @@ export async function getFreelancerTimesheets(
       const cObj = Array.isArray(row.contracts) ? row.contracts[0] : row.contracts;
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
 
+      const rawRows = (data as unknown as RawQueryRow[]) || [];
       const totalAmount = Number(row.total_amount) || 0;
-      const paidAmount = Math.round(
-        (paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date) ?? 0) * 100
-      ) / 100;
+      let matchedPaid = paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date);
+      if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
+        matchedPaid = totalSettledHourly;
+      }
+      const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
       const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
 
       let resolvedStatus = row.status as TimesheetStatus;
@@ -902,18 +931,29 @@ export async function getContractTimesheets(
       return { success: false, timesheets: [], error: error.message };
     }
 
-    // Query payment_ledger for settled hourly timesheet payments on this contract
-    const { data: ledgerRows } = await supabase
+    // Query payment_ledger using admin client so RLS never hides settled amounts
+    const admin = getAdminSupabaseClient();
+    const { data: ledgerRows } = await admin
       .from('payment_ledger')
       .select('timesheet_id, amount, status, metadata, description')
       .eq('contract_id', contractId.trim())
-      .eq('status', 'succeeded');
+      .in('status', ['succeeded', 'captured', 'completed']);
+
+    // Also fetch captured payment attempts in case payment_ledger was asynchronous
+    const { data: attemptRows } = await admin
+      .from('payment_attempts')
+      .select('timesheet_id, amount, status, metadata')
+      .eq('contract_id', contractId.trim())
+      .in('status', ['captured', 'succeeded']);
 
     const paidByTimesheetId = new Map<string, number>();
     const paidByWeek = new Map<string, number>();
+    let totalSettledHourly = 0;
+
     for (const r of ledgerRows || []) {
       const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
       const amt = Number(r.amount || 0);
+      totalSettledHourly += amt;
       if (tsId) {
         paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
       }
@@ -921,6 +961,22 @@ export async function getContractTimesheets(
       const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
       if (weekKey) {
         paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
+      }
+    }
+
+    // Fallback to payment_attempts if ledger was empty
+    if (totalSettledHourly === 0 && (attemptRows || []).length > 0) {
+      for (const a of attemptRows || []) {
+        const tsId = (a.timesheet_id || (a.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+        const amt = Number(a.amount || 0);
+        totalSettledHourly += amt;
+        if (tsId) {
+          paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
+        }
+        const weekKey = (a.metadata as Record<string, unknown>)?.week_start_date as string | undefined;
+        if (weekKey) {
+          paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
+        }
       }
     }
 
@@ -957,10 +1013,13 @@ export async function getContractTimesheets(
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
       const flObj = Array.isArray(row.freelancer) ? row.freelancer[0] : row.freelancer;
 
+      const rawRows = (data as unknown as RawQueryRow[]) || [];
       const totalAmount = Number(row.total_amount) || 0;
-      const paidAmount = Math.round(
-        (paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date) ?? 0) * 100
-      ) / 100;
+      let matchedPaid = paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date);
+      if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
+        matchedPaid = totalSettledHourly;
+      }
+      const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
       const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
 
       let resolvedStatus = row.status as TimesheetStatus;

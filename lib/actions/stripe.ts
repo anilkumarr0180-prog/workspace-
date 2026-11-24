@@ -482,14 +482,6 @@ export async function createTimesheetStripePaymentIntent(
 
     const rawContract = Array.isArray(timesheet.contracts) ? timesheet.contracts[0] : timesheet.contracts;
 
-    if (timesheet.status !== 'approved') {
-      return {
-        success: false,
-        error: `Timesheet is in status "${timesheet.status}". Only approved timesheets can be paid.`,
-        code: 'INVALID_STATUS',
-      };
-    }
-
     // 2. Authorization check
     const isDirectClient = timesheet.client_id === user.id || (rawContract && rawContract.client_id === user.id);
     if (!isDirectClient) {
@@ -532,15 +524,64 @@ export async function createTimesheetStripePaymentIntent(
         alreadyPaid += Number(r.amount || 0);
       }
     }
+
+    // Fallback: if ledger did not match by timesheet_id or week, check payment_attempts or total settled
+    if (alreadyPaid === 0) {
+      const adminClient = getAdminSupabaseClient();
+      const { data: settledAttempts } = await adminClient
+        .from('payment_attempts')
+        .select('timesheet_id, amount, status, metadata')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded']);
+
+      for (const a of settledAttempts || []) {
+        const tsId = (a.timesheet_id || (a.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+        const weekKey = (a.metadata as Record<string, unknown>)?.week_start_date as string | undefined;
+        if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
+          alreadyPaid += Number(a.amount || 0);
+        }
+      }
+
+      if (alreadyPaid === 0 && (settledLedger || []).length > 0) {
+        const totalContractSettled = (settledLedger || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        if (totalContractSettled > 0) {
+          alreadyPaid = totalContractSettled;
+        }
+      }
+    }
+
     alreadyPaid = Math.round(alreadyPaid * 100) / 100;
     const balanceDue = Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
 
     if (balanceDue <= 0.01) {
       return {
         success: false,
-        error: 'This timesheet has already been fully paid and settled.',
+        error: `This timesheet has already been fully paid and settled ($${alreadyPaid.toFixed(2)}).`,
         code: 'ALREADY_PAID',
       };
+    }
+
+    // Allow payment if status is approved, or if status is 'paid'/'open' with active balance due
+    const isPayableStatus = timesheet.status === 'approved' || (['paid', 'open'].includes(timesheet.status) && balanceDue > 0.01);
+    if (!isPayableStatus) {
+      return {
+        success: false,
+        error: `Timesheet is in status "${timesheet.status}". Please approve the timesheet before paying.`,
+        code: 'INVALID_STATUS',
+      };
+    }
+
+    // If timesheet was previously marked 'paid' in DB but new hours created a balance due, sync status to 'approved'
+    if (timesheet.status === 'paid' && balanceDue > 0.01) {
+      try {
+        const adminClient = getAdminSupabaseClient();
+        await adminClient
+          .from('timesheets')
+          .update({ status: 'approved', updated_at: new Date().toISOString() })
+          .eq('id', timesheet.id);
+      } catch (syncErr) {
+        console.warn('Failed to sync timesheet status to approved:', syncErr);
+      }
     }
 
     const amountSubunits = Math.round(balanceDue * 100);
