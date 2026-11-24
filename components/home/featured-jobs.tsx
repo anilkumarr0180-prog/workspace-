@@ -44,6 +44,11 @@ export default function FeaturedJobs({ className = '' }: FeaturedJobsProps) {
           const msg = err instanceof Error ? err.message : 'Error loading jobs';
           setError(msg);
         }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoading(false);
+        }
       });
 
     return () => {

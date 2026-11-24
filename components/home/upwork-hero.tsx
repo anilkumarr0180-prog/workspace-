@@ -37,7 +37,7 @@ export default function UpworkHero() {
         muted
         loop
         playsInline
-        preload="auto"
+        preload="metadata"
         poster={activeTab === 'hire' ? '/images/upwork-hero-bg.jpg' : '/images/upwork-talent-designer.jpg'}
         className="absolute inset-0 w-full h-full object-cover object-[65%_center] sm:object-center pointer-events-none z-0 transition-opacity duration-500 filter brightness-[1.14] contrast-[1.05] saturate-[1.08]"
       >
@@ -45,13 +45,11 @@ export default function UpworkHero() {
           <>
             <source src="/videos/hero-video-sm.mp4" type="video/mp4" />
             <source src="/videos/upwork-hero.mp4" type="video/mp4" />
-            <source src="/videos/office-collaboration.mp4" type="video/mp4" />
           </>
         ) : (
           <>
-            <source src="/videos/open-office-space.mp4" type="video/mp4" />
-            <source src="/videos/office-collaboration.mp4" type="video/mp4" />
             <source src="/videos/hero-video-sm.mp4" type="video/mp4" />
+            <source src="/videos/open-office-space.mp4" type="video/mp4" />
           </>
         )}
         {/* Graceful fallback img if video is unsupported or restricted */}

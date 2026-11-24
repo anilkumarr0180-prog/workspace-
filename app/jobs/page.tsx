@@ -155,8 +155,8 @@ function JobsContent() {
           </p>
         </div>
 
-        {/* Mobile filter toggle */}
-        <div className="md:hidden flex items-center gap-2">
+        {/* Mobile & tablet filter toggle */}
+        <div className="lg:hidden flex items-center gap-2">
           <button
             onClick={() => setMobileFiltersOpen(!mobileFiltersOpen)}
             type="button"

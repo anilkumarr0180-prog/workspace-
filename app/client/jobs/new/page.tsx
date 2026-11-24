@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { toast } from '@/components/ui/toast';
 import { CATEGORIES } from '@/lib/mock-data';
 import { ProjectType, ExperienceLevel, ProjectDuration } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
@@ -213,18 +214,40 @@ export default function PostJobPage() {
         } catch {
           // ignore
         }
-        setSubmittedJobId(data.job?.id || data.id || 'published');
+        const createdJobId = data.job?.id || data.id || 'published';
+        setSubmittedJobId(createdJobId);
+
+        // Toastify notification: instant high-polish feedback
+        toast.success(
+          'Job Posted Successfully!',
+          `"${title.trim()}" is now live and published on Workspace. Freelancers can now submit proposals.`,
+          {
+            duration: 6000,
+            action: {
+              label: 'View Published Job',
+              href: `/jobs/${createdJobId}`,
+            },
+          }
+        );
       } else {
+        const errorMsg =
+          data.error ||
+          data.message ||
+          'Failed to publish job. Please ensure your inputs are valid.';
         setErrors((prev) => ({
           ...prev,
-          submit: data.error || data.message || 'Failed to publish job. Please ensure your inputs are valid.',
+          submit: errorMsg,
         }));
+        toast.error('Failed to Post Job', errorMsg);
       }
     } catch {
+      const netError =
+        'Network error while connecting to the server. Please verify your connection.';
       setErrors((prev) => ({
         ...prev,
-        submit: 'Network error while connecting to the server. Please verify your connection.',
+        submit: netError,
       }));
+      toast.error('Connection Error', netError);
     } finally {
       setIsSubmitting(false);
     }
@@ -271,6 +294,7 @@ export default function PostJobPage() {
             <button
               onClick={() => {
                 resetForm();
+                toast.info('Form Ready', 'Start entering details for your next project listing.');
                 if (typeof window !== 'undefined') {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }

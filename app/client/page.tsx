@@ -779,7 +779,7 @@ function ClientDashboardContent() {
   const recentActivity: ClientDashboardActivity[] = dashboardData?.recentActivity || [];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
       {/* Toast banner */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-bottom-2">
@@ -991,7 +991,7 @@ function ClientDashboardContent() {
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-[0_2px_16px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
             {/* Tabs Header */}
             <div className="p-3 sm:p-4 border-b border-slate-200/80 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="bg-slate-200/70 p-1 rounded-2xl flex items-center gap-1 overflow-x-auto max-w-full">
+              <div className="bg-slate-200/70 p-1 rounded-2xl flex items-center gap-1 overflow-x-auto max-w-full [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <button
                   onClick={() => handleTabChange('published')}
                   type="button"
@@ -1201,7 +1201,7 @@ function ClientDashboardContent() {
                               </div>
 
                               {/* Actions */}
-                              <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0">
+                              <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 md:pt-0">
                                 {job.proposalCount > 0 && (
                                   <button
                                     type="button"
@@ -1301,7 +1301,7 @@ function ClientDashboardContent() {
                     )}
 
                     {/* Upwork Candidate Pipeline Filter Tabs */}
-                    <div className="flex items-center gap-2 p-3 sm:p-3.5 bg-slate-50/90 border-b border-slate-200/80 overflow-x-auto text-xs">
+                    <div className="flex items-center gap-2 p-3 sm:p-3.5 bg-slate-50/90 border-b border-slate-200/80 overflow-x-auto text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1 shrink-0">
                         Pipeline:
                       </span>
