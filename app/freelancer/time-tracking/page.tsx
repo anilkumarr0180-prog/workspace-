@@ -34,8 +34,6 @@ import {
   FileText,
   Monitor,
   ExternalLink,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
 import ScreenTrackerWidget from '@/components/contracts/screen-tracker-widget';
@@ -71,7 +69,6 @@ export default function FreelancerTimeTrackingPage() {
 
   // Live timer state
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [isFloatingMiniCollapsed, setIsFloatingMiniCollapsed] = useState<boolean>(false);
   const [autoPopoutEnabled, setAutoPopoutEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -291,25 +288,17 @@ export default function FreelancerTimeTrackingPage() {
   }, [data?.activeSession, data?.eligibleContracts, selectedContractId]);
 
   const isTimerRunning = Boolean(data?.activeSession?.startTime);
-
-  // Base logged time today for this active contract (in seconds)
-  const baseTodaySeconds = activeContract?.id && data?.contractStats
-    ? (data.contractStats[activeContract.id]?.todaySeconds ??
-       (data.contractStats[activeContract.id]?.todayMinutes || 0) * 60)
-    : 0;
-
-  // Total running today seconds: base logged today + current active session seconds
-  const totalTodaySeconds = baseTodaySeconds + (isTimerRunning ? elapsedSeconds : 0);
-
-  // Clock view mode: 'today' (Upwork cumulative standard) or 'session' (isolated stopwatch)
-  const [clockMode, setClockMode] = useState<'today' | 'session'>('today');
-
-  const displaySeconds = !isTimerRunning
-    ? (clockMode === 'session' ? 0 : baseTodaySeconds)
-    : (clockMode === 'session' ? elapsedSeconds : totalTodaySeconds);
-
+  const displaySeconds = isTimerRunning ? elapsedSeconds : 0;
   const contractRate = activeContract?.hourlyRate || 0;
   const sessionEarnings = (elapsedSeconds / 3600) * contractRate;
+
+  // Real-time dynamic today and weekly hours including currently running session minutes
+  const todayMinutesTotal = (data?.stats?.todayMinutes || 0) + (isTimerRunning ? Math.floor(elapsedSeconds / 60) : 0);
+
+  const thisWeekMinutesTotal = (data?.stats?.thisWeekMinutes || 0) + (isTimerRunning ? Math.floor(elapsedSeconds / 60) : 0);
+  const thisWeekHours = Number((thisWeekMinutesTotal / 60).toFixed(1));
+  const weeklyLimit = activeContract?.weeklyHourLimit || 40;
+  const weeklyProgress = Math.min(100, (thisWeekHours / weeklyLimit) * 100);
 
   // Format seconds to HH:MM:SS
   const formatTimeHHMMSS = (totalSec: number) => {
@@ -500,10 +489,10 @@ export default function FreelancerTimeTrackingPage() {
             ) : (
               <>
                 <span className="text-xl sm:text-2xl font-black text-slate-900">
-                  {formatDurationMinutes(data?.stats.todayMinutes || 0)}
+                  {formatDurationMinutes(todayMinutesTotal)}
                 </span>
                 <p className="text-xs text-emerald-600 font-bold mt-0.5">
-                  ${(data?.stats.todayEarnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
+                  ${((data?.stats.todayEarnings || 0) + sessionEarnings).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
                 </p>
               </>
             )}
@@ -526,10 +515,10 @@ export default function FreelancerTimeTrackingPage() {
             ) : (
               <>
                 <span className="text-xl sm:text-2xl font-black text-slate-900">
-                  {formatDurationMinutes(data?.stats.thisWeekMinutes || 0)}
+                  {formatDurationMinutes(thisWeekMinutesTotal)}
                 </span>
                 <p className="text-xs text-blue-600 font-bold mt-0.5">
-                  ${(data?.stats.thisWeekEarnings || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
+                  ${((data?.stats.thisWeekEarnings || 0) + sessionEarnings).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} earned
                 </p>
               </>
             )}
@@ -641,15 +630,11 @@ export default function FreelancerTimeTrackingPage() {
               <div className="flex items-center gap-2.5">
                 <div
                   className={`w-3.5 h-3.5 rounded-full ${
-                    isTimerRunning ? 'bg-emerald-500 animate-ping' : baseTodaySeconds > 0 ? 'bg-emerald-500' : 'bg-slate-300'
+                    isTimerRunning ? 'bg-emerald-500 animate-ping' : 'bg-slate-300'
                   }`}
                 />
                 <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-                  {isTimerRunning
-                    ? 'Timer Active & Logging'
-                    : baseTodaySeconds > 0
-                    ? 'Tracker Paused • Resume Anytime'
-                    : 'Timer Idle'}
+                  {isTimerRunning ? 'Timer Active & Logging' : 'Timer Idle'}
                 </span>
               </div>
 
@@ -681,46 +666,8 @@ export default function FreelancerTimeTrackingPage() {
                 ? 'bg-gradient-to-b from-slate-950 to-slate-900 text-white shadow-xl border border-emerald-500/30'
                 : 'bg-slate-50 border border-slate-200/80 text-slate-900'
             }`}>
-              {/* Upwork Toggle: Today's Cumulative vs Session Stopwatch */}
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => setClockMode('today')}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    clockMode === 'today'
-                      ? isTimerRunning
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : isTimerRunning
-                      ? 'text-slate-400 hover:text-slate-200'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Today&apos;s Cumulative Time (Upwork Mode)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setClockMode('session')}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    clockMode === 'session'
-                      ? isTimerRunning
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : isTimerRunning
-                      ? 'text-slate-400 hover:text-slate-200'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Current Session Stopwatch
-                </button>
-              </div>
-
               <div className={`font-mono text-5xl sm:text-7xl font-black tracking-tight select-all ${
-                isTimerRunning
-                  ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.35)]'
-                  : baseTodaySeconds > 0
-                  ? 'text-slate-900'
-                  : 'text-slate-400'
+                isTimerRunning ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.35)]' : 'text-slate-400'
               }`}>
                 {formatTimeHHMMSS(displaySeconds)}
               </div>
@@ -729,29 +676,16 @@ export default function FreelancerTimeTrackingPage() {
                 <div className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    +${(((clockMode === 'today' ? totalTodaySeconds : elapsedSeconds) / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} {clockMode === 'today' ? 'earned today' : 'earned this session'}
+                    +${sessionEarnings.toFixed(2)} earned this session
                   </span>
-                  {clockMode === 'today' && elapsedSeconds > 0 && (
-                    <span className="text-xs text-slate-400 font-mono">
-                      ({formatTimeHHMMSS(elapsedSeconds)} this session)
-                    </span>
-                  )}
                   <span className="text-xs text-slate-400 font-mono">
                     (${activeContract.hourlyRate}/hr)
                   </span>
                 </div>
               ) : (
-                <div className="mt-2">
-                  {baseTodaySeconds > 0 && activeContract ? (
-                    <p className="text-xs font-semibold text-emerald-700">
-                      +${((baseTodaySeconds / 3600) * (activeContract.hourlyRate || 0)).toFixed(2)} logged today • Click Resume below to continue where you left off
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-400 font-medium">
-                      Select an active hourly project below and describe your task
-                    </p>
-                  )}
-                </div>
+                <p className="text-xs text-slate-400 font-medium mt-2">
+                  Select an active hourly project below and describe your task
+                </p>
               )}
 
               {/* Weekly Limit Progress Bar */}
@@ -760,15 +694,13 @@ export default function FreelancerTimeTrackingPage() {
                   <div className="flex items-center justify-between text-[11px] mb-1.5 font-semibold">
                     <span className={isTimerRunning ? 'text-slate-300' : 'text-slate-500'}>Weekly Cap</span>
                     <span className={isTimerRunning ? 'text-emerald-400 font-bold' : 'text-emerald-700 font-bold'}>
-                      {((data?.stats.thisWeekMinutes || 0) / 60).toFixed(1)} / {activeContract.weeklyHourLimit || 40} hrs
+                      {thisWeekHours.toFixed(1)} / {weeklyLimit} hrs
                     </span>
                   </div>
                   <div className={`w-full h-2 rounded-full overflow-hidden ${isTimerRunning ? 'bg-slate-800' : 'bg-slate-200'}`}>
                     <div
                       className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${Math.min(100, Math.round((((data?.stats.thisWeekMinutes || 0) / 60) / (activeContract.weeklyHourLimit || 40)) * 100))}%`
-                      }}
+                      style={{ width: `${weeklyProgress}%` }}
                     />
                   </div>
                 </div>
@@ -919,10 +851,10 @@ export default function FreelancerTimeTrackingPage() {
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>Starting Timer Session...</span>
                         </>
-                      ) : baseTodaySeconds > 0 ? (
+                      ) : todayMinutesTotal > 0 ? (
                         <>
                           <Play className="w-4 h-4 fill-current" />
-                          <span>Resume Tracking Time ({formatDurationMinutes(Math.floor(baseTodaySeconds / 60))} Logged Today)</span>
+                          <span>Resume Tracking Time ({formatDurationMinutes(todayMinutesTotal)} logged today)</span>
                         </>
                       ) : (
                         <>
@@ -1383,92 +1315,6 @@ export default function FreelancerTimeTrackingPage() {
                   </div>
                 );
               })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Upwork Floating Mini Tracker (Floats on screen while timer is running across all tabs/scroll) */}
-      {isTimerRunning && (
-        <div className="fixed bottom-6 right-6 z-40 animate-in slide-in-from-bottom-4 duration-200">
-          {isFloatingMiniCollapsed ? (
-            /* Collapsed Floating Pill */
-            <div
-              onClick={() => setIsFloatingMiniCollapsed(false)}
-              className="bg-slate-950/95 hover:bg-slate-900 text-white px-4 py-2.5 rounded-full shadow-2xl border border-emerald-500/50 flex items-center gap-2.5 cursor-pointer backdrop-blur-md transition-all hover:scale-105"
-              title="Click to expand floating tracker"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <span className="font-mono text-sm font-black text-emerald-400">
-                {formatTimeHHMMSS(elapsedSeconds)}
-              </span>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                Tracking
-              </span>
-              <Maximize2 className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
-            </div>
-          ) : (
-            /* Expanded Floating Mini Card */
-            <div className="bg-slate-950/95 text-white rounded-2xl shadow-2xl border border-emerald-500/40 p-4 w-72 sm:w-80 backdrop-blur-md space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                  <span className="text-xs font-bold text-white truncate max-w-[170px]" title={activeContract?.title}>
-                    {activeContract?.title || 'Active Contract'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleOpenPopout}
-                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Pop out into standalone desktop window"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsFloatingMiniCollapsed(true)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Minimize to floating pill"
-                  >
-                    <Minimize2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Digital Clock & Earnings */}
-              <div className="flex items-baseline justify-between bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800">
-                <div className="font-mono text-xl sm:text-2xl font-black text-emerald-400 tracking-tight">
-                  {formatTimeHHMMSS(elapsedSeconds)}
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-bold text-emerald-400">
-                    +${sessionEarnings.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block -mt-0.5">
-                    ${activeContract?.hourlyRate || 0}/hr
-                  </span>
-                </div>
-              </div>
-
-              {/* Active Task Memo */}
-              {workMemo && (
-                <p className="text-xs text-slate-300 italic truncate px-0.5" title={workMemo}>
-                  &ldquo;{workMemo}&rdquo;
-                </p>
-              )}
-
-              {/* Stop & Save Action */}
-              <button
-                type="button"
-                onClick={handleStopTimer}
-                disabled={isStopping}
-                className="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-60"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>{isStopping ? 'Saving Entry...' : 'Stop & Save Time'}</span>
-              </button>
             </div>
           )}
         </div>

@@ -167,24 +167,8 @@ function PopoutTrackerContent() {
     return data?.eligibleContracts.find((c) => c.id === selectedContractId);
   }, [data?.activeSession, data?.eligibleContracts, selectedContractId]);
 
-  // Base logged time today for this active contract (in seconds)
-  const baseTodaySeconds = activeContract?.id && data?.contractStats
-    ? (data.contractStats[activeContract.id]?.todaySeconds ??
-       (data.contractStats[activeContract.id]?.todayMinutes || 0) * 60)
-    : 0;
-
-  // Total running today seconds: base logged today + current active session seconds
-  const totalTodaySeconds = baseTodaySeconds + (isTimerRunning ? elapsedSeconds : 0);
-
-  // Clock view mode: 'today' (Upwork default) or 'session'
-  const [clockMode, setClockMode] = useState<'today' | 'session'>('today');
-
-  const displaySeconds = !isTimerRunning
-    ? (clockMode === 'session' ? 0 : baseTodaySeconds)
-    : (clockMode === 'session' ? elapsedSeconds : totalTodaySeconds);
-
+  const displaySeconds = isTimerRunning ? elapsedSeconds : 0;
   const contractRate = activeContract?.hourlyRate || 0;
-  const todayTotalEarnings = (totalTodaySeconds / 3600) * contractRate;
   const sessionEarnings = (elapsedSeconds / 3600) * contractRate;
 
   const formatTimeHHMMSS = (totalSec: number) => {
@@ -434,55 +418,25 @@ function PopoutTrackerContent() {
 
               {/* Digital Clock & Earnings */}
               <div className="text-right flex-1 min-w-0">
-                {/* Mode Toggle Button */}
-                <div className="flex items-center justify-end gap-1 mb-1">
-                  <button
-                    type="button"
-                    onClick={() => setClockMode((prev) => (prev === 'today' ? 'session' : 'today'))}
-                    className="text-[9px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition cursor-pointer"
-                    title="Toggle between Today Total and Session Stopwatch"
-                  >
-                    {clockMode === 'today' ? "Today's Time" : 'Session Stopwatch'}
-                  </button>
-                </div>
-
                 <div
                   className={`font-mono text-3xl font-black tracking-tight leading-none ${
-                    isTimerRunning ? 'text-slate-900' : 'text-slate-700'
+                    isTimerRunning ? 'text-slate-900' : 'text-slate-400'
                   }`}
                 >
                   {formatTimeHHMMSS(displaySeconds)}
                 </div>
 
                 {isTimerRunning && activeContract ? (
-                  <div className="flex items-center justify-end gap-1.5 mt-1 flex-wrap">
+                  <div className="flex items-center justify-end gap-1.5 mt-1">
                     <span className="text-xs font-black text-emerald-600 font-mono">
-                      +${(clockMode === 'today' ? todayTotalEarnings : sessionEarnings).toFixed(2)}
+                      +${sessionEarnings.toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      {clockMode === 'today' ? 'today' : 'session'}
-                    </span>
-                    {clockMode === 'today' && elapsedSeconds > 0 && (
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        ({formatTimeHHMMSS(elapsedSeconds)} session)
-                      </span>
-                    )}
+                    <span className="text-[10px] text-slate-400 font-medium">earned</span>
                   </div>
                 ) : (
-                  <div className="mt-1">
-                    {baseTodaySeconds > 0 ? (
-                      <div className="flex items-center justify-end gap-1 text-[10px]">
-                        <span className="font-bold text-emerald-600 font-mono">
-                          +${((baseTodaySeconds / 3600) * contractRate).toFixed(2)}
-                        </span>
-                        <span className="text-slate-400">logged today • Slide ON to resume</span>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 block">
-                        Ready • Slide ON to start
-                      </span>
-                    )}
-                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    Session duration
+                  </span>
                 )}
               </div>
             </div>
