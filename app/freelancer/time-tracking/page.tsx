@@ -34,6 +34,8 @@ import {
   FileText,
   Monitor,
   ExternalLink,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import WorkDiary from '@/components/contracts/work-diary';
 import ScreenTrackerWidget from '@/components/contracts/screen-tracker-widget';
@@ -69,6 +71,30 @@ export default function FreelancerTimeTrackingPage() {
 
   // Live timer state
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [isFloatingMiniCollapsed, setIsFloatingMiniCollapsed] = useState<boolean>(false);
+  const [autoPopoutEnabled, setAutoPopoutEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('workspace_auto_popout_tracker');
+        return stored !== null ? stored === 'true' : true;
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  });
+
+  const toggleAutoPopout = () => {
+    setAutoPopoutEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('workspace_auto_popout_tracker', String(next));
+      } catch {
+        // Non-fatal
+      }
+      return next;
+    });
+  };
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -293,6 +319,9 @@ export default function FreelancerTimeTrackingPage() {
       if (res.success && res.session) {
         showToast('Timer started successfully. Elapsed time is being recorded.');
         broadcastTrackerSync('TIMER_STARTED');
+        if (autoPopoutEnabled) {
+          handleOpenPopout();
+        }
         await loadDashboardData(true);
       } else {
         showError(res.error || 'Failed to start timer session.');
@@ -360,6 +389,7 @@ export default function FreelancerTimeTrackingPage() {
   };
 
   const isTimerRunning = Boolean(data?.activeSession?.startTime);
+  const sessionEarnings = activeContract ? (elapsedSeconds / 3600) * (activeContract.hourlyRate || 0) : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -768,23 +798,45 @@ export default function FreelancerTimeTrackingPage() {
               {/* Action Buttons */}
               <div className="pt-2">
                 {!isTimerRunning ? (
-                  <button
-                    type="submit"
-                    disabled={isStarting || loading || (data?.eligibleContracts.length ?? 0) === 0}
-                    className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 text-white font-bold text-sm sm:text-base hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    {isStarting ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Starting Timer Session...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 fill-current" />
-                        <span>Start Tracking Time</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between pb-1 px-1">
+                      <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoPopoutEnabled}
+                          onChange={toggleAutoPopout}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>Float desktop tracker automatically when timer starts</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleOpenPopout}
+                        className="text-xs font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Pop out now</span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isStarting || loading || (data?.eligibleContracts.length ?? 0) === 0}
+                      className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 text-white font-bold text-sm sm:text-base hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {isStarting ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Starting Timer Session...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Start Tracking Time</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex flex-col sm:flex-row items-center gap-3">
                     <button
@@ -1236,6 +1288,92 @@ export default function FreelancerTimeTrackingPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Upwork Floating Mini Tracker (Floats on screen while timer is running across all tabs/scroll) */}
+      {isTimerRunning && (
+        <div className="fixed bottom-6 right-6 z-40 animate-in slide-in-from-bottom-4 duration-200">
+          {isFloatingMiniCollapsed ? (
+            /* Collapsed Floating Pill */
+            <div
+              onClick={() => setIsFloatingMiniCollapsed(false)}
+              className="bg-slate-950/95 hover:bg-slate-900 text-white px-4 py-2.5 rounded-full shadow-2xl border border-emerald-500/50 flex items-center gap-2.5 cursor-pointer backdrop-blur-md transition-all hover:scale-105"
+              title="Click to expand floating tracker"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-mono text-sm font-black text-emerald-400">
+                {formatTimeHHMMSS(elapsedSeconds)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                Tracking
+              </span>
+              <Maximize2 className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
+            </div>
+          ) : (
+            /* Expanded Floating Mini Card */
+            <div className="bg-slate-950/95 text-white rounded-2xl shadow-2xl border border-emerald-500/40 p-4 w-72 sm:w-80 backdrop-blur-md space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                  <span className="text-xs font-bold text-white truncate max-w-[170px]" title={activeContract?.title}>
+                    {activeContract?.title || 'Active Contract'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleOpenPopout}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Pop out into standalone desktop window"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsFloatingMiniCollapsed(true)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Minimize to floating pill"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Digital Clock & Earnings */}
+              <div className="flex items-baseline justify-between bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800">
+                <div className="font-mono text-xl sm:text-2xl font-black text-emerald-400 tracking-tight">
+                  {formatTimeHHMMSS(elapsedSeconds)}
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-bold text-emerald-400">
+                    +${sessionEarnings.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block -mt-0.5">
+                    ${activeContract?.hourlyRate || 0}/hr
+                  </span>
+                </div>
+              </div>
+
+              {/* Active Task Memo */}
+              {workMemo && (
+                <p className="text-xs text-slate-300 italic truncate px-0.5" title={workMemo}>
+                  &ldquo;{workMemo}&rdquo;
+                </p>
+              )}
+
+              {/* Stop & Save Action */}
+              <button
+                type="button"
+                onClick={handleStopTimer}
+                disabled={isStopping}
+                className="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-60"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>{isStopping ? 'Saving Entry...' : 'Stop & Save Time'}</span>
+              </button>
             </div>
           )}
         </div>

@@ -173,8 +173,38 @@ export default function WorkDiary({
       )
       .subscribe();
 
+    // Instant local and cross-tab real-time sync
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel('workspace_time_tracker_sync');
+        bc.onmessage = (event) => {
+          if (
+            event.data?.type === 'SLOT_RECORDED' ||
+            event.data?.type === 'TIMER_STOPPED' ||
+            event.data?.type === 'TIMER_STARTED'
+          ) {
+            setReloadTrigger((prev) => prev + 1);
+          }
+        };
+      }
+    } catch {
+      // Non-fatal
+    }
+
+    const onCustomEvent = () => setReloadTrigger((prev) => prev + 1);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('workspace-slot-recorded', onCustomEvent);
+      window.addEventListener('workspace-timer-updated', onCustomEvent);
+    }
+
     return () => {
       supabase.removeChannel(channel);
+      bc?.close();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('workspace-slot-recorded', onCustomEvent);
+        window.removeEventListener('workspace-timer-updated', onCustomEvent);
+      }
     };
   }, [contractId]);
 

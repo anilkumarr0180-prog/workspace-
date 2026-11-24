@@ -9,6 +9,7 @@ import {
   acceptContractOffer,
   declineContractOffer,
   updateContractOfferPrice,
+  updateHourlyContractTerms,
 } from '@/lib/actions/contracts';
 import {
   getContractMilestones,
@@ -29,6 +30,7 @@ import {
 } from '@/lib/actions/payments';
 import {
   createMilestoneStripePaymentIntent,
+  createTimesheetStripePaymentIntent,
 } from '@/lib/actions/stripe';
 import StripeCheckoutModal from '@/components/contracts/stripe-checkout-modal';
 import {
@@ -194,6 +196,8 @@ function ContractDetailsContent() {
   const [isApprovingTimesheetId, setIsApprovingTimesheetId] = useState<string | null>(null);
   const [isSubmittingTimesheetId, setIsSubmittingTimesheetId] = useState<string | null>(null);
   const [isPayingTimesheetId, setIsPayingTimesheetId] = useState<string | null>(null);
+  const [isPayingTimesheetStripe, setIsPayingTimesheetStripe] = useState(false);
+  const [selectedTimesheetForPay, setSelectedTimesheetForPay] = useState<TimesheetWithDetails | null>(null);
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [selectedTimesheetForDispute, setSelectedTimesheetForDispute] = useState<TimesheetWithDetails | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -222,6 +226,59 @@ function ContractDetailsContent() {
     setEditOfferMemo(contract.offerMessage ?? '');
     setEditOfferError(null);
     setIsEditOfferModalOpen(true);
+  };
+
+  // Edit Hourly Contract Terms Modal State (Weekly Cap & Manual Time)
+  const [isEditHourlyTermsModalOpen, setIsEditHourlyTermsModalOpen] = useState(false);
+  const [editWeeklyLimitVal, setEditWeeklyLimitVal] = useState<string>('40');
+  const [editAllowManualVal, setEditAllowManualVal] = useState<boolean>(true);
+  const [isUpdatingHourlyTerms, setIsUpdatingHourlyTerms] = useState(false);
+  const [editHourlyTermsError, setEditHourlyTermsError] = useState<string | null>(null);
+
+  const handleOpenEditHourlyTerms = () => {
+    if (!contract) return;
+    setEditWeeklyLimitVal(contract.weeklyHourLimit ? String(contract.weeklyHourLimit) : '40');
+    setEditAllowManualVal(contract.allowManualTime ?? true);
+    setEditHourlyTermsError(null);
+    setIsEditHourlyTermsModalOpen(true);
+  };
+
+  const handleSubmitHourlyTerms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contract) return;
+    setIsUpdatingHourlyTerms(true);
+    setEditHourlyTermsError(null);
+    try {
+      const limitNum = editWeeklyLimitVal ? Number(editWeeklyLimitVal) : null;
+      if (limitNum !== null && (isNaN(limitNum) || limitNum <= 0 || limitNum > 168)) {
+        setEditHourlyTermsError('Weekly limit must be between 1 and 168 hours per week.');
+        setIsUpdatingHourlyTerms(false);
+        return;
+      }
+      const res = await updateHourlyContractTerms(contract.id, {
+        weeklyHourLimit: limitNum,
+        allowManualTime: editAllowManualVal,
+      });
+      if (res.success) {
+        setContract((prev) =>
+          prev
+            ? {
+                ...prev,
+                weeklyHourLimit: limitNum,
+                allowManualTime: editAllowManualVal,
+              }
+            : null
+        );
+        setActionSuccessMessage(`Updated weekly limit to ${limitNum ? `${limitNum} hrs/wk` : 'unlimited'} and manual time to ${editAllowManualVal ? 'allowed' : 'disabled'}.`);
+        setIsEditHourlyTermsModalOpen(false);
+      } else {
+        setEditHourlyTermsError(res.error || 'Failed to update hourly terms.');
+      }
+    } catch {
+      setEditHourlyTermsError('Network error while updating terms.');
+    } finally {
+      setIsUpdatingHourlyTerms(false);
+    }
   };
 
   const handleQuickAdjustPrice = (delta: number) => {
@@ -810,6 +867,38 @@ function ContractDetailsContent() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error launching Razorpay Checkout.';
       setActionErrorMessage(msg);
+      setIsPayingTimesheetId(null);
+    }
+  };
+
+  const handlePayTimesheetStripe = async (timesheet: TimesheetWithDetails) => {
+    setActionErrorMessage(null);
+    setActionSuccessMessage(null);
+    setIsPayingTimesheetStripe(true);
+    setIsPayingTimesheetId(timesheet.id);
+
+    try {
+      const res = await createTimesheetStripePaymentIntent(timesheet.id);
+      if (!res.success || !res.clientSecret || !res.paymentIntentId || !res.publishableKey) {
+        throw new Error(res.error || 'Failed to initialize Stripe checkout for timesheet.');
+      }
+
+      setSelectedTimesheetForPay(timesheet);
+      setSelectedMilestoneForFund(null);
+      setStripeCheckoutData({
+        clientSecret: res.clientSecret,
+        paymentIntentId: res.paymentIntentId,
+        publishableKey: res.publishableKey,
+        amount: res.amount || Number(timesheet.totalAmount),
+        currency: res.currency || 'USD',
+      });
+
+      setIsStripeModalOpen(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to launch Stripe checkout.';
+      setActionErrorMessage(msg);
+    } finally {
+      setIsPayingTimesheetStripe(false);
       setIsPayingTimesheetId(null);
     }
   };
@@ -1517,9 +1606,21 @@ function ContractDetailsContent() {
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-900">Verified Hourly Billing</h3>
-                        <p className="text-xs text-slate-500">
-                          ${contract.hourlyRate?.toFixed(2)}/hr • Weekly limit: {contract.weeklyHourLimit || 40} hrs
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs text-slate-500">
+                            ${contract.hourlyRate?.toFixed(2)}/hr • Weekly limit: <strong className="text-slate-800">{contract.weeklyHourLimit || 40} hrs/wk</strong> • Manual time: <strong className="text-slate-800">{contract.allowManualTime ? 'Allowed' : 'Disabled'}</strong>
+                          </p>
+                          {isClient && (
+                            <button
+                              type="button"
+                              onClick={handleOpenEditHourlyTerms}
+                              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-300 transition-colors cursor-pointer shadow-2xs"
+                              title="Update weekly hour limit and manual time permissions"
+                            >
+                              Edit Limits
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -1769,26 +1870,48 @@ function ContractDetailsContent() {
                                   </>
                                 )}
 
-                                {/* Client Payment via Razorpay Test Mode */}
+                                {/* Client Payment: Stripe (USD - Primary) & Razorpay (Secondary Test) */}
                                 {isClient && ts.status === 'approved' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePayTimesheetRazorpay(ts)}
-                                    disabled={isPayingTimesheetId === ts.id}
-                                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
-                                  >
-                                    {isPayingTimesheetId === ts.id ? (
-                                      <>
-                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Launching Razorpay...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CreditCard className="w-4 h-4" />
-                                        <span>Pay ${Number(ts.totalAmount).toFixed(2)} with Razorpay (Test)</span>
-                                      </>
-                                    )}
-                                  </button>
+                                  <div className="flex items-center flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePayTimesheetStripe(ts)}
+                                      disabled={isPayingTimesheetId === ts.id}
+                                      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow-md disabled:opacity-50 cursor-pointer"
+                                    >
+                                      {isPayingTimesheetId === ts.id && isPayingTimesheetStripe ? (
+                                        <>
+                                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          <span>Preparing Stripe...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CreditCard className="w-4 h-4" />
+                                          <span>Pay ${Number(ts.totalAmount).toFixed(2)} with Stripe (USD)</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePayTimesheetRazorpay(ts)}
+                                      disabled={isPayingTimesheetId === ts.id}
+                                      title="Alternative payment method using Razorpay test mode"
+                                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all border border-slate-200 disabled:opacity-50 cursor-pointer"
+                                    >
+                                      {isPayingTimesheetId === ts.id && !isPayingTimesheetStripe ? (
+                                        <>
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                          <span>Launching...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Zap className="w-3 h-3 text-amber-600" />
+                                          <span>Razorpay (Test)</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
                                 )}
 
                                 {/* Paid Settlement Confirmation */}
@@ -3123,17 +3246,20 @@ function ContractDetailsContent() {
         </div>
       )}
 
-      {/* MODAL 4B: STRIPE SECURE CARD CHECKOUT */}
-      {isStripeModalOpen && selectedMilestoneForFund && stripeCheckoutData && (
+      {/* MODAL 4B: STRIPE SECURE CARD CHECKOUT (MILESTONES & TIMESHEETS) */}
+      {isStripeModalOpen && stripeCheckoutData && (selectedMilestoneForFund || selectedTimesheetForPay) && (
         <StripeCheckoutModal
           isOpen={isStripeModalOpen}
           onClose={() => {
             setIsStripeModalOpen(false);
             setStripeCheckoutData(null);
+            setSelectedTimesheetForPay(null);
           }}
-          milestoneId={selectedMilestoneForFund.id}
-          milestoneTitle={selectedMilestoneForFund.title}
-          sequenceOrder={selectedMilestoneForFund.sequenceOrder}
+          milestoneId={selectedMilestoneForFund?.id}
+          milestoneTitle={selectedMilestoneForFund?.title}
+          sequenceOrder={selectedMilestoneForFund?.sequenceOrder}
+          timesheetId={selectedTimesheetForPay?.id}
+          timesheetTitle={selectedTimesheetForPay ? `Week of ${selectedTimesheetForPay.weekStartDate}` : undefined}
           amount={stripeCheckoutData.amount}
           currency={stripeCheckoutData.currency}
           clientSecret={stripeCheckoutData.clientSecret}
@@ -3142,9 +3268,17 @@ function ContractDetailsContent() {
           onSuccess={(paymentIntentId) => {
             setIsStripeModalOpen(false);
             setStripeCheckoutData(null);
-            setActionSuccessMessage(
-              `Milestone funded successfully via Stripe! Payment ID: ${paymentIntentId}. Funds are locked in escrow.`
-            );
+            if (selectedTimesheetForPay) {
+              setActionSuccessMessage(
+                `Hourly timesheet for Week of ${selectedTimesheetForPay.weekStartDate} paid successfully via Stripe (USD)! Payment ID: ${paymentIntentId.slice(0, 16)}...`
+              );
+              setSelectedTimesheetForPay(null);
+            } else if (selectedMilestoneForFund) {
+              setActionSuccessMessage(
+                `Milestone funded successfully via Stripe! Payment ID: ${paymentIntentId.slice(0, 16)}... Funds are locked in escrow.`
+              );
+              setSelectedMilestoneForFund(null);
+            }
             loadData(true);
           }}
         />
@@ -3408,6 +3542,145 @@ function ContractDetailsContent() {
                     </>
                   ) : (
                     <span>Save &amp; Revise Offer</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Hourly Terms Modal (Client: Weekly Cap & Manual Time) */}
+      {isEditHourlyTermsModalOpen && contract && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+            <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Hourly Contract Terms</h3>
+                  <p className="text-xs text-slate-500">Configure weekly limit and manual time permissions</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsEditHourlyTermsModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Close dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitHourlyTerms} className="p-6 space-y-5">
+              {editHourlyTermsError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{editHourlyTermsError}</span>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 flex items-center justify-between">
+                <div>
+                  <span className="block font-bold text-slate-800">Specialist: {contract.freelancerName || 'Candidate'}</span>
+                  <span className="text-[11px] text-slate-500">Rate: ${contract.hourlyRate?.toFixed(2)}/hr</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-400 block">Current Cap</span>
+                  <span className="text-sm font-extrabold text-slate-900">{contract.weeklyHourLimit || 40} hrs/wk</span>
+                </div>
+              </div>
+
+              {/* Weekly Limit Field */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700">
+                  Weekly Hour Limit (Cap)
+                </label>
+                <div className="flex items-center gap-2">
+                  {[10, 20, 30, 40].map((quick) => (
+                    <button
+                      key={quick}
+                      type="button"
+                      onClick={() => setEditWeeklyLimitVal(String(quick))}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                        editWeeklyLimitVal === String(quick)
+                          ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      {quick} hrs
+                    </button>
+                  ))}
+                </div>
+                <div className="relative mt-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="168"
+                    value={editWeeklyLimitVal}
+                    onChange={(e) => setEditWeeklyLimitVal(e.target.value)}
+                    placeholder="e.g. 40"
+                    className="w-full pl-3 pr-16 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                  />
+                  <span className="absolute right-3.5 top-2.5 text-xs font-semibold text-slate-400">hrs/week</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Hours recorded past this limit will not be billed and are not covered by payment protection.
+                </p>
+              </div>
+
+              {/* Allow Manual Time Toggle */}
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <span className="block text-xs font-bold text-slate-800">Allow Manual Time</span>
+                  <span className="block text-[11px] text-slate-500">
+                    Allow specialist to add offline hours without screenshot verification.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditAllowManualVal(!editAllowManualVal)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    editAllowManualVal ? 'bg-emerald-600' : 'bg-slate-300'
+                  }`}
+                  role="switch"
+                  aria-checked={editAllowManualVal}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      editAllowManualVal ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditHourlyTermsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingHourlyTerms}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-2xs flex items-center gap-1.5"
+                >
+                  {isUpdatingHourlyTerms ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Terms</span>
                   )}
                 </button>
               </div>

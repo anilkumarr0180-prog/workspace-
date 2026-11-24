@@ -1395,3 +1395,107 @@ export async function updateContractOfferPrice(
     return { success: false, error: message };
   }
 }
+
+export interface UpdateHourlyTermsInput {
+  weeklyHourLimit?: number | null;
+  allowManualTime?: boolean;
+}
+
+/**
+ * Client action: Update terms for an active hourly contract (Weekly Cap and Manual Time allowance).
+ */
+export async function updateHourlyContractTerms(
+  contractId: string,
+  input: UpdateHourlyTermsInput
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authErr,
+    } = await supabase.auth.getUser();
+
+    if (authErr || !user) {
+      return { success: false, error: 'Authentication required' };
+    }
+
+    const admin = getAdminSupabaseClient();
+    const { data: contract, error: cErr } = await admin
+      .from('contracts')
+      .select('id, client_id, company_id, freelancer_id, title, contract_type, status, weekly_hour_limit, allow_manual_time')
+      .eq('id', contractId)
+      .single();
+
+    if (cErr || !contract) {
+      return { success: false, error: 'Contract not found' };
+    }
+
+    if (contract.contract_type !== 'hourly') {
+      return { success: false, error: 'Weekly caps and manual time settings apply only to hourly contracts.' };
+    }
+
+    // Verify client authorization
+    let isClientAuthorized = contract.client_id === user.id;
+    if (!isClientAuthorized && contract.company_id) {
+      const { data: member } = await admin
+        .from('company_members')
+        .select('id, role')
+        .eq('company_id', contract.company_id)
+        .eq('user_id', user.id)
+        .single();
+      if (member && ['owner', 'admin', 'hiring_manager'].includes(member.role)) {
+        isClientAuthorized = true;
+      }
+    }
+
+    if (!isClientAuthorized) {
+      return { success: false, error: 'Only the employer/client can modify contract billing limits.' };
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (input.weeklyHourLimit !== undefined) {
+      updatePayload.weekly_hour_limit = input.weeklyHourLimit ? Number(input.weeklyHourLimit) : null;
+    }
+    if (input.allowManualTime !== undefined) {
+      updatePayload.allow_manual_time = Boolean(input.allowManualTime);
+    }
+
+    const { error: updateErr } = await admin
+      .from('contracts')
+      .update(updatePayload)
+      .eq('id', contract.id);
+
+    if (updateErr) {
+      return { success: false, error: `Failed to update contract limits: ${updateErr.message}` };
+    }
+
+    // Notify freelancer of weekly cap / manual time change
+    try {
+      await admin.from('notifications').insert({
+        user_id: contract.freelancer_id,
+        type: 'contract_update',
+        title: 'Contract Terms Updated',
+        message: `Your client updated the weekly limit to ${input.weeklyHourLimit ? `${input.weeklyHourLimit} hrs/wk` : 'unlimited'} on "${contract.title}".`,
+        data: {
+          contractId: contract.id,
+          weeklyHourLimit: input.weeklyHourLimit,
+          allowManualTime: input.allowManualTime,
+        },
+      });
+    } catch {
+      // Non-blocking
+    }
+
+    revalidatePath(`/contracts/${contract.id}`);
+    revalidatePath('/contracts');
+    revalidatePath('/freelancer/time-tracking');
+
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Error updating contract terms';
+    return { success: false, error: msg };
+  }
+}

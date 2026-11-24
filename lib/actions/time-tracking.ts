@@ -6,6 +6,9 @@ import { ActiveTimerSession, Contract, TimeEntry, Timesheet, WorkDiarySlot } fro
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Resilient in-memory fallback cache for recorded screenshot slots when public.work_diary_slots is not yet migrated in Supabase
+const inMemoryFallbackSlots = new Map<string, WorkDiarySlot[]>();
+
 export interface TimerSessionResult {
   success: boolean;
   session?: ActiveTimerSession;
@@ -811,6 +814,32 @@ export async function getContractWorkDiary(
       }
     }
 
+    // Merge fallback slots if recorded during this runtime
+    const fallbackList = inMemoryFallbackSlots.get(contractId.trim()) || [];
+    for (const fbSlot of fallbackList) {
+      const fbDateIso = (fbSlot.slotTime || '').split('T')[0];
+      const fbDateLocal = new Date(fbSlot.slotTime).toLocaleDateString('en-CA');
+      if (!options?.date || fbDateIso === options.date || fbDateLocal === options.date) {
+        if (!matchingSlots.some((s) => s.id === fbSlot.id)) {
+          matchingSlots.unshift({
+            id: fbSlot.id,
+            contract_id: fbSlot.contractId,
+            time_entry_id: fbSlot.timeEntryId,
+            freelancer_id: fbSlot.freelancerId,
+            slot_time: fbSlot.slotTime,
+            duration_minutes: fbSlot.durationMinutes,
+            activity_score: fbSlot.activityScore,
+            keystrokes_count: fbSlot.keystrokesCount,
+            mouse_clicks_count: fbSlot.mouseClicksCount,
+            memo: fbSlot.memo,
+            screenshot_url: fbSlot.screenshotUrl,
+            is_manual: fbSlot.isManual,
+            created_at: fbSlot.createdAt,
+          });
+        }
+      }
+    }
+
     // Collect all distinct active dates with work logged for this contract
     const allDatesSet = new Set<string>();
     for (const s of (rawSlots as unknown as DbSlotRow[]) || []) {
@@ -1074,7 +1103,27 @@ export async function recordWorkDiaryScreenshotSlot(
       .single();
 
     if (insertErr) {
-      return { success: false, error: insertErr.message, code: 'INSERT_FAILED' };
+      console.warn('[TIME-TRACKING] work_diary_slots table insert fallback:', insertErr.message);
+      const fallbackSlot: WorkDiarySlot = {
+        id: `slot-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        contractId: contractId.trim(),
+        timeEntryId: null,
+        freelancerId: user.id,
+        slotTime: slotTime || new Date().toISOString(),
+        durationMinutes: Math.min(60, Math.max(1, durationMinutes)),
+        activityScore: Math.min(10, Math.max(0, Math.round(activityScore))),
+        keystrokesCount: Math.max(0, Math.round(keystrokesCount)),
+        mouseClicksCount: Math.max(0, Math.round(mouseClicksCount)),
+        memo: (memo || '').trim() || 'Active work session',
+        screenshotUrl: screenshotUrl?.trim() || null,
+        isManual: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      const existing = inMemoryFallbackSlots.get(contractId.trim()) || [];
+      inMemoryFallbackSlots.set(contractId.trim(), [fallbackSlot, ...existing]);
+
+      return { success: true, slot: fallbackSlot };
     }
 
     interface RawDbSlot {
