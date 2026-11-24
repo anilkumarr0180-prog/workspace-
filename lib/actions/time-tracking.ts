@@ -169,6 +169,28 @@ export async function stopTimerSession(memo?: string): Promise<TimerSessionResul
       created_at: string;
     };
 
+    // If this entry was added to a timesheet previously marked 'paid', transition it back to 'approved'
+    if (entryRow.timesheet_id) {
+      try {
+        const { getAdminSupabaseClient } = await import('@/lib/supabase/admin');
+        const adminClient = getAdminSupabaseClient();
+        const { data: ts } = await adminClient
+          .from('timesheets')
+          .select('id, status')
+          .eq('id', entryRow.timesheet_id)
+          .single();
+
+        if (ts && ts.status === 'paid') {
+          await adminClient
+            .from('timesheets')
+            .update({ status: 'approved', updated_at: new Date().toISOString() })
+            .eq('id', ts.id);
+        }
+      } catch (syncErr) {
+        console.warn('Non-blocking timesheet status sync error:', syncErr);
+      }
+    }
+
     return {
       success: true,
       entry: {
