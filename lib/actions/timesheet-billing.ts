@@ -17,6 +17,8 @@ export interface TimesheetWithDetails extends Timesheet {
   clientName?: string;
   freelancerName?: string;
   timeEntries?: TimeEntry[];
+  paidAmount?: number;
+  balanceDue?: number;
 }
 
 export interface TimesheetActionResponse {
@@ -735,6 +737,31 @@ export async function getFreelancerTimesheets(
       return { success: false, timesheets: [], error: error.message };
     }
 
+    // Query payment_ledger for settled hourly timesheet payments on this contract
+    let ledgerQuery = supabase
+      .from('payment_ledger')
+      .select('timesheet_id, amount, status, metadata, description')
+      .eq('status', 'succeeded');
+    if (contractId && UUID_REGEX.test(contractId.trim())) {
+      ledgerQuery = ledgerQuery.eq('contract_id', contractId.trim());
+    }
+    const { data: ledgerRows } = await ledgerQuery;
+
+    const paidByTimesheetId = new Map<string, number>();
+    const paidByWeek = new Map<string, number>();
+    for (const r of ledgerRows || []) {
+      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const amt = Number(r.amount || 0);
+      if (tsId) {
+        paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
+      }
+      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
+      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      if (weekKey) {
+        paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
+      }
+    }
+
     interface RawQueryRow {
       id: string;
       contract_id: string;
@@ -766,6 +793,19 @@ export async function getFreelancerTimesheets(
       const cObj = Array.isArray(row.contracts) ? row.contracts[0] : row.contracts;
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
 
+      const totalAmount = Number(row.total_amount) || 0;
+      const paidAmount = Math.round(
+        (paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date) ?? 0) * 100
+      ) / 100;
+      const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
+
+      let resolvedStatus = row.status as TimesheetStatus;
+      if (resolvedStatus === 'paid' && balanceDue > 0.01) {
+        resolvedStatus = 'approved';
+      } else if (balanceDue <= 0.01 && paidAmount > 0) {
+        resolvedStatus = 'paid';
+      }
+
       return {
         id: row.id,
         contractId: row.contract_id,
@@ -773,8 +813,10 @@ export async function getFreelancerTimesheets(
         freelancerId: row.freelancer_id,
         weekStartDate: row.week_start_date,
         totalMinutes: Number(row.total_minutes) || 0,
-        totalAmount: Number(row.total_amount) || 0,
-        status: row.status as TimesheetStatus,
+        totalAmount,
+        paidAmount,
+        balanceDue,
+        status: resolvedStatus,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         contractTitle: cObj?.title || 'Hourly Contract',
@@ -860,6 +902,28 @@ export async function getContractTimesheets(
       return { success: false, timesheets: [], error: error.message };
     }
 
+    // Query payment_ledger for settled hourly timesheet payments on this contract
+    const { data: ledgerRows } = await supabase
+      .from('payment_ledger')
+      .select('timesheet_id, amount, status, metadata, description')
+      .eq('contract_id', contractId.trim())
+      .eq('status', 'succeeded');
+
+    const paidByTimesheetId = new Map<string, number>();
+    const paidByWeek = new Map<string, number>();
+    for (const r of ledgerRows || []) {
+      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const amt = Number(r.amount || 0);
+      if (tsId) {
+        paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
+      }
+      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
+      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      if (weekKey) {
+        paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
+      }
+    }
+
     interface RawQueryRow {
       id: string;
       contract_id: string;
@@ -893,6 +957,19 @@ export async function getContractTimesheets(
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
       const flObj = Array.isArray(row.freelancer) ? row.freelancer[0] : row.freelancer;
 
+      const totalAmount = Number(row.total_amount) || 0;
+      const paidAmount = Math.round(
+        (paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date) ?? 0) * 100
+      ) / 100;
+      const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
+
+      let resolvedStatus = row.status as TimesheetStatus;
+      if (resolvedStatus === 'paid' && balanceDue > 0.01) {
+        resolvedStatus = 'approved';
+      } else if (balanceDue <= 0.01 && paidAmount > 0) {
+        resolvedStatus = 'paid';
+      }
+
       return {
         id: row.id,
         contractId: row.contract_id,
@@ -900,8 +977,10 @@ export async function getContractTimesheets(
         freelancerId: row.freelancer_id,
         weekStartDate: row.week_start_date,
         totalMinutes: Number(row.total_minutes) || 0,
-        totalAmount: Number(row.total_amount) || 0,
-        status: row.status as TimesheetStatus,
+        totalAmount,
+        paidAmount,
+        balanceDue,
+        status: resolvedStatus,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         contractTitle: cObj?.title || 'Hourly Contract',
