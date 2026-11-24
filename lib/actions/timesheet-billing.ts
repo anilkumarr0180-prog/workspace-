@@ -833,13 +833,19 @@ export async function getFreelancerTimesheets(
       if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
         matchedPaid = totalSettledHourly;
       }
+
+      // If the database row is already 'paid', it was authoritatively settled
+      if (row.status === 'paid') {
+        if (!matchedPaid || matchedPaid < totalAmount) {
+          matchedPaid = totalAmount;
+        }
+      }
+
       const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
-      const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
+      const balanceDue = row.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
 
       let resolvedStatus = row.status as TimesheetStatus;
-      if (resolvedStatus === 'paid' && balanceDue > 0.01) {
-        resolvedStatus = 'approved';
-      } else if (balanceDue <= 0.01 && paidAmount > 0) {
+      if (row.status === 'paid' || (balanceDue <= 0.01 && totalAmount > 0 && paidAmount > 0)) {
         resolvedStatus = 'paid';
       }
 
@@ -1029,13 +1035,19 @@ export async function getContractTimesheets(
       if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
         matchedPaid = totalSettledHourly;
       }
+
+      // If the database row is already 'paid', it was authoritatively settled
+      if (row.status === 'paid') {
+        if (!matchedPaid || matchedPaid < totalAmount) {
+          matchedPaid = totalAmount;
+        }
+      }
+
       const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
-      const balanceDue = Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
+      const balanceDue = row.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
 
       let resolvedStatus = row.status as TimesheetStatus;
-      if (resolvedStatus === 'paid' && balanceDue > 0.01) {
-        resolvedStatus = 'approved';
-      } else if (balanceDue <= 0.01 && paidAmount > 0) {
+      if (row.status === 'paid' || (balanceDue <= 0.01 && totalAmount > 0 && paidAmount > 0)) {
         resolvedStatus = 'paid';
       }
 

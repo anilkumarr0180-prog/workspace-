@@ -552,13 +552,16 @@ export async function createTimesheetStripePaymentIntent(
       }
     }
 
+    if (timesheet.status === 'paid' && alreadyPaid === 0) {
+      alreadyPaid = totalAmount;
+    }
     alreadyPaid = Math.round(alreadyPaid * 100) / 100;
-    const balanceDue = Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
+    const balanceDue = timesheet.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
 
-    if (balanceDue <= 0.01) {
+    if (timesheet.status === 'paid' || balanceDue <= 0.01) {
       return {
         success: false,
-        error: `This timesheet has already been fully paid and settled ($${alreadyPaid.toFixed(2)}).`,
+        error: `This timesheet has already been fully paid and settled ($${(alreadyPaid || totalAmount).toFixed(2)}).`,
         code: 'ALREADY_PAID',
       };
     }
@@ -827,7 +830,16 @@ export async function verifyAndPayTimesheetStripe(
         },
       };
 
-      await adminClient.from('payment_ledger').insert(ledgerPayload);
+      const { error: ledgerErr } = await adminClient.from('payment_ledger').insert(ledgerPayload);
+      if (ledgerErr) {
+        console.warn('[STRIPE TIMESHEET LEDGER INSERT ERROR]:', ledgerErr.message);
+        // Fallback: try with event_type 'escrow_funded' and to_user_id null in case check constraint chk_ledger_event_type rejected 'hourly_funded'
+        await adminClient.from('payment_ledger').insert({
+          ...ledgerPayload,
+          event_type: 'escrow_funded',
+          to_user_id: null,
+        });
+      }
     } catch (ledgerErr) {
       console.warn('[STRIPE TIMESHEET LEDGER INSERT NOTICE]:', ledgerErr);
     }
