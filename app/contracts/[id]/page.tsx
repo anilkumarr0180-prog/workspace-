@@ -1628,8 +1628,7 @@ function ContractDetailsContent() {
                         <span className="text-sm font-bold text-emerald-600 font-mono">
                           $
                           {contractTimesheets
-                            .filter((t) => t.status === 'paid')
-                            .reduce((sum, t) => sum + Number(t.totalAmount), 0)
+                            .reduce((sum, t) => sum + (t.paidAmount !== undefined ? t.paidAmount : (t.status === 'paid' ? Number(t.totalAmount) : 0)), 0)
                             .toFixed(2)}
                         </span>
                       </div>
@@ -1641,8 +1640,8 @@ function ContractDetailsContent() {
                         <span className="text-sm font-bold text-amber-600 font-mono">
                           $
                           {contractTimesheets
-                            .filter((t) => t.status === 'submitted' || t.status === 'approved')
-                            .reduce((sum, t) => sum + Number(t.totalAmount), 0)
+                            .filter((t) => t.status === 'submitted' || t.status === 'approved' || (t.balanceDue && t.balanceDue > 0.01))
+                            .reduce((sum, t) => sum + (t.balanceDue !== undefined ? t.balanceDue : Number(t.totalAmount)), 0)
                             .toFixed(2)}
                         </span>
                       </div>
@@ -1690,7 +1689,15 @@ function ContractDetailsContent() {
                       const totalMins = ts.totalMinutes % 60;
                       const isExpanded = expandedTimesheetId === ts.id;
 
-                      const getTimesheetBadge = (status: string) => {
+                      const getTimesheetBadge = (status: string, paidAmount?: number, balanceDue?: number) => {
+                        if (paidAmount && paidAmount > 0 && balanceDue && balanceDue > 0.01) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              Partially Paid (${paidAmount.toFixed(2)} Settled)
+                            </span>
+                          );
+                        }
                         switch (status) {
                           case 'draft':
                           case 'open':
@@ -1746,7 +1753,7 @@ function ContractDetailsContent() {
                                   <h4 className="text-base font-bold text-slate-900">
                                     Week of {ts.weekStartDate}
                                   </h4>
-                                  {getTimesheetBadge(ts.status)}
+                                  {getTimesheetBadge(ts.status, ts.paidAmount, ts.balanceDue)}
                                 </div>
                                 <p className="text-xs text-slate-500">
                                   Logged by {ts.freelancerName || 'Freelancer'} • {ts.timeEntries?.length || 0} work session{ts.timeEntries?.length === 1 ? '' : 's'}
@@ -1765,10 +1772,34 @@ function ContractDetailsContent() {
                                 <div className="h-8 w-px bg-slate-200" />
                                 <div>
                                   <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
-                                    Billable Amount
+                                    Total Value
                                   </span>
-                                  <span className="text-base font-bold text-emerald-700 font-mono">
+                                  <span className="text-sm font-bold text-slate-700 font-mono">
                                     ${Number(ts.totalAmount).toFixed(2)}
+                                  </span>
+                                </div>
+                                {ts.paidAmount !== undefined && ts.paidAmount > 0 && (
+                                  <>
+                                    <div className="h-8 w-px bg-slate-200" />
+                                    <div>
+                                      <span className="text-[10px] font-bold text-emerald-600 block uppercase tracking-wider">
+                                        Already Paid
+                                      </span>
+                                      <span className="text-sm font-bold text-emerald-700 font-mono">
+                                        -${ts.paidAmount.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
+                                <div className="h-8 w-px bg-slate-200" />
+                                <div>
+                                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                                    {ts.paidAmount && ts.paidAmount > 0 && ts.balanceDue && ts.balanceDue > 0.01 ? 'Balance Due' : 'Billable Amount'}
+                                  </span>
+                                  <span className={`text-base font-bold font-mono ${
+                                    ts.balanceDue !== undefined && ts.balanceDue <= 0.01 ? 'text-emerald-700' : 'text-slate-900'
+                                  }`}>
+                                    ${Number(ts.balanceDue !== undefined ? ts.balanceDue : ts.totalAmount).toFixed(2)}
                                   </span>
                                 </div>
                               </div>
@@ -1867,7 +1898,7 @@ function ContractDetailsContent() {
                                 )}
 
                                 {/* Client Payment: Stripe (USD - Primary) & Razorpay (Secondary Test) */}
-                                {isClient && ts.status === 'approved' && (
+                                {isClient && (ts.status === 'approved' || (ts.status === 'open' && (ts.balanceDue || 0) > 0.01 && (ts.paidAmount || 0) > 0)) && (
                                   <div className="flex items-center flex-wrap gap-2">
                                     <button
                                       type="button"
@@ -1883,7 +1914,11 @@ function ContractDetailsContent() {
                                       ) : (
                                         <>
                                           <CreditCard className="w-4 h-4" />
-                                          <span>Pay ${Number(ts.totalAmount).toFixed(2)} with Stripe (USD)</span>
+                                          <span>
+                                            {ts.paidAmount && ts.paidAmount > 0 && ts.balanceDue && ts.balanceDue > 0.01
+                                              ? `Pay Remaining $${ts.balanceDue.toFixed(2)} with Stripe (USD)`
+                                              : `Pay $${Number(ts.balanceDue !== undefined ? ts.balanceDue : ts.totalAmount).toFixed(2)} with Stripe (USD)`}
+                                          </span>
                                         </>
                                       )}
                                     </button>
@@ -1911,10 +1946,10 @@ function ContractDetailsContent() {
                                 )}
 
                                 {/* Paid Settlement Confirmation */}
-                                {ts.status === 'paid' && (
+                                {(ts.status === 'paid' || (ts.balanceDue !== undefined && ts.balanceDue <= 0.01 && (ts.paidAmount || 0) > 0)) && (
                                   <div className="flex items-center gap-2 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
                                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                                    <span>Payment Captured • Freelancer Payout Complete</span>
+                                    <span>Payment Captured (${Number(ts.paidAmount || ts.totalAmount).toFixed(2)} Settled) • Freelancer Payout Complete</span>
                                   </div>
                                 )}
                               </div>
