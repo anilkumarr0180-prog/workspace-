@@ -66,7 +66,7 @@ export interface ClientBillingTransactionItem {
   toUserName?: string | null;
   fromUserName?: string | null;
   metadata?: Record<string, unknown>;
-  paymentMethod: 'razorpay' | 'simulated' | 'escrow';
+  paymentMethod: 'stripe' | 'razorpay' | 'simulated' | 'escrow';
 }
 
 export interface ClientPaymentAttemptItem {
@@ -371,7 +371,7 @@ export async function getClientBillingData(): Promise<ClientBillingDataResult> {
         }
 
         const meta = (row.metadata || {}) as Record<string, unknown>;
-        const provider = meta?.provider === 'razorpay' ? 'razorpay' : meta?.provider === 'simulated' ? 'simulated' : 'escrow';
+        const provider = meta?.provider === 'stripe' ? 'stripe' : meta?.provider === 'razorpay' ? 'razorpay' : meta?.provider === 'simulated' ? 'simulated' : 'escrow';
 
         transactions.push({
           id: row.id,

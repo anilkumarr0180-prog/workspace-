@@ -689,7 +689,14 @@ export async function verifyAndPayTimesheetStripe(
         .from('payment_attempts')
         .update({
           status: 'captured',
+          provider: 'stripe',
           updated_at: new Date().toISOString(),
+          metadata: {
+            provider: 'stripe',
+            stripe_payment_intent_id: paymentIntent.id,
+            receipt: `stripe_${paymentIntent.id.slice(-12)}`,
+            week_start_date: timesheet.week_start_date,
+          },
         })
         .eq('timesheet_id', timesheet.id);
     } catch (attErr) {
@@ -698,25 +705,34 @@ export async function verifyAndPayTimesheetStripe(
 
     // 3. Record in payment_ledger
     try {
-      await adminClient.from('payment_ledger').insert({
+      const ledgerPayload = {
         contract_id: timesheet.contract_id,
-        timesheet_id: timesheet.id,
         from_user_id: timesheet.client_id,
         to_user_id: timesheet.freelancer_id,
         amount: Number(timesheet.total_amount),
         currency: 'USD',
         event_type: 'hourly_funded',
         status: 'succeeded',
-        description: `Hourly Timesheet Payment via Stripe (USD) for Week of ${timesheet.week_start_date}`,
+        description: `Hourly Invoice Payment for Week of ${timesheet.week_start_date}`,
         metadata: {
           provider: 'stripe',
           environment: paymentIntent.livemode ? 'live' : 'test',
           stripe_payment_intent_id: paymentIntent.id,
+          timesheet_id: timesheet.id,
           captured_amount: paymentIntent.amount,
           captured_currency: paymentIntent.currency.toUpperCase(),
           payment_verified_at: new Date().toISOString(),
         },
+      };
+
+      const { error: ledgerError } = await adminClient.from('payment_ledger').insert({
+        ...ledgerPayload,
+        timesheet_id: timesheet.id,
       });
+
+      if (ledgerError) {
+        await adminClient.from('payment_ledger').insert(ledgerPayload);
+      }
     } catch (ledgerErr) {
       console.warn('[STRIPE TIMESHEET LEDGER INSERT NOTICE]:', ledgerErr);
     }

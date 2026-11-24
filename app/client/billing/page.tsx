@@ -1033,7 +1033,9 @@ export default function ClientBillingPage() {
 
                             <td className="py-3.5 px-4 whitespace-nowrap">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700">
-                                {tx.paymentMethod === 'razorpay'
+                                {tx.paymentMethod === 'stripe'
+                                  ? 'Stripe USD'
+                                  : tx.paymentMethod === 'razorpay'
                                   ? 'Razorpay Test'
                                   : tx.paymentMethod === 'simulated'
                                   ? 'Test Escrow Deposit'
