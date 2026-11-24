@@ -380,21 +380,29 @@ export async function createTimesheetRazorpayOrder(
       return { success: false, error: 'Only the client can pay this timesheet.', code: 'FORBIDDEN' };
     }
 
-    // Query payment_ledger for settled hourly timesheet payments on this contract
-    const { data: settledLedger } = await supabase
+    // Query payment_ledger for settled hourly timesheet payments on this contract using admin client
+    const admin = getAdminSupabaseClient();
+    const { data: settledLedger } = await admin
       .from('payment_ledger')
-      .select('timesheet_id, amount, status, metadata, description')
+      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
       .eq('contract_id', timesheet.contract_id)
-      .eq('status', 'succeeded');
+      .in('status', ['succeeded', 'captured', 'completed']);
 
     let alreadyPaid = 0;
     for (const r of settledLedger || []) {
-      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      const tsId = meta.timesheet_id as string | undefined;
       const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
 
       if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
         alreadyPaid += Number(r.amount || 0);
+      }
+    }
+    if (alreadyPaid === 0 && (settledLedger || []).length > 0) {
+      const totalContractSettled = (settledLedger || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      if (totalContractSettled > 0) {
+        alreadyPaid = totalContractSettled;
       }
     }
     alreadyPaid = Math.round(alreadyPaid * 100) / 100;
@@ -451,7 +459,6 @@ export async function createTimesheetRazorpayOrder(
         const adminClient = getAdminSupabaseClient();
         const { error: insertError } = await adminClient.from('payment_attempts').insert({
           contract_id: timesheet.contract_id,
-          timesheet_id: timesheet.id,
           billing_type: 'timesheet',
           client_id: user.id,
           provider: 'razorpay',
@@ -462,6 +469,7 @@ export async function createTimesheetRazorpayOrder(
           currency: orderRes.currency,
           status: 'created',
           metadata: {
+            timesheet_id: timesheet.id,
             week_start_date: timesheet.week_start_date,
           },
         });
@@ -561,7 +569,6 @@ export async function verifyAndPayTimesheet(
       const { data: directAttempt } = await adminClient
         .from('payment_attempts')
         .select('*')
-        .eq('timesheet_id', timesheet.id)
         .eq('razorpay_order_id', razorpayOrderId.trim())
         .maybeSingle();
 
@@ -630,7 +637,6 @@ export async function verifyAndPayTimesheet(
             razorpay_signature: razorpaySignature.trim(),
             updated_at: new Date().toISOString(),
           })
-          .eq('timesheet_id', timesheet.id)
           .eq('razorpay_order_id', razorpayOrderId.trim());
       } catch (attErr) {
         console.warn('Could not update payment_attempts in fallback:', attErr);
@@ -652,7 +658,6 @@ export async function verifyAndPayTimesheet(
         try {
           await adminClient.from('payment_ledger').insert({
             contract_id: timesheet.contract_id,
-            timesheet_id: timesheet.id,
             from_user_id: timesheet.client_id,
             to_user_id: null,
             amount: Number(timesheet.total_amount),
@@ -661,6 +666,7 @@ export async function verifyAndPayTimesheet(
             status: 'succeeded',
             description: `Hourly Invoice Payment for Week of ${timesheet.week_start_date}`,
             metadata: {
+              timesheet_id: timesheet.id,
               provider: 'razorpay',
               environment: paymentProvider.environment,
               razorpay_payment_id: razorpayPaymentId.trim(),
@@ -761,11 +767,12 @@ export async function getFreelancerTimesheets(
       return { success: false, timesheets: [], error: error.message };
     }
 
-    // Query payment_ledger for settled hourly timesheet payments on this contract
-    let ledgerQuery = supabase
+    // Query payment_ledger for settled hourly timesheet payments on this contract using admin client
+    const admin = getAdminSupabaseClient();
+    let ledgerQuery = admin
       .from('payment_ledger')
-      .select('timesheet_id, amount, status, metadata, description')
-      .eq('status', 'succeeded');
+      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
+      .in('status', ['succeeded', 'captured', 'completed']);
     if (contractId && UUID_REGEX.test(contractId.trim())) {
       ledgerQuery = ledgerQuery.eq('contract_id', contractId.trim());
     }
@@ -775,14 +782,15 @@ export async function getFreelancerTimesheets(
     const paidByWeek = new Map<string, number>();
     let totalSettledHourly = 0;
     for (const r of ledgerRows || []) {
-      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      const tsId = meta.timesheet_id as string | undefined;
       const amt = Number(r.amount || 0);
       totalSettledHourly += amt;
       if (tsId) {
         paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
       }
       const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
       if (weekKey) {
         paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
       }
@@ -935,14 +943,14 @@ export async function getContractTimesheets(
     const admin = getAdminSupabaseClient();
     const { data: ledgerRows } = await admin
       .from('payment_ledger')
-      .select('timesheet_id, amount, status, metadata, description')
+      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
       .eq('contract_id', contractId.trim())
       .in('status', ['succeeded', 'captured', 'completed']);
 
     // Also fetch captured payment attempts in case payment_ledger was asynchronous
     const { data: attemptRows } = await admin
       .from('payment_attempts')
-      .select('timesheet_id, amount, status, metadata')
+      .select('id, contract_id, amount, currency, status, metadata, created_at')
       .eq('contract_id', contractId.trim())
       .in('status', ['captured', 'succeeded']);
 
@@ -951,14 +959,15 @@ export async function getContractTimesheets(
     let totalSettledHourly = 0;
 
     for (const r of ledgerRows || []) {
-      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      const tsId = meta.timesheet_id as string | undefined;
       const amt = Number(r.amount || 0);
       totalSettledHourly += amt;
       if (tsId) {
         paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
       }
       const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
       if (weekKey) {
         paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
       }
@@ -967,13 +976,14 @@ export async function getContractTimesheets(
     // Fallback to payment_attempts if ledger was empty
     if (totalSettledHourly === 0 && (attemptRows || []).length > 0) {
       for (const a of attemptRows || []) {
-        const tsId = (a.timesheet_id || (a.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+        const meta = (a.metadata && typeof a.metadata === 'object' ? a.metadata : {}) as Record<string, unknown>;
+        const tsId = meta.timesheet_id as string | undefined;
         const amt = Number(a.amount || 0);
         totalSettledHourly += amt;
         if (tsId) {
           paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
         }
-        const weekKey = (a.metadata as Record<string, unknown>)?.week_start_date as string | undefined;
+        const weekKey = meta.week_start_date as string | undefined;
         if (weekKey) {
           paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
         }

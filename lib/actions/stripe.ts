@@ -507,18 +507,20 @@ export async function createTimesheetStripePaymentIntent(
       return { success: false, error: 'Timesheet has no billable amount to charge.', code: 'ZERO_AMOUNT' };
     }
 
-    // Query payment_ledger for settled hourly timesheet payments on this contract
-    const { data: settledLedger } = await supabase
+    // Query payment_ledger using admin client so RLS never hides settled amounts
+    const adminClient = getAdminSupabaseClient();
+    const { data: settledLedger } = await adminClient
       .from('payment_ledger')
-      .select('timesheet_id, amount, status, metadata, description')
+      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
       .eq('contract_id', timesheet.contract_id)
-      .eq('status', 'succeeded');
+      .in('status', ['succeeded', 'captured', 'completed']);
 
     let alreadyPaid = 0;
     for (const r of settledLedger || []) {
-      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      const tsId = meta.timesheet_id as string | undefined;
       const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
 
       if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
         alreadyPaid += Number(r.amount || 0);
@@ -527,16 +529,16 @@ export async function createTimesheetStripePaymentIntent(
 
     // Fallback: if ledger did not match by timesheet_id or week, check payment_attempts or total settled
     if (alreadyPaid === 0) {
-      const adminClient = getAdminSupabaseClient();
       const { data: settledAttempts } = await adminClient
         .from('payment_attempts')
-        .select('timesheet_id, amount, status, metadata')
+        .select('id, contract_id, amount, currency, status, metadata, created_at')
         .eq('contract_id', timesheet.contract_id)
         .in('status', ['captured', 'succeeded']);
 
       for (const a of settledAttempts || []) {
-        const tsId = (a.timesheet_id || (a.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
-        const weekKey = (a.metadata as Record<string, unknown>)?.week_start_date as string | undefined;
+        const meta = (a.metadata && typeof a.metadata === 'object' ? a.metadata : {}) as Record<string, unknown>;
+        const tsId = meta.timesheet_id as string | undefined;
+        const weekKey = meta.week_start_date as string | undefined;
         if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
           alreadyPaid += Number(a.amount || 0);
         }
@@ -628,7 +630,6 @@ export async function createTimesheetStripePaymentIntent(
       const adminClient = getAdminSupabaseClient();
       await adminClient.from('payment_attempts').insert({
         contract_id: timesheet.contract_id,
-        timesheet_id: timesheet.id,
         billing_type: 'timesheet',
         client_id: user.id,
         provider: 'stripe',
@@ -645,6 +646,7 @@ export async function createTimesheetStripePaymentIntent(
           week_start_date: timesheet.week_start_date,
           prior_paid_amount: alreadyPaid,
           balance_due: balanceDue,
+          timesheet_id: timesheet.id,
         },
       });
     } catch (attemptErr) {
@@ -734,18 +736,22 @@ export async function verifyAndPayTimesheetStripe(
     // Fetch prior settled payments on this contract to calculate total paid
     const { data: priorSettled } = await adminClient
       .from('payment_ledger')
-      .select('timesheet_id, amount, status, metadata, description')
+      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
       .eq('contract_id', timesheet.contract_id)
-      .eq('status', 'succeeded');
+      .in('status', ['succeeded', 'captured', 'completed']);
 
     let priorPaidTotal = 0;
     for (const r of priorSettled || []) {
-      const tsId = (r.timesheet_id || (r.metadata as Record<string, unknown>)?.timesheet_id) as string | undefined;
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      const tsId = meta.timesheet_id as string | undefined;
       const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : ((r.metadata as Record<string, unknown>)?.week_start_date as string | undefined);
+      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
       if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
         priorPaidTotal += Number(r.amount || 0);
       }
+    }
+    if (priorPaidTotal === 0 && (priorSettled || []).length > 0) {
+      priorPaidTotal = (priorSettled || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
     }
     priorPaidTotal = Math.round(priorPaidTotal * 100) / 100;
 
@@ -789,7 +795,7 @@ export async function verifyAndPayTimesheetStripe(
             is_fully_settled: isFullySettled,
           },
         })
-        .eq('timesheet_id', timesheet.id);
+        .eq('razorpay_order_id', paymentIntent.id);
     } catch (attErr) {
       console.warn('[STRIPE TIMESHEET ATTEMPT UPDATE NOTICE]:', attErr);
     }
@@ -821,14 +827,7 @@ export async function verifyAndPayTimesheetStripe(
         },
       };
 
-      const { error: ledgerError } = await adminClient.from('payment_ledger').insert({
-        ...ledgerPayload,
-        timesheet_id: timesheet.id,
-      });
-
-      if (ledgerError) {
-        await adminClient.from('payment_ledger').insert(ledgerPayload);
-      }
+      await adminClient.from('payment_ledger').insert(ledgerPayload);
     } catch (ledgerErr) {
       console.warn('[STRIPE TIMESHEET LEDGER INSERT NOTICE]:', ledgerErr);
     }
