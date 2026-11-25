@@ -94,7 +94,7 @@ export default function UpworkHero() {
         </div>
 
         {/* Dynamic Headline Based on Toggle - Exact Upwork editorial typography with crisp drop shadow */}
-        <h1 className="font-serif text-[28px] xs:text-[34px] sm:text-[44px] md:text-[50px] lg:text-[54px] font-normal tracking-tight text-white leading-[1.12] sm:leading-[1.1] transition-all duration-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)]">
+        <h1 className="font-serif text-[30px] sm:text-[44px] md:text-[50px] lg:text-[54px] font-normal tracking-tight text-white leading-[1.12] sm:leading-[1.1] transition-all duration-300 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)]">
           {activeTab === 'hire' ? (
             <>
               <span className="break-words sm:whitespace-nowrap">Work at the speed</span> <br className="hidden sm:inline" />
