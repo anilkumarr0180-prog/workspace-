@@ -7,12 +7,12 @@ export default function PromoBanner() {
     <div className="w-full mt-6 sm:mt-8 mb-5 sm:mb-6">
       <Link
         href="/freelancers"
-        className="group flex flex-row items-center justify-between w-full bg-[#D5F7CA] hover:bg-[#c9f2bc] text-[#001E00] transition-all duration-200 rounded-2xl sm:rounded-[20px] px-5 sm:px-7 py-3.5 sm:py-4 min-h-[56px] sm:h-[62px] border border-[#bfe7b1]/70 shadow-2xs"
+        className="group flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-4 gap-y-1.5 w-full bg-[#D5F7CA] hover:bg-[#c9f2bc] text-[#001E00] transition-all duration-200 rounded-2xl sm:rounded-[20px] px-4 sm:px-7 py-3.5 sm:py-4 min-h-[56px] sm:h-[62px] border border-[#bfe7b1]/70 shadow-2xs"
       >
-        <p className="text-[14px] sm:text-[15px] font-medium tracking-normal text-[#001E00] truncate">
+        <p className="text-[14px] sm:text-[15px] font-medium tracking-normal text-[#001E00] min-w-0 sm:truncate">
           Hire the top 1% of talent on Business Plus.
         </p>
-        <span className="inline-flex items-center gap-1.5 text-[14px] sm:text-[15px] font-semibold text-[#001E00] shrink-0 ml-4">
+        <span className="inline-flex items-center gap-1.5 text-[14px] sm:text-[15px] font-semibold text-[#001E00] shrink-0">
           <span className="underline underline-offset-4 decoration-[1.5px] group-hover:decoration-2 transition-all">
             Get started
           </span>
