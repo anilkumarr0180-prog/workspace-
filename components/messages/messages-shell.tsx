@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Conversation, Message } from '@/lib/types';
 import MessagesInbox from './messages-inbox';
 import ChatWindow from './chat-window';
-import { useRealtimeChat } from './use-realtime-chat';
+import { useRealtimeChat, MessageUpdatePayload } from './use-realtime-chat';
 
 interface MessagesShellProps {
   initialConversations: Conversation[];
@@ -123,6 +123,28 @@ export default function MessagesShell({
     [activeConversationId, currentUserId]
   );
 
+  // Sync inbox sidebar preview when a message is edited or deleted
+  const handleMessageUpdated = useCallback((update: MessageUpdatePayload) => {
+    const isDeleted = Boolean(update.deletedAt);
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id === update.conversationId && c.lastMessage?.id === update.id) {
+          return {
+            ...c,
+            lastMessage: {
+              ...c.lastMessage,
+              content: isDeleted ? 'This message was deleted' : update.content,
+              editedAt: isDeleted ? c.lastMessage.editedAt : (update.editedAt ?? c.lastMessage.editedAt),
+              deletedAt: update.deletedAt ?? null,
+              attachmentPath: isDeleted ? null : c.lastMessage.attachmentPath,
+            },
+          };
+        }
+        return c;
+      })
+    );
+  }, []);
+
   // Hook for Supabase Realtime channel (Postgres changes, typing, presence)
   const {
     messages,
@@ -132,6 +154,7 @@ export default function MessagesShell({
     otherParticipantLastRead,
     sendTypingStatus,
     broadcastMessage,
+    broadcastMessageUpdate,
     addOptimisticMessage,
     replaceOptimisticMessage,
     removeOptimisticMessage,
@@ -143,6 +166,7 @@ export default function MessagesShell({
     currentUserId,
     currentUserName,
     onMessageReceived: handleIncomingMessage,
+    onMessageUpdated: handleMessageUpdated,
   });
 
   // Fetch messages and mark as read when active conversation changes
@@ -232,7 +256,9 @@ export default function MessagesShell({
                     p.id !== d.id ||
                     p.unreadCount !== d.unreadCount ||
                     p.lastMessageAt !== d.lastMessageAt ||
-                    p.lastMessage?.content !== d.lastMessage?.content
+                    p.lastMessage?.content !== d.lastMessage?.content ||
+                    p.lastMessage?.editedAt !== d.lastMessage?.editedAt ||
+                    p.lastMessage?.deletedAt !== d.lastMessage?.deletedAt
                   ) {
                     hasChanges = true;
                     break;
@@ -400,13 +426,27 @@ export default function MessagesShell({
         throw new Error(data.error || 'Failed to edit message');
       }
 
+      const updatedContent: string = data.content ?? newContent;
+      const editedAt: string = data.editedAt ?? new Date().toISOString();
+      const updatedAt: string = data.updatedAt ?? new Date().toISOString();
+
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === messageId ? { ...m, content: newContent, editedAt: new Date().toISOString() } : m
+          m.id === messageId ? { ...m, content: updatedContent, editedAt, updatedAt } : m
         )
       );
+
+      const updatePayload: MessageUpdatePayload = {
+        id: messageId,
+        conversationId: activeConversationId,
+        content: updatedContent,
+        editedAt,
+        updatedAt,
+      };
+      broadcastMessageUpdate(updatePayload);
+      handleMessageUpdated(updatePayload);
     },
-    [activeConversationId, setMessages]
+    [activeConversationId, setMessages, broadcastMessageUpdate, handleMessageUpdated]
   );
 
   // Delete message
@@ -423,30 +463,47 @@ export default function MessagesShell({
         throw new Error(data.error || 'Failed to delete message');
       }
 
+      const deletedAt: string = data.deletedAt ?? new Date().toISOString();
+      const updatedAt: string = data.updatedAt ?? deletedAt;
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
             ? {
                 ...m,
                 content: 'This message was deleted',
-                deletedAt: new Date().toISOString(),
+                deletedAt,
+                updatedAt,
                 attachmentPath: null,
+                attachmentName: null,
+                attachmentSize: null,
+                attachmentType: null,
                 attachmentUrl: null,
               }
             : m
         )
       );
+
+      const updatePayload: MessageUpdatePayload = {
+        id: messageId,
+        conversationId: activeConversationId,
+        content: 'This message was deleted',
+        deletedAt,
+        updatedAt,
+      };
+      broadcastMessageUpdate(updatePayload);
+      handleMessageUpdated(updatePayload);
     },
-    [activeConversationId, setMessages]
+    [activeConversationId, setMessages, broadcastMessageUpdate, handleMessageUpdated]
   );
 
   return (
-    <div className="w-full h-[calc(100vh-65px)] bg-slate-100 flex overflow-hidden">
+    <div className="w-full h-[calc(100vh-65px)] bg-white flex overflow-hidden border-t border-[#e4ebe4]">
       {/* LEFT PANEL: Conversation Inbox
           On mobile (< md), hide inbox if activeConversationId is present.
           On desktop (>= md), inbox is always visible with fixed 360px-380px width. */}
       <div
-        className={`w-full md:w-96 lg:w-[400px] shrink-0 h-full ${
+        className={`w-full md:w-[340px] lg:w-[360px] shrink-0 h-full ${
           activeConversationId ? 'hidden md:block' : 'block'
         }`}
       >

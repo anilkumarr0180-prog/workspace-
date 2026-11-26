@@ -6,6 +6,15 @@ import { Message, Conversation, UserPresence, TypingPayload } from '@/lib/types'
 import { encodeCursor } from '@/lib/messages-cursor';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
+export interface MessageUpdatePayload {
+  id: string;
+  conversationId: string;
+  content: string;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  updatedAt?: string;
+}
+
 interface UseRealtimeChatProps {
   conversationId: string;
   initialMessages?: Message[];
@@ -13,6 +22,7 @@ interface UseRealtimeChatProps {
   currentUserId?: string;
   currentUserName?: string;
   onMessageReceived?: (message: Message) => void;
+  onMessageUpdated?: (update: MessageUpdatePayload) => void;
 }
 
 const sortChronological = (a: Message, b: Message) => {
@@ -28,6 +38,7 @@ export function useRealtimeChat({
   currentUserId,
   currentUserName = 'User',
   onMessageReceived,
+  onMessageUpdated,
 }: UseRealtimeChatProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isTyping, setIsTyping] = useState<boolean>(false);
@@ -51,6 +62,11 @@ export function useRealtimeChat({
   useEffect(() => {
     onMessageReceivedRef.current = onMessageReceived;
   }, [onMessageReceived]);
+
+  const onMessageUpdatedRef = useRef(onMessageUpdated);
+  useEffect(() => {
+    onMessageUpdatedRef.current = onMessageUpdated;
+  }, [onMessageUpdated]);
 
   const conversationRef = useRef(conversation);
   useEffect(() => {
@@ -106,16 +122,13 @@ export function useRealtimeChat({
     processedMessageIdsRef.current = ids;
   }, [messages]);
 
-  // Fetch missed messages using safe cursor pagination (prevents overlapping requests)
+  // Fetch recent messages on reconnect/focus/fallback (recovers both new messages and edits/deletes)
   const fetchMissedMessages = useCallback(async () => {
     if (!conversationId || isRecoveringRef.current) return;
-    const cursor = latestMessageCursorRef.current;
 
     isRecoveringRef.current = true;
     try {
-      const url = cursor
-        ? `/api/messages/${conversationId}?limit=50&after=${encodeURIComponent(cursor)}`
-        : `/api/messages/${conversationId}?limit=50`;
+      const url = `/api/messages/${conversationId}?limit=50`;
       const res = await fetch(url, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
@@ -123,13 +136,7 @@ export function useRealtimeChat({
       if (res.ok) {
         const data = await res.json();
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
-          // Immediately extinguish typing indicator on recovered incoming message
-          setIsTyping(false);
-          setTypingUser(null);
-          if (typingTimeoutRef.current) {
-            clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = null;
-          }
+          let receivedNew = false;
 
           setMessages((prev) => {
             const existingMap = new Map(prev.map((m) => [m.id, m]));
@@ -151,7 +158,12 @@ export function useRealtimeChat({
                 }
                 existingMap.set(m.id, m);
                 hasNewOrChanged = true;
-              } else if (existing.content !== m.content || existing.deletedAt !== m.deletedAt) {
+                receivedNew = true;
+              } else if (
+                existing.content !== m.content ||
+                existing.deletedAt !== m.deletedAt ||
+                existing.editedAt !== m.editedAt
+              ) {
                 existingMap.set(m.id, m);
                 hasNewOrChanged = true;
               }
@@ -165,6 +177,15 @@ export function useRealtimeChat({
             }
             return updated;
           });
+
+          if (receivedNew) {
+            setIsTyping(false);
+            setTypingUser(null);
+            if (typingTimeoutRef.current) {
+              clearTimeout(typingTimeoutRef.current);
+              typingTimeoutRef.current = null;
+            }
+          }
 
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
@@ -254,6 +275,43 @@ export function useRealtimeChat({
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('workspace:unread-messages-refresh'));
       }
+    });
+
+    // Shared helper to apply edits and soft-deletes from broadcast or Postgres Changes
+    const applyMessageUpdate = (update: MessageUpdatePayload) => {
+      if (!update?.id) return;
+      const isDeleted = Boolean(update.deletedAt);
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id === update.id) {
+            return {
+              ...msg,
+              content: isDeleted ? 'This message was deleted' : update.content,
+              editedAt: isDeleted ? msg.editedAt : (update.editedAt ?? msg.editedAt ?? null),
+              deletedAt: update.deletedAt ?? null,
+              updatedAt: update.updatedAt ?? msg.updatedAt,
+              attachmentPath: isDeleted ? null : msg.attachmentPath,
+              attachmentName: isDeleted ? null : msg.attachmentName,
+              attachmentSize: isDeleted ? null : msg.attachmentSize,
+              attachmentType: isDeleted ? null : msg.attachmentType,
+              attachmentUrl: isDeleted ? null : msg.attachmentUrl,
+            };
+          }
+          return msg;
+        })
+      );
+
+      if (onMessageUpdatedRef.current) {
+        onMessageUpdatedRef.current(update);
+      }
+    };
+
+    // 0b. Realtime Broadcast: Instant edit / delete sync (<100ms)
+    channel.on('broadcast', { event: 'message_updated' }, (payload: { payload: MessageUpdatePayload }) => {
+      const update = payload?.payload;
+      if (!update || !update.id) return;
+      applyMessageUpdate(update);
     });
 
     // 1. Postgres Changes: New message inserted
@@ -369,21 +427,14 @@ export function useRealtimeChat({
         const updatedId = row.id as string;
         const isDeleted = Boolean(row.deleted_at);
 
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === updatedId) {
-              return {
-                ...msg,
-                content: isDeleted ? 'This message was deleted' : (row.content as string),
-                editedAt: (row.edited_at as string) || null,
-                deletedAt: (row.deleted_at as string) || null,
-                attachmentPath: isDeleted ? null : msg.attachmentPath,
-                attachmentUrl: isDeleted ? null : msg.attachmentUrl,
-              };
-            }
-            return msg;
-          })
-        );
+        applyMessageUpdate({
+          id: updatedId,
+          conversationId: (row.conversation_id as string) || conversationId,
+          content: isDeleted ? 'This message was deleted' : ((row.content as string) || ''),
+          editedAt: (row.edited_at as string) || null,
+          deletedAt: (row.deleted_at as string) || null,
+          updatedAt: (row.updated_at as string) || undefined,
+        });
       }
     );
 
@@ -525,40 +576,49 @@ export function useRealtimeChat({
 
     let isCancelled = false;
 
-    // Ensure Realtime WebSocket connection is authenticated before/during subscribe
-    supabase.auth.getSession().then((res: { data: { session: { access_token: string } | null } }) => {
-      const token = res?.data?.session?.access_token;
-      if (token && !isCancelled) {
-        supabase.realtime.setAuth(token);
+    // Ensure Realtime WebSocket connection is authenticated BEFORE subscribing so Postgres Changes RLS works
+    const initSubscription = async () => {
+      try {
+        const res = await supabase.auth.getSession();
+        const token = res?.data?.session?.access_token;
+        if (token && !isCancelled) {
+          supabase.realtime.setAuth(token);
+        }
+      } catch {
+        // Proceed with subscription even if getSession fails
       }
-    });
 
-    // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
-    channel.subscribe(async (status: string) => {
       if (isCancelled) return;
-      if (status === 'SUBSCRIBED') {
-        isConnectedRef.current = true;
-        setIsConnected(true);
-        stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
-        await channel.track({
-          userId: currentUserId,
-          userName: currentUserNameRef.current || 'User',
-          onlineAt: new Date().toISOString(),
-        });
 
-        // Immediate recovery after connect or reconnect
-        fetchMissedMessages();
-      } else if (
-        status === 'CHANNEL_ERROR' ||
-        status === 'TIMED_OUT' ||
-        status === 'CLOSED'
-      ) {
-        isConnectedRef.current = false;
-        setIsConnected(false);
-        // Start fallback recovery polling only when disconnected or recovering
-        startFallbackPolling();
-      }
-    });
+      // Subscribe and handle all channel lifecycle states: SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED
+      channel.subscribe(async (status: string) => {
+        if (isCancelled) return;
+        if (status === 'SUBSCRIBED') {
+          isConnectedRef.current = true;
+          setIsConnected(true);
+          stopFallbackPolling(); // Connected: Realtime WebSocket is primary message delivery mechanism
+          await channel.track({
+            userId: currentUserId,
+            userName: currentUserNameRef.current || 'User',
+            onlineAt: new Date().toISOString(),
+          });
+
+          // Immediate recovery after connect or reconnect
+          fetchMissedMessages();
+        } else if (
+          status === 'CHANNEL_ERROR' ||
+          status === 'TIMED_OUT' ||
+          status === 'CLOSED'
+        ) {
+          isConnectedRef.current = false;
+          setIsConnected(false);
+          // Start fallback recovery polling only when disconnected or recovering
+          startFallbackPolling();
+        }
+      });
+    };
+
+    initSubscription();
 
     channelRef.current = channel;
 
@@ -614,6 +674,16 @@ export function useRealtimeChat({
       type: 'broadcast',
       event: 'new_message',
       payload: msg,
+    });
+  }, []);
+
+  // Broadcast an edited or soft-deleted message instantly over WebSocket to other participants
+  const broadcastMessageUpdate = useCallback((update: MessageUpdatePayload) => {
+    if (!channelRef.current) return;
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'message_updated',
+      payload: update,
     });
   }, []);
 
@@ -719,6 +789,7 @@ export function useRealtimeChat({
     otherParticipantLastRead,
     sendTypingStatus,
     broadcastMessage,
+    broadcastMessageUpdate,
     addOptimisticMessage,
     replaceOptimisticMessage,
     removeOptimisticMessage,

@@ -165,15 +165,15 @@ export default function MessagesInbox({
   const unreadCount = conversations.filter((c) => c.unreadCount > 0).length;
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200">
+    <div className="flex flex-col h-full bg-white border-r border-[#e4ebe4]">
       {/* 1. Header & Search */}
-      <div className="p-4 border-b border-slate-100 space-y-3">
+      <div className="px-4 pt-5 pb-3 space-y-3.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h1 id="messages-inbox-header" className="text-xl font-bold text-slate-900 tracking-tight">
+            <h1 id="messages-inbox-header" className="text-[22px] font-medium text-[#001e00] tracking-tight">
               Messages
             </h1>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#f2f7f2] text-[#5e6d55]">
               {contactGroups.length}
             </span>
           </div>
@@ -181,20 +181,20 @@ export default function MessagesInbox({
 
         {/* Search Bar */}
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-[#5e6d55] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             id="inbox-search-input"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search messages or people..."
-            className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/15 transition-all shadow-2xs"
+            placeholder="Search"
+            className="w-full h-9 pl-9 pr-3 rounded-full border border-[#d5e0d5] bg-white text-[13px] text-[#001e00] placeholder:text-[#5e6d55] focus:outline-hidden focus:border-[#108a00] focus:ring-1 focus:ring-[#108a00] transition-all"
           />
         </div>
       </div>
 
       {/* 2. Quick Filter Tabs */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 overflow-x-auto no-scrollbar bg-slate-50/50">
+      <div className="flex items-center gap-1.5 px-4 pb-2.5 border-b border-[#e4ebe4] overflow-x-auto no-scrollbar">
         {[
           { id: 'all', label: 'All', count: totalCount },
           { id: 'contracts', label: 'Contracts', count: contractsCount },
@@ -205,17 +205,17 @@ export default function MessagesInbox({
             key={tab.id}
             type="button"
             onClick={() => setFilterTab(tab.id as typeof filterTab)}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded-full text-[11.5px] font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
               filterTab === tab.id
-                ? 'bg-slate-900 text-white shadow-2xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/70'
+                ? 'bg-[#108a00] text-white'
+                : 'bg-[#f2f7f2] text-[#001e00] hover:bg-[#e4ebe4]'
             }`}
           >
             <span>{tab.label}</span>
             {tab.count > 0 && (
               <span
-                className={`text-[10px] px-1.5 py-0.1 rounded-full font-bold ${
-                  filterTab === tab.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                className={`text-[10px] px-1.5 py-0.1 rounded-full font-semibold ${
+                  filterTab === tab.id ? 'bg-white/20 text-white' : 'bg-white text-[#5e6d55]'
                 }`}
               >
                 {tab.count}
@@ -226,16 +226,16 @@ export default function MessagesInbox({
       </div>
 
       {/* 3. Grouped Conversation List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-100" role="list">
+      <div className="flex-1 overflow-y-auto py-1.5 px-2 space-y-0.5" role="list">
         {isLoading ? (
           // Loading Skeletons
-          <div className="p-4 space-y-4">
+          <div className="p-3 space-y-4">
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="w-11 h-11 rounded-full bg-slate-200 shrink-0" />
+                <div className="w-10 h-10 rounded-full bg-[#e4ebe4] shrink-0" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-3.5 bg-slate-200 rounded-sm w-3/4" />
-                  <div className="h-3 bg-slate-100 rounded-sm w-1/2" />
+                  <div className="h-3.5 bg-[#e4ebe4] rounded-sm w-3/4" />
+                  <div className="h-3 bg-[#f2f7f2] rounded-sm w-1/2" />
                 </div>
               </div>
             ))}
@@ -243,14 +243,14 @@ export default function MessagesInbox({
         ) : contactGroups.length === 0 ? (
           // Empty State
           <div className="p-8 text-center space-y-3 my-auto">
-            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-full bg-[#f2f7f2] text-[#5e6d55] flex items-center justify-center mx-auto">
               <MessageSquare className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">
+              <h2 className="text-sm font-semibold text-[#001e00]">
                 {searchQuery || filterTab !== 'all' ? 'No matching conversations' : 'No messages yet'}
               </h2>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+              <p className="text-xs text-[#5e6d55] mt-1 max-w-xs mx-auto">
                 {searchQuery || filterTab !== 'all'
                   ? 'Try selecting a different filter or search term.'
                   : 'Submit a proposal on a job posting or accept an offer to start communicating.'}
@@ -276,10 +276,10 @@ export default function MessagesInbox({
             return (
               <div
                 key={group.contactKey}
-                className={`transition-colors ${
+                className={`rounded-lg transition-colors ${
                   isGroupActive
-                    ? 'bg-emerald-50/50 border-l-4 border-l-emerald-600'
-                    : 'hover:bg-slate-50/80 border-l-4 border-l-transparent'
+                    ? 'bg-[#108a00] text-white'
+                    : 'hover:bg-[#f2f7f2] text-[#001e00]'
                 }`}
               >
                 {/* Main Card Header (Clickable) */}
@@ -292,101 +292,159 @@ export default function MessagesInbox({
                     const activeInGroup = group.conversations.find((c) => c.id === activeConversationId);
                     onSelectConversation(activeInGroup ? activeInGroup.id : primaryConv.id);
                   }}
-                  className="w-full text-left p-3.5 flex items-start gap-3 cursor-pointer"
+                  className="w-full text-left px-3 py-2.5 flex items-start gap-3 cursor-pointer"
                 >
                   {/* Avatar with Online Ring */}
-                  <div className="relative shrink-0">
+                  <div className="relative shrink-0 mt-0.5">
                     {group.avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={group.avatarUrl}
                         alt={group.fullName}
-                        className="w-11 h-11 rounded-full object-cover border border-slate-200"
+                        className={`w-10 h-10 rounded-full object-cover border ${
+                          isGroupActive ? 'border-white/30' : 'border-[#e4ebe4]'
+                        }`}
                       />
                     ) : (
-                      <div className="w-11 h-11 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-xs shadow-2xs">
+                      <div
+                        className={`w-10 h-10 rounded-full font-semibold flex items-center justify-center text-xs ${
+                          isGroupActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-[#677d5c] text-white'
+                        }`}
+                      >
                         {initials}
                       </div>
                     )}
                     {group.online && (
                       <span
                         title="Online"
-                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white ring-1 ring-emerald-500/20"
+                        className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#14a800] border-2 ${
+                          isGroupActive ? 'border-[#108a00]' : 'border-white'
+                        }`}
                       />
                     )}
                   </div>
 
                   {/* Contact Summary */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-1">
+                    <div className="flex items-baseline justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span
-                          className={`text-sm truncate ${
-                            hasUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'
+                          className={`text-[13.5px] truncate ${
+                            isGroupActive
+                              ? 'font-semibold text-white'
+                              : hasUnread
+                              ? 'font-bold text-[#001e00]'
+                              : 'font-semibold text-[#001e00]'
                           }`}
                         >
                           {group.fullName}
                         </span>
 
                         {group.activeMode && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 shrink-0">
+                          <span
+                            className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0 ${
+                              isGroupActive
+                                ? 'bg-white/20 text-white'
+                                : 'bg-[#f2f7f2] text-[#5e6d55]'
+                            }`}
+                          >
                             {group.activeMode}
                           </span>
                         )}
 
                         {/* Multi-Project Count Badge */}
                         {hasMultiple && (
-                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300/60 px-1.5 py-0.2 rounded-full shrink-0">
+                          <span
+                            className={`text-[10px] font-semibold px-1.5 py-0.2 rounded-full shrink-0 ${
+                              isGroupActive
+                                ? 'bg-white/20 text-white'
+                                : 'text-[#108a00] bg-[#e9f5e8]'
+                            }`}
+                          >
                             {group.conversations.length} Projects
                           </span>
                         )}
                       </div>
 
-                      <span className="text-[11px] text-slate-400 shrink-0 font-normal">
+                      <span
+                        className={`text-[11px] shrink-0 font-normal ${
+                          isGroupActive ? 'text-white/90' : 'text-[#5e6d55]'
+                        }`}
+                      >
                         {formatRelativeTime(group.lastMessageAt)}
                       </span>
                     </div>
 
                     {/* Workroom Project Badge */}
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {primaryConv.contractId ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/70 truncate max-w-full">
-                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
-                          <span className="truncate">{primaryConv.contractTitle || primaryConv.jobTitle || 'Active Contract'}</span>
-                        </span>
-                      ) : primaryConv.jobTitle ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/70 truncate max-w-full">
-                          <Briefcase className="w-2.5 h-2.5 text-slate-500 shrink-0" />
-                          <span className="truncate">{primaryConv.jobTitle}</span>
-                        </span>
-                      ) : null}
-                    </div>
+                    {(primaryConv.contractId || primaryConv.jobTitle) && (
+                      <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                        {primaryConv.contractId ? (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11.5px] font-medium truncate max-w-full ${
+                              isGroupActive ? 'text-white/95' : 'text-[#5e6d55]'
+                            }`}
+                          >
+                            <ShieldCheck
+                              className={`w-3 h-3 shrink-0 ${
+                                isGroupActive ? 'text-white' : 'text-[#108a00]'
+                              }`}
+                            />
+                            <span className="truncate">
+                              {primaryConv.contractTitle || primaryConv.jobTitle || 'Active Contract'}
+                            </span>
+                          </span>
+                        ) : primaryConv.jobTitle ? (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11.5px] font-normal truncate max-w-full ${
+                              isGroupActive ? 'text-white/95' : 'text-[#5e6d55]'
+                            }`}
+                          >
+                            <Briefcase
+                              className={`w-3 h-3 shrink-0 ${
+                                isGroupActive ? 'text-white/85' : 'text-[#5e6d55]'
+                              }`}
+                            />
+                            <span className="truncate">{primaryConv.jobTitle}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
 
                     {/* Message Snippet */}
-                    <div className="flex items-center justify-between gap-2 mt-1">
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p
-                        className={`text-xs truncate ${
-                          hasUnread ? 'font-medium text-slate-900' : 'text-slate-500'
+                        className={`text-[12px] truncate ${
+                          isGroupActive
+                            ? 'text-white/90'
+                            : hasUnread
+                            ? 'font-semibold text-[#001e00]'
+                            : 'text-[#5e6d55]'
                         }`}
                       >
                         {lastMsg ? (
                           lastMsg.deletedAt ? (
-                            <span className="italic text-slate-400">Message was deleted</span>
+                            <span className={`italic ${isGroupActive ? 'text-white/75' : 'text-[#9aaa97]'}`}>
+                              Message was deleted
+                            </span>
                           ) : lastMsg.messageType === 'image' ? (
                             <span className="inline-flex items-center gap-1">
-                              <ImageIcon className="w-3 h-3 text-slate-400" />
+                              <ImageIcon className={`w-3 h-3 ${isGroupActive ? 'text-white/80' : 'text-[#5e6d55]'}`} />
                               <span>Photo</span>
                             </span>
                           ) : lastMsg.messageType === 'file' ? (
                             <span className="inline-flex items-center gap-1">
-                              <FileText className="w-3 h-3 text-slate-400" />
+                              <FileText className={`w-3 h-3 ${isGroupActive ? 'text-white/80' : 'text-[#5e6d55]'}`} />
                               <span>{lastMsg.attachmentName || 'Document'}</span>
                             </span>
                           ) : (
                             lastMsg.content
                           )
                         ) : (
-                          <span className="italic text-slate-400">No messages yet</span>
+                          <span className={`italic ${isGroupActive ? 'text-white/75' : 'text-[#9aaa97]'}`}>
+                            No messages yet
+                          </span>
                         )}
                       </p>
 
@@ -394,7 +452,11 @@ export default function MessagesInbox({
                       {hasUnread && (
                         <span
                           id={`unread-badge-${primaryConv.id}`}
-                          className="min-w-4.5 h-4.5 px-1 bg-[#14a800] text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 shadow-xs"
+                          className={`min-w-4.5 h-4.5 px-1 text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 ${
+                            isGroupActive
+                              ? 'bg-white text-[#108a00]'
+                              : 'bg-[#108a00] text-white'
+                          }`}
                         >
                           {group.totalUnreadCount}
                         </span>

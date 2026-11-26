@@ -22,7 +22,12 @@ export async function PATCH(
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      content: result.content,
+      editedAt: result.editedAt,
+      updatedAt: result.updatedAt,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Server error';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -44,7 +49,11 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      deletedAt: result.deletedAt,
+      updatedAt: result.updatedAt,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Server error';
     return NextResponse.json({ error: msg }, { status: 500 });

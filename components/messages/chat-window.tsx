@@ -22,7 +22,6 @@ import {
   Briefcase,
   ShieldCheck,
   Loader2,
-  Info,
   Copy,
 } from 'lucide-react';
 import WorkroomDetailsDrawer from './workroom-details-drawer';
@@ -119,10 +118,9 @@ export default function ChatWindow({
   // Edit message state
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
-
-  // Workroom details drawer toggle
-  const [isDetailsDrawerOpen, setIsDetailsDrawerOpen] = useState(false);
 
   // Image preview modal
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -298,24 +296,33 @@ export default function ChatWindow({
 
   // Handle message edit save
   const handleSaveEdit = async (messageId: string) => {
-    if (!editContent.trim()) return;
+    if (!editContent.trim() || isSavingEdit) return;
+    setIsSavingEdit(true);
+    setErrorMessage(null);
     try {
       await onEditMessage(messageId, editContent.trim());
       setEditingMessageId(null);
       setEditContent('');
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'Error updating message');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
   // Handle message delete
   const handleDelete = async (messageId: string) => {
+    if (deletingMessageId) return;
     if (!confirm('Are you sure you want to delete this message?')) return;
+    setDeletingMessageId(messageId);
+    setActiveMenuMessageId(null);
+    setErrorMessage(null);
     try {
       await onDeleteMessage(messageId);
-      setActiveMenuMessageId(null);
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'Error deleting message');
+    } finally {
+      setDeletingMessageId(null);
     }
   };
 
@@ -330,12 +337,12 @@ export default function ChatWindow({
   // If no conversation is active
   if (!conversation) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50">
-        <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center mb-4 shadow-sm">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white">
+        <div className="w-16 h-16 rounded-2xl bg-[#f2f7f2] text-[#108a00] border border-[#e4ebe4] flex items-center justify-center mb-4">
           <Send className="w-8 h-8" />
         </div>
-        <h2 className="text-lg font-bold text-slate-800">Your Workroom Messages</h2>
-        <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
+        <h2 className="text-lg font-semibold text-[#001e00]">Your Workroom Messages</h2>
+        <p className="text-xs text-[#5e6d55] max-w-sm mt-1 leading-relaxed">
           Select a project conversation to view proposals, milestone deliverables, and client discussions.
         </p>
       </div>
@@ -356,19 +363,19 @@ export default function ChatWindow({
     : 0;
 
   return (
-    <div className="flex-1 flex h-full bg-slate-50 relative overflow-hidden">
+    <div className="flex-1 flex h-full bg-white relative overflow-hidden">
       {/* Main Chat Column */}
       <div className="flex-1 flex flex-col h-full bg-white relative overflow-hidden min-w-0">
         {/* 1. Unified Master Workroom Header */}
-        <header className="px-4 sm:px-6 py-3 border-b border-slate-200/80 flex items-center justify-between bg-white shrink-0 z-10 shadow-xs">
-          <div className="flex items-center gap-3.5 min-w-0">
+        <header className="px-4 sm:px-6 py-3.5 border-b border-[#e4ebe4] flex items-center justify-between gap-3 bg-white shrink-0 z-10">
+          <div className="flex items-center gap-3 min-w-0">
             {/* Mobile Back Button */}
             {onBackToInbox && (
               <Link
                 href="/messages"
                 id="back-to-inbox-button"
                 onClick={onBackToInbox}
-                className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg cursor-pointer flex items-center justify-center"
+                className="md:hidden p-1.5 -ml-1 text-[#5e6d55] hover:text-[#001e00] hover:bg-[#f2f7f2] rounded-full cursor-pointer flex items-center justify-center"
                 title="Back to conversations"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -382,17 +389,17 @@ export default function ChatWindow({
                 <img
                   src={other.avatarUrl}
                   alt={other.fullName}
-                  className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border-2 border-white ring-2 ring-slate-100 shadow-xs"
+                  className="w-9 h-9 rounded-full object-cover border border-[#e4ebe4]"
                 />
               ) : (
-                <div className="w-10 sm:w-11 h-10 sm:h-11 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-xs shadow-xs">
+                <div className="w-9 h-9 rounded-full bg-[#677d5c] text-white font-semibold flex items-center justify-center text-xs">
                   {initials}
                 </div>
               )}
               {isOnline && (
                 <span
                   title="Online now"
-                  className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white ring-1 ring-emerald-500/20"
+                  className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#14a800] border-2 border-white"
                 />
               )}
             </div>
@@ -400,35 +407,37 @@ export default function ChatWindow({
             {/* User Details & Active Workroom Context */}
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 id="chat-participant-name" className="text-sm sm:text-base font-bold text-slate-900 truncate">
+                <h2 id="chat-participant-name" className="text-[17px] font-medium text-[#001e00] truncate">
                   {other?.fullName || 'Participant'}
                 </h2>
                 {other?.activeMode && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200/60">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f2f7f2] text-[#5e6d55] border border-[#e4ebe4]">
                     {other.activeMode}
                   </span>
                 )}
                 {isOnline ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#108a00]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#14a800]" />
                     Active now
                   </span>
                 ) : (
-                  <span className="text-[11px] text-slate-400 font-medium">Offline</span>
+                  <span className="text-[11px] text-[#5e6d55] font-normal">Offline</span>
                 )}
               </div>
 
               {/* Current Active Room Subtitle */}
-              <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              <div className="flex items-center gap-2 text-xs text-[#5e6d55] mt-0.5">
                 {conversation.contractId ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 truncate max-w-[280px]">
-                    <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#5e6d55] truncate max-w-[320px]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#108a00] shrink-0" />
                     <span className="truncate">{conversation.contractTitle || 'Active Contract'}</span>
-                    <span className="text-[10px] text-emerald-600 font-mono">#{conversation.contractId.slice(0, 4)}</span>
+                    <span className="text-[10px] text-[#108a00] font-semibold bg-[#e9f5e8] px-1.5 py-0.2 rounded">
+                      #{conversation.contractId.slice(0, 4)}
+                    </span>
                   </span>
                 ) : conversation.jobTitle ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/60 truncate max-w-[280px]">
-                    <Briefcase className="w-3 h-3 text-slate-500 shrink-0" />
+                  <span className="inline-flex items-center gap-1 text-[12px] text-[#5e6d55] truncate max-w-[320px]">
+                    <Briefcase className="w-3.5 h-3.5 text-[#5e6d55] shrink-0" />
                     <span className="truncate">{conversation.jobTitle}</span>
                   </span>
                 ) : (
@@ -440,25 +449,10 @@ export default function ChatWindow({
 
           {/* Action Buttons Cluster */}
           <div className="shrink-0 flex items-center gap-2">
-            {/* Workroom Details Drawer Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsDetailsDrawerOpen((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all cursor-pointer shadow-2xs ${
-                isDetailsDrawerOpen
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-              title="Workroom specs, files, and participant info"
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Details</span>
-            </button>
-
             {conversation.contractId ? (
               <Link
                 href={`/contracts/${conversation.contractId}`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs hover:shadow transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-1.5 rounded-full bg-[#108a00] hover:bg-[#14a800] text-white transition-all cursor-pointer"
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">View Contract</span>
@@ -467,7 +461,7 @@ export default function ChatWindow({
             ) : conversation.jobId ? (
               <Link
                 href={`/jobs/${conversation.jobId}`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs hover:shadow transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-1.5 rounded-full border border-[#108a00] text-[#108a00] hover:bg-[#f2f7f2] transition-all cursor-pointer"
               >
                 <Briefcase className="w-3.5 h-3.5" />
                 <span>View Job</span>
@@ -478,9 +472,9 @@ export default function ChatWindow({
 
         {/* 1.1 Multi-Project Workroom Switcher */}
         {relatedConversations && relatedConversations.length > 1 && (
-          <div className="px-4 sm:px-6 py-2 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between gap-3 overflow-x-auto shrink-0 text-xs">
+          <div className="px-4 sm:px-6 py-2 bg-[#f9fbf9] border-b border-[#e4ebe4] flex items-center justify-between gap-3 overflow-x-auto shrink-0 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+              <span className="text-[10px] font-semibold text-[#5e6d55] uppercase tracking-wider shrink-0">
                 Workrooms ({relatedConversations.length}):
               </span>
               <div className="flex items-center gap-1.5">
@@ -493,20 +487,20 @@ export default function ChatWindow({
                       key={rel.id}
                       type="button"
                       onClick={() => onSelectConversation?.(rel.id)}
-                      className={`px-3 py-1 rounded-lg text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-3 py-1 rounded-full text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
                         isCurrent
-                          ? 'bg-slate-900 text-white shadow-2xs font-semibold'
-                          : 'bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200 font-medium shadow-2xs'
+                          ? 'bg-[#108a00] text-white font-medium'
+                          : 'bg-white text-[#001e00] hover:bg-[#f2f7f2] border border-[#d5e0d5] font-normal'
                       }`}
                     >
                       {rel.contractId ? (
-                        <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                        <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-white' : 'text-[#108a00]'}`} />
                       ) : (
-                        <Briefcase className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-slate-300' : 'text-slate-500'}`} />
+                        <Briefcase className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-white/90' : 'text-[#5e6d55]'}`} />
                       )}
                       <span className="max-w-[160px] truncate">{label}</span>
                       {suffix && (
-                        <span className="text-[10px] opacity-70 font-mono">{suffix}</span>
+                        <span className="text-[10px] opacity-80 font-mono">{suffix}</span>
                       )}
                     </button>
                   );
@@ -516,65 +510,65 @@ export default function ChatWindow({
           </div>
         )}
 
-        {/* 2. Messages Scroll Container with Modern Palette */}
+        {/* 2. Messages Scroll Container with Upwork Clean Feed Palette */}
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/60"
+          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-1 bg-white"
         >
           {/* Streamlined Thread Origin Header */}
-          <div className="flex flex-col items-center text-center pt-4 pb-3 px-4 space-y-2.5 mb-2 select-none">
+          <div className="flex flex-col items-center text-center pt-4 pb-5 px-4 space-y-2 mb-2 border-b border-[#e4ebe4]/70 select-none">
             <div className="relative">
               {other?.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={other.avatarUrl}
                   alt={other.fullName}
-                  className="w-14 h-14 rounded-full object-cover border-2 border-white ring-2 ring-slate-100 shadow-xs"
+                  className="w-14 h-14 rounded-full object-cover border border-[#e4ebe4]"
                 />
               ) : (
-                <div className="w-14 h-14 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-base shadow-xs ring-2 ring-slate-100">
+                <div className="w-14 h-14 rounded-full bg-[#677d5c] text-white font-semibold flex items-center justify-center text-base">
                   {initials}
                 </div>
               )}
               {isOnline && (
                 <span
                   title="Online now"
-                  className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white ring-1 ring-emerald-500/20"
+                  className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#14a800] border-2 border-white"
                 />
               )}
             </div>
 
             <div className="space-y-0.5">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center justify-center gap-1.5 flex-wrap">
+              <h3 className="text-sm sm:text-base font-semibold text-[#001e00] flex items-center justify-center gap-1.5 flex-wrap">
                 <span>{other?.fullName || 'Direct Conversation'}</span>
                 {other?.activeMode && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f2f7f2] text-[#5e6d55] border border-[#e4ebe4]">
                     {other.activeMode}
                   </span>
                 )}
               </h3>
               {other?.title && (
-                <p className="text-xs text-slate-500 max-w-sm mx-auto line-clamp-1">
+                <p className="text-xs text-[#5e6d55] max-w-sm mx-auto line-clamp-1">
                   {other.title}
                 </p>
               )}
             </div>
 
-            <p className="text-[11px] text-slate-400 max-w-sm">
+            <p className="text-[11px] text-[#5e6d55] max-w-sm">
               This is the beginning of your direct conversation history.
             </p>
 
             {(conversation.contractTitle || conversation.jobTitle) && (
               <div className="pt-0.5">
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-slate-200/90 text-xs text-slate-700 shadow-2xs max-w-lg">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f9fbf9] border border-[#e4ebe4] text-xs text-[#001e00] max-w-lg">
                   {conversation.contractId ? (
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#108a00] shrink-0" />
                   ) : (
-                    <Briefcase className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <Briefcase className="w-3.5 h-3.5 text-[#5e6d55] shrink-0" />
                   )}
                   <span
-                    className="font-semibold text-slate-800 truncate max-w-[240px] sm:max-w-[340px]"
+                    className="font-medium text-[#001e00] truncate max-w-[240px] sm:max-w-[340px]"
                     title={conversation.contractTitle || conversation.jobTitle || ''}
                   >
                     {conversation.contractTitle || conversation.jobTitle}
@@ -582,14 +576,14 @@ export default function ChatWindow({
                   {conversation.contractId ? (
                     <Link
                       href={`/contracts/${conversation.contractId}`}
-                      className="text-[10px] font-bold text-emerald-700 hover:underline shrink-0"
+                      className="text-[11px] font-semibold text-[#108a00] hover:underline shrink-0"
                     >
                       Contract #{conversation.contractId.slice(0, 4)}
                     </Link>
                   ) : conversation.jobId ? (
                     <Link
                       href={`/jobs/${conversation.jobId}`}
-                      className="text-[10px] font-bold text-slate-500 hover:text-slate-900 hover:underline shrink-0"
+                      className="text-[11px] font-semibold text-[#108a00] hover:underline shrink-0"
                     >
                       View Job
                     </Link>
@@ -607,11 +601,11 @@ export default function ChatWindow({
                 id="load-earlier-messages-btn"
                 onClick={onLoadEarlier}
                 disabled={isLoadingEarlier}
-                className="text-xs font-semibold px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 shadow-xs transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                className="text-xs font-medium px-3.5 py-1.5 rounded-full bg-white border border-[#d5e0d5] text-[#108a00] hover:bg-[#f2f7f2] transition-colors cursor-pointer inline-flex items-center gap-1.5"
               >
                 {isLoadingEarlier ? (
                   <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#108a00]" />
                     <span>Loading history...</span>
                   </>
                 ) : (
@@ -622,39 +616,25 @@ export default function ChatWindow({
           )}
 
           {isLoadingMessages ? (
-            <div className="space-y-4 py-4 animate-pulse">
-              <div className="flex items-start gap-3 max-w-md">
-                <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0" />
-                <div className="space-y-1.5 flex-1">
-                  <div className="h-3 w-20 bg-slate-200 rounded-sm" />
-                  <div className="h-14 bg-slate-100 rounded-2xl rounded-tl-sm p-3 border border-slate-200/70" />
+            <div className="space-y-5 py-4 animate-pulse">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-start gap-3 max-w-xl">
+                  <div className="w-8 h-8 rounded-full bg-[#e4ebe4] shrink-0" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-3 w-32 bg-[#e4ebe4] rounded-sm" />
+                    <div className="h-4 w-full bg-[#f2f7f2] rounded-sm" />
+                    <div className="h-4 w-2/3 bg-[#f2f7f2] rounded-sm" />
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-end justify-end">
-                <div className="space-y-1.5 max-w-sm w-full flex flex-col items-end">
-                  <div className="h-12 w-3/4 bg-emerald-100/70 rounded-2xl rounded-tr-sm border border-emerald-200/50" />
-                </div>
-              </div>
-              <div className="flex items-start gap-3 max-w-md">
-                <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0" />
-                <div className="space-y-1.5 flex-1">
-                  <div className="h-3 w-28 bg-slate-200 rounded-sm" />
-                  <div className="h-16 bg-slate-100 rounded-2xl rounded-tl-sm p-3 border border-slate-200/70" />
-                </div>
-              </div>
-              <div className="flex items-end justify-end">
-                <div className="space-y-1.5 max-w-sm w-full flex flex-col items-end">
-                  <div className="h-10 w-1/2 bg-emerald-100/70 rounded-2xl rounded-tr-sm border border-emerald-200/50" />
-                </div>
-              </div>
+              ))}
             </div>
           ) : messages.length === 0 ? (
             <div className="text-center py-16 space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center mx-auto shadow-2xs">
+              <div className="w-12 h-12 rounded-2xl bg-[#f2f7f2] text-[#108a00] border border-[#e4ebe4] flex items-center justify-center mx-auto">
                 <Send className="w-6 h-6" />
               </div>
-              <h3 className="text-sm font-bold text-slate-800">Start the conversation</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              <h3 className="text-sm font-semibold text-[#001e00]">Start the conversation</h3>
+              <p className="text-xs text-[#5e6d55] max-w-sm mx-auto">
                 Send a greeting, ask clarifying questions about project milestones, or share relevant documents.
               </p>
             </div>
@@ -682,14 +662,16 @@ export default function ChatWindow({
                 return (
                   <React.Fragment key={msg.id}>
                     {showDateDivider && (
-                      <div className="flex items-center justify-center my-5">
-                        <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 py-1 rounded-full bg-white/90 border border-slate-200/80 shadow-2xs">
+                      <div className="flex items-center gap-3 my-4">
+                        <div className="flex-1 h-px bg-[#e4ebe4]" />
+                        <span className="text-[11px] font-medium text-[#5e6d55] px-2">
                           {formatDateDivider(msg.createdAt)}
                         </span>
+                        <div className="flex-1 h-px bg-[#e4ebe4]" />
                       </div>
                     )}
-                    <div className="flex items-center justify-center my-3.5 px-4">
-                      <div className="inline-flex items-center gap-2 max-w-lg px-3.5 py-2 rounded-xl bg-slate-50/90 border border-slate-200 text-xs text-slate-700 shadow-2xs font-medium text-center">
+                    <div className="flex items-center justify-center my-3 px-4">
+                      <div className="inline-flex items-center gap-2 max-w-lg px-3.5 py-2 rounded-lg bg-[#f9fbf9] border border-[#e4ebe4] text-xs text-[#5e6d55] font-medium text-center">
                         <span className="leading-relaxed">{msg.content}</span>
                       </div>
                     </div>
@@ -700,49 +682,138 @@ export default function ChatWindow({
               return (
                 <React.Fragment key={msg.id}>
                   {showDateDivider && (
-                    <div className="flex items-center justify-center my-5">
-                      <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 py-1 rounded-full bg-white/90 border border-slate-200/80 shadow-2xs">
+                    <div className="flex items-center gap-3 my-4">
+                      <div className="flex-1 h-px bg-[#e4ebe4]" />
+                      <span className="text-[11px] font-medium text-[#5e6d55] px-2">
                         {formatDateDivider(msg.createdAt)}
                       </span>
+                      <div className="flex-1 h-px bg-[#e4ebe4]" />
                     </div>
                   )}
 
                   <div
                     id={`message-item-${msg.id}`}
-                    className={`flex flex-col group relative ${isMe ? 'items-end' : 'items-start'}`}
+                    className="group relative flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-[#f9fbf9] transition-colors"
                   >
-                    <div
-                      className={`flex items-end gap-2 max-w-[85%] sm:max-w-[70%] ${
-                        isMe ? 'flex-row-reverse' : 'flex-row'
-                      }`}
-                    >
-                      {/* Avatar for receiver's messages */}
-                      {!isMe && (
-                        <div className="w-7 h-7 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-[10px] shrink-0 self-end mb-1 shadow-2xs">
-                          {other?.avatarUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={other.avatarUrl}
-                              alt=""
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          ) : (
-                            initials
-                          )}
+                    {/* Sender Avatar */}
+                    <div className="shrink-0 mt-0.5">
+                      {!isMe ? (
+                        other?.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={other.avatarUrl}
+                            alt=""
+                            className="w-8 h-8 rounded-full object-cover border border-[#e4ebe4]"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-[#677d5c] text-white font-semibold flex items-center justify-center text-[11px]">
+                            {initials}
+                          </div>
+                        )
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-[#108a00] text-white font-semibold flex items-center justify-center text-[10px]">
+                          You
                         </div>
                       )}
+                    </div>
 
-                      {/* Message Bubble Container with Modern Upwork Palette */}
-                      <div
-                        className={`relative rounded-2xl px-4 py-2.5 transition-all shadow-xs ${
-                          isMe
-                            ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white rounded-br-xs'
-                            : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs'
-                        } ${isDeleted ? 'italic text-slate-400 bg-slate-100 border-slate-200' : ''}`}
-                      >
-                        {/* Deleted Message Notice */}
+                    {/* Message Body Column */}
+                    <div className="flex-1 min-w-0">
+                      {/* Header: Sender Name + Timestamp + Read Receipt */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[13.5px] font-semibold text-[#001e00] truncate">
+                            {isMe ? 'You' : other?.fullName || 'Participant'}
+                          </span>
+                          <span className="text-[11.5px] text-[#5e6d55] font-normal shrink-0">
+                            {formatMessageTime(msg.createdAt)}
+                          </span>
+                          {msg.editedAt && !isDeleted && (
+                            <span className="text-[11px] italic text-[#5e6d55]">edited</span>
+                          )}
+                          {isMe && !isDeleted && (
+                            <span
+                              className="inline-flex items-center"
+                              title={isOptimistic ? 'Sending...' : isRead ? 'Read' : 'Delivered'}
+                            >
+                              {isOptimistic ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-[#5e6d55]" />
+                              ) : isRead ? (
+                                <CheckCheck className="w-3.5 h-3.5 text-[#108a00] stroke-[2.2]" />
+                              ) : (
+                                <Check className="w-3.5 h-3.5 text-[#5e6d55] stroke-[2]" />
+                              )}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Message Action Options (Copy, Edit, Delete) on Hover */}
+                        {!isDeleted && !isOptimistic && editingMessageId !== msg.id && (
+                          <div
+                            className={`relative transition-opacity flex items-center shrink-0 ${
+                              activeMenuMessageId === msg.id
+                                ? 'opacity-100'
+                                : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActiveMenuMessageId(
+                                  activeMenuMessageId === msg.id ? null : msg.id
+                                )
+                              }
+                              className="p-1 rounded-full text-[#5e6d55] hover:text-[#001e00] hover:bg-[#e4ebe4]/60 cursor-pointer"
+                              title="Message options"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+
+                            {activeMenuMessageId === msg.id && (
+                              <div className="absolute right-0 top-full mt-1 w-28 bg-white border border-[#d5e0d5] rounded-xl shadow-lg py-1 z-20 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyMessage(msg.id, msg.content)}
+                                  className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Copy className="w-3 h-3 text-[#5e6d55]" />
+                                  <span>Copy</span>
+                                </button>
+
+                                {isMe && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingMessageId(msg.id);
+                                        setEditContent(msg.content);
+                                        setActiveMenuMessageId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Edit2 className="w-3 h-3 text-[#5e6d55]" />
+                                      <span>Edit</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDelete(msg.id)}
+                                      className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3 text-rose-500" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Message Content */}
+                      <div className="mt-0.5">
                         {isDeleted ? (
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <div className="flex items-center gap-1.5 text-xs italic text-[#9aaa97]">
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>This message was deleted</span>
                           </div>
@@ -750,7 +821,7 @@ export default function ChatWindow({
                           <>
                             {/* Image Attachment Rendering */}
                             {msg.messageType === 'image' && msg.attachmentUrl && (
-                              <div className="mb-2 rounded-xl overflow-hidden border border-black/10 shadow-2xs">
+                              <div className="my-1.5 rounded-xl overflow-hidden border border-[#d5e0d5] inline-block">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={msg.attachmentUrl}
@@ -763,25 +834,15 @@ export default function ChatWindow({
 
                             {/* File Document Attachment Rendering */}
                             {msg.messageType === 'file' && (
-                              <div
-                                className={`flex items-center gap-3 p-2.5 rounded-xl mb-2 text-xs border ${
-                                  isMe
-                                    ? 'bg-emerald-700/60 border-emerald-600/50 text-white'
-                                    : 'bg-slate-50 border-slate-200 text-slate-900'
-                                }`}
-                              >
-                                <div
-                                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                                    isMe ? 'bg-emerald-800 text-white' : 'bg-slate-200 text-slate-700'
-                                  }`}
-                                >
+                              <div className="flex items-center gap-3 p-3 rounded-xl my-1.5 text-xs border border-[#d5e0d5] bg-white max-w-sm">
+                                <div className="w-9 h-9 rounded-lg bg-[#f2f7f2] text-[#108a00] flex items-center justify-center shrink-0">
                                   <FileText className="w-5 h-5" />
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <span className="font-semibold block truncate" title={msg.attachmentName || 'Document'}>
+                                  <span className="font-semibold text-[#001e00] block truncate" title={msg.attachmentName || 'Document'}>
                                     {msg.attachmentName || 'Attachment'}
                                   </span>
-                                  <span className="text-[10px] opacity-80 block">
+                                  <span className="text-[11px] text-[#5e6d55] block">
                                     {formatFileSize(msg.attachmentSize)}
                                   </span>
                                 </div>
@@ -791,7 +852,7 @@ export default function ChatWindow({
                                     download={msg.attachmentName || 'download'}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="p-1.5 rounded-md hover:bg-black/10 transition-colors shrink-0"
+                                    className="p-1.5 rounded-full text-[#108a00] hover:bg-[#f2f7f2] transition-colors shrink-0"
                                     title="Download File"
                                   >
                                     <Download className="w-4 h-4" />
@@ -802,118 +863,56 @@ export default function ChatWindow({
 
                             {/* Text Message Content */}
                             {editingMessageId === msg.id ? (
-                              <div className="space-y-2 min-w-[240px]">
+                              <div className="space-y-2 max-w-lg mt-1">
                                 <textarea
                                   value={editContent}
                                   onChange={(e) => setEditContent(e.target.value)}
-                                  className="w-full text-xs text-slate-900 bg-white p-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                                      e.preventDefault();
+                                      handleSaveEdit(msg.id);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingMessageId(null);
+                                      setEditContent('');
+                                    }
+                                  }}
+                                  disabled={isSavingEdit}
+                                  className="w-full text-[13.5px] text-[#001e00] bg-white p-2.5 rounded-lg border border-[#d5e0d5] focus:outline-hidden focus:border-[#108a00]"
                                   rows={2}
+                                  autoFocus
                                 />
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     type="button"
-                                    onClick={() => setEditingMessageId(null)}
-                                    className="px-2 py-1 text-[11px] rounded bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                    onClick={() => {
+                                      setEditingMessageId(null);
+                                      setEditContent('');
+                                    }}
+                                    disabled={isSavingEdit}
+                                    className="px-3 py-1 text-xs rounded-full border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] disabled:opacity-50"
                                   >
                                     Cancel
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleSaveEdit(msg.id)}
-                                    className="px-2.5 py-1 text-[11px] font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                                    disabled={!editContent.trim() || isSavingEdit}
+                                    className="px-3 py-1 text-xs font-medium rounded-full bg-[#108a00] text-white hover:bg-[#14a800] disabled:opacity-50"
                                   >
-                                    Save
+                                    {isSavingEdit ? 'Saving...' : 'Save'}
                                   </button>
                                 </div>
                               </div>
                             ) : (
-                              <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap break-words font-normal">
-                                {msg.content}
-                              </p>
+                              msg.content && (
+                                <p className="text-[13.5px] leading-[1.5] text-[#001e00] whitespace-pre-wrap break-words font-normal">
+                                  {msg.content}
+                                </p>
+                              )
                             )}
                           </>
                         )}
-
-                        {/* Message Footer: Timestamp, Edited flag & Read receipts */}
-                        <div
-                          className={`flex items-center justify-end gap-1.5 text-[10px] mt-1 select-none font-medium ${
-                            isMe ? 'text-emerald-100/90' : 'text-slate-400'
-                          }`}
-                        >
-                          {msg.editedAt && !isDeleted && (
-                            <span className="italic mr-0.5 opacity-80">edited</span>
-                          )}
-                          <span>{formatMessageTime(msg.createdAt)}</span>
-
-                          {isMe && !isDeleted && (
-                            <span className="ml-0.5" title={isOptimistic ? 'Sending...' : isRead ? 'Read' : 'Delivered'}>
-                              {isOptimistic ? (
-                                <Loader2 className="w-3 h-3 animate-spin text-emerald-200" />
-                              ) : isRead ? (
-                                <CheckCheck className="w-3.5 h-3.5 text-white stroke-[2.5]" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5 text-emerald-200 stroke-[2.2]" />
-                              )}
-                            </span>
-                          )}
-                        </div>
                       </div>
-
-                      {/* Message Action Options (Copy, Edit, Delete) on Hover */}
-                      {!isDeleted && !isOptimistic && editingMessageId !== msg.id && (
-                        <div className="relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setActiveMenuMessageId(
-                                activeMenuMessageId === msg.id ? null : msg.id
-                              )
-                            }
-                            className="p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 cursor-pointer"
-                            title="Message options"
-                          >
-                            <MoreVertical className="w-3.5 h-3.5" />
-                          </button>
-
-                          {activeMenuMessageId === msg.id && (
-                            <div className="absolute right-0 bottom-full mb-1 w-28 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-20 text-xs">
-                              <button
-                                type="button"
-                                onClick={() => handleCopyMessage(msg.id, msg.content)}
-                                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Copy className="w-3 h-3 text-slate-500" />
-                                <span>Copy</span>
-                              </button>
-
-                              {isMe && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingMessageId(msg.id);
-                                      setEditContent(msg.content);
-                                      setActiveMenuMessageId(null);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
-                                  >
-                                    <Edit2 className="w-3 h-3 text-slate-500" />
-                                    <span>Edit</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDelete(msg.id)}
-                                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3 h-3 text-rose-500" />
-                                    <span>Delete</span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </React.Fragment>
@@ -921,16 +920,16 @@ export default function ChatWindow({
             })
           )}
 
-          {/* Realtime Typing Indicator Bubble */}
+          {/* Realtime Typing Indicator */}
           {isTyping && (
-            <div className="flex items-center gap-2 text-slate-500 text-xs animate-in fade-in duration-200">
-              <div className="px-3.5 py-2 bg-white border border-slate-200/90 rounded-2xl rounded-bl-xs shadow-2xs flex items-center gap-2">
+            <div className="flex items-center gap-2 px-2 py-2 text-[#5e6d55] text-xs animate-in fade-in duration-200">
+              <div className="px-3 py-1.5 bg-[#f2f7f2] border border-[#e4ebe4] rounded-full flex items-center gap-2">
                 <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:0.2s]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:0.4s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#108a00] animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#108a00] animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#108a00] animate-bounce [animation-delay:0.4s]" />
                 </span>
-                <span className="text-[11px] text-slate-600 font-medium ml-1">
+                <span className="text-[11px] text-[#5e6d55] font-medium">
                   {typingUser || 'Participant'} is typing...
                 </span>
               </div>
@@ -942,25 +941,25 @@ export default function ChatWindow({
 
         {/* 3. Attachment Preview Bar (Prior to Sending) */}
         {selectedFile && (
-          <div className="px-4 py-2 border-t border-slate-200 bg-slate-50/90 flex items-center justify-between gap-3 shrink-0">
+          <div className="px-4 py-2 border-t border-[#e4ebe4] bg-[#f9fbf9] flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {filePreviewUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={filePreviewUrl}
                   alt="Upload preview"
-                  className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                  className="w-10 h-10 rounded-lg object-cover border border-[#d5e0d5] shrink-0"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-[#f2f7f2] text-[#108a00] flex items-center justify-center shrink-0">
                   <FileText className="w-5 h-5" />
                 </div>
               )}
               <div className="min-w-0">
-                <span className="text-xs font-semibold text-slate-800 truncate block">
+                <span className="text-xs font-semibold text-[#001e00] truncate block">
                   {selectedFile.name}
                 </span>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-[#5e6d55]">
                   {formatFileSize(selectedFile.size)}
                 </span>
               </div>
@@ -968,7 +967,7 @@ export default function ChatWindow({
             <button
               type="button"
               onClick={removeSelectedFile}
-              className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200"
+              className="p-1 rounded-full text-[#5e6d55] hover:text-[#001e00] hover:bg-[#e4ebe4]"
               title="Remove attachment"
             >
               <X className="w-4 h-4" />
@@ -995,14 +994,14 @@ export default function ChatWindow({
 
         {/* Copied Feedback Toast */}
         {copiedMessageId && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 bg-slate-900 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg animate-in fade-in duration-150">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 bg-[#001e00] text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg animate-in fade-in duration-150">
             Copied to clipboard
           </div>
         )}
 
-        {/* 4. Redesigned Premium Message Composer */}
-        <div className="p-3 sm:p-4 border-t border-slate-200/80 bg-white shrink-0">
-          <div className="bg-slate-50/80 hover:bg-white focus-within:bg-white border border-slate-200/90 rounded-2xl p-3 focus-within:border-emerald-500 focus-within:ring-3 focus-within:ring-emerald-500/15 transition-all shadow-xs">
+        {/* 4. Upwork-Style Message Composer */}
+        <div className="px-4 sm:px-6 py-3.5 bg-white shrink-0">
+          <div className="bg-white border border-[#d5e0d5] rounded-xl px-3.5 py-2.5 focus-within:border-[#108a00] focus-within:ring-1 focus-within:ring-[#108a00] transition-all">
             {/* Hidden File Input */}
             <input
               ref={fileInputRef}
@@ -1026,13 +1025,13 @@ export default function ChatWindow({
                 lastTypingSentRef.current = 0;
                 onTyping(false);
               }}
-              placeholder={`Write a message to ${other?.fullName || 'participant'}... (Shift+Enter for newline)`}
+              placeholder={`Send a message to ${other?.fullName || 'participant'}... (Shift+Enter for newline)`}
               disabled={isSubmitting}
-              className="w-full py-1 px-1 bg-transparent text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-hidden resize-none max-h-36 min-h-[48px] leading-relaxed"
+              className="w-full py-0.5 bg-transparent text-[13.5px] text-[#001e00] placeholder:text-[#5e6d55] focus:outline-hidden resize-none max-h-36 min-h-[44px] leading-relaxed"
             />
 
             {/* Bottom Composer Toolbar */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 mt-1">
+            <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#e4ebe4]/70">
               {/* Left actions: Attach button */}
               <div className="flex items-center gap-2">
                 <button
@@ -1040,18 +1039,18 @@ export default function ChatWindow({
                   id="chat-attach-file-btn"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isSubmitting || isUploadingAttachment}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[#5e6d55] hover:text-[#108a00] hover:bg-[#f2f7f2] rounded-full text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
                   title="Attach document or screenshot"
                 >
-                  <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+                  <Paperclip className="w-4 h-4" />
                   <span className="hidden sm:inline">Attach file</span>
                 </button>
               </div>
 
               {/* Right actions: Keyboard shortcut hint + Send button */}
               <div className="flex items-center gap-3">
-                <span className="text-[11px] text-slate-400 hidden sm:inline select-none font-medium">
-                  Press <kbd className="px-1.5 py-0.5 text-[10px] bg-slate-100 border border-slate-200 rounded-md font-mono text-slate-500">↵</kbd> to send
+                <span className="text-[11px] text-[#5e6d55] hidden sm:inline select-none">
+                  Press <kbd className="px-1.5 py-0.5 text-[10px] bg-[#f2f7f2] border border-[#d5e0d5] rounded font-mono text-[#5e6d55]">↵</kbd> to send
                 </span>
 
                 <button
@@ -1059,7 +1058,7 @@ export default function ChatWindow({
                   id="chat-send-message-btn"
                   onClick={handleSend}
                   disabled={(!inputText.trim() && !selectedFile) || isSubmitting || isUploadingAttachment}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all cursor-pointer shadow-xs hover:shadow disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#108a00] hover:bg-[#14a800] text-white font-medium text-xs transition-all cursor-pointer disabled:bg-[#e4ebe4] disabled:text-[#9aaa97] disabled:cursor-not-allowed"
                   title="Send message"
                 >
                   {isSubmitting || isUploadingAttachment ? (
@@ -1104,17 +1103,14 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* 6. Workroom Details Side Drawer */}
-      {isDetailsDrawerOpen && (
-        <div className="w-80 lg:w-96 shrink-0 h-full border-l border-slate-200 bg-white z-20 animate-in slide-in-from-right duration-200">
-          <WorkroomDetailsDrawer
-            conversation={conversation}
-            messages={messages}
-            isOnline={isOnline}
-            onClose={() => setIsDetailsDrawerOpen(false)}
-          />
-        </div>
-      )}
+      {/* 6. Workroom Details Side Panel (Always visible on desktop when a chat is open) */}
+      <div className="hidden lg:block w-80 xl:w-[340px] shrink-0 h-full border-l border-[#e4ebe4] bg-white z-20">
+        <WorkroomDetailsDrawer
+          conversation={conversation}
+          messages={messages}
+          isOnline={isOnline}
+        />
+      </div>
     </div>
   );
 }
