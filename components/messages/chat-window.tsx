@@ -23,8 +23,11 @@ import {
   ShieldCheck,
   Loader2,
   Copy,
+  Phone,
+  Video,
 } from 'lucide-react';
 import WorkroomDetailsDrawer from './workroom-details-drawer';
+import { useCall } from '@/components/calls/call-provider';
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -106,6 +109,7 @@ export default function ChatWindow({
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { callState, startCall } = useCall();
 
   // Synchronous lock ref to prevent rapid double-sending
   const isSubmittingRef = useRef(false);
@@ -457,6 +461,27 @@ export default function ChatWindow({
 
           {/* Action Buttons Cluster */}
           <div className="shrink-0 flex items-center gap-2">
+            <button
+              type="button"
+              id="chat-audio-call-btn"
+              onClick={() => startCall(conversation.id, 'audio')}
+              disabled={callState !== 'idle'}
+              title={callState !== 'idle' ? 'Call in progress' : 'Start audio call'}
+              className="p-2 rounded-full border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] hover:border-[#108a00] hover:text-[#108a00] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Phone className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              id="chat-video-call-btn"
+              onClick={() => startCall(conversation.id, 'video')}
+              disabled={callState !== 'idle'}
+              title={callState !== 'idle' ? 'Call in progress' : 'Start video call'}
+              className="p-2 rounded-full border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] hover:border-[#108a00] hover:text-[#108a00] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Video className="w-4 h-4" />
+            </button>
+
             {conversation.contractId ? (
               <Link
                 href={`/contracts/${conversation.contractId}`}
