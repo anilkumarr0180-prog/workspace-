@@ -9,6 +9,11 @@ import { createNotification } from '@/lib/actions/notifications';
 import { Timesheet, TimesheetStatus, TimeEntry } from '@/lib/types';
 import { extractPaymentErrorMessage } from '@/lib/razorpay';
 import { revalidatePath } from 'next/cache';
+import { getStripeClient } from '@/lib/stripe';
+import {
+  calculateTimesheetPaidAmount,
+  isClientAuthorizedForTimesheet,
+} from '@/lib/payments/timesheet-accounting';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -368,7 +373,16 @@ export async function createTimesheetRazorpayOrder(
   try {
     const { data: timesheet, error } = await supabase
       .from('timesheets')
-      .select('id, contract_id, client_id, freelancer_id, total_amount, status, week_start_date')
+      .select(`
+        id,
+        contract_id,
+        client_id,
+        freelancer_id,
+        total_amount,
+        status,
+        week_start_date,
+        contracts:contract_id ( id, client_id, company_id )
+      `)
       .eq('id', timesheetId.trim())
       .single();
 
@@ -376,51 +390,105 @@ export async function createTimesheetRazorpayOrder(
       return { success: false, error: 'Timesheet not found.', code: 'NOT_FOUND' };
     }
 
+    const rawContract = Array.isArray(timesheet.contracts) ? timesheet.contracts[0] : timesheet.contracts;
+    let companyMemberRole: string | null = null;
+    if (timesheet.client_id !== user.id && rawContract?.client_id !== user.id && rawContract?.company_id) {
+      const { data: membership } = await supabase
+        .from('company_members')
+        .select('role')
+        .eq('company_id', rawContract.company_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      companyMemberRole = membership?.role || null;
+    }
+
+    if (
+      !isClientAuthorizedForTimesheet({
+        userId: user.id,
+        timesheetClientId: timesheet.client_id,
+        contractClientId: rawContract?.client_id,
+        companyMemberRole,
+      })
+    ) {
+      return { success: false, error: 'Unauthorized: Only the client can verify and pay this timesheet.', code: 'FORBIDDEN' };
+    }
+
     if (timesheet.client_id !== user.id) {
       return { success: false, error: 'Only the client can pay this timesheet.', code: 'FORBIDDEN' };
     }
 
-    // Query payment_ledger for settled hourly timesheet payments on this contract using admin client
+    // Query payment_ledger & payment_attempts for THIS specific timesheet/week only
     const admin = getAdminSupabaseClient();
-    const { data: settledLedger } = await admin
-      .from('payment_ledger')
-      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
-      .eq('contract_id', timesheet.contract_id)
-      .in('status', ['succeeded', 'captured', 'completed']);
+    const [{ data: settledLedger }, { data: settledAttempts }] = await Promise.all([
+      admin
+        .from('payment_ledger')
+        .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['succeeded', 'captured', 'completed']),
+      admin
+        .from('payment_attempts')
+        .select('id, contract_id, billing_type, amount, currency, status, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded']),
+    ]);
 
-    let alreadyPaid = 0;
-    for (const r of settledLedger || []) {
-      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
-      const tsId = meta.timesheet_id as string | undefined;
-      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
-
-      if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
-        alreadyPaid += Number(r.amount || 0);
-      }
-    }
-    if (alreadyPaid === 0 && (settledLedger || []).length > 0) {
-      const totalContractSettled = (settledLedger || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-      if (totalContractSettled > 0) {
-        alreadyPaid = totalContractSettled;
-      }
-    }
-    alreadyPaid = Math.round(alreadyPaid * 100) / 100;
+    const alreadyPaid = calculateTimesheetPaidAmount({
+      timesheetId: timesheet.id,
+      weekStartDate: timesheet.week_start_date,
+      ledgerRows: settledLedger || [],
+      attemptRows: settledAttempts || [],
+    });
     const totalAmount = Number(timesheet.total_amount);
     const balanceDue = Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
 
-    if (balanceDue <= 0.01) {
+    if (timesheet.status === 'paid' || balanceDue <= 0.01) {
       return { success: false, error: `Timesheet has already been fully paid ($${alreadyPaid.toFixed(2)}).`, code: 'ALREADY_PAID' };
     }
 
-    const isPayableStatus = timesheet.status === 'approved' || (['paid', 'open'].includes(timesheet.status) && balanceDue > 0.01);
+    const isPayableStatus = timesheet.status === 'approved' || (['open'].includes(timesheet.status) && balanceDue > 0.01);
     if (!isPayableStatus) {
       return { success: false, error: `Timesheet is in status "${timesheet.status}". Please approve the timesheet before paying.`, code: 'INVALID_STATUS' };
     }
 
     const amount = balanceDue;
-
     const paymentProvider = getPaymentProvider();
+    const expectedSubunits = Math.round(amount * 100);
+    const tempOrderId = `lock_rzp_${timesheet.id.slice(0, 8)}_${Date.now()}`;
+
+    // Atomically acquire single active payment attempt lock for this timesheet (fail-closed)
+    const { data: lockRow, error: lockError } = await admin.rpc('acquire_timesheet_payment_attempt', {
+      p_timesheet_id: timesheet.id,
+      p_client_id: user.id,
+      p_provider: 'razorpay',
+      p_environment: paymentProvider.environment,
+      p_amount: amount,
+      p_amount_subunits: expectedSubunits,
+      p_currency: 'INR',
+      p_temp_order_id: tempOrderId,
+      p_metadata: {
+        week_start_date: timesheet.week_start_date,
+        timesheet_id: timesheet.id,
+      },
+    });
+
+    if (lockError || !lockRow?.id) {
+      if (lockError?.code === '23505') {
+        return {
+          success: false,
+          error: 'Another payment attempt is already in progress for this timesheet. Please complete it or wait for it to expire.',
+          code: 'PAYMENT_ATTEMPT_IN_PROGRESS',
+        };
+      }
+      console.error('[RAZORPAY TIMESHEET LOCK FAILED]:', lockError?.message || 'Missing lock row');
+      return {
+        success: false,
+        error: 'Unable to initialize secure payment lock. Please try again shortly.',
+        code: 'PAYMENT_LOCK_UNAVAILABLE',
+      };
+    }
+
+    const lockedAttemptId: string = lockRow.id;
+
     const orderRes = await paymentProvider.createOrder({
       contractId: timesheet.contract_id,
       timesheetId: timesheet.id,
@@ -434,30 +502,33 @@ export async function createTimesheetRazorpayOrder(
     });
 
     if (!orderRes.success) {
+      if (lockedAttemptId) {
+        await admin
+          .from('payment_attempts')
+          .update({
+            status: 'failed',
+            error_code: 'ORDER_CREATE_FAILED',
+            error_description: orderRes.error || 'Failed to create Razorpay order',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', lockedAttemptId);
+      }
       return { success: false, error: orderRes.error || 'Failed to create payment order.' };
     }
 
-    // Persist payment attempt via stored procedure (with adminClient fallback)
-    // Non-blocking: If table schema or RPC is not yet present on remote DB, log warning but do not block checkout
-    try {
-      const { error: attemptError } = await supabase.rpc('record_timesheet_payment_attempt', {
-        p_contract_id: timesheet.contract_id,
-        p_timesheet_id: timesheet.id,
-        p_client_id: user.id,
-        p_amount: amount,
-        p_amount_subunits: orderRes.amountSubunits,
-        p_currency: orderRes.currency,
-        p_razorpay_order_id: orderRes.orderId,
-        p_environment: paymentProvider.environment,
-        p_metadata: {
-          week_start_date: timesheet.week_start_date,
-        },
-      });
-
-      if (attemptError) {
-        console.warn('record_timesheet_payment_attempt RPC failed, trying adminClient insert:', attemptError.message);
-        const adminClient = getAdminSupabaseClient();
-        const { error: insertError } = await adminClient.from('payment_attempts').insert({
+    if (lockedAttemptId) {
+      await admin
+        .from('payment_attempts')
+        .update({
+          razorpay_order_id: orderRes.orderId,
+          amount_subunits: orderRes.amountSubunits,
+          currency: orderRes.currency,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', lockedAttemptId);
+    } else {
+      try {
+        await admin.from('payment_attempts').insert({
           contract_id: timesheet.contract_id,
           billing_type: 'timesheet',
           client_id: user.id,
@@ -473,13 +544,9 @@ export async function createTimesheetRazorpayOrder(
             week_start_date: timesheet.week_start_date,
           },
         });
-
-        if (insertError) {
-          console.warn('payment_attempts insert skipped (schema not updated):', insertError.message);
-        }
+      } catch (persistErr) {
+        console.warn('Non-blocking payment attempt persistence error:', persistErr);
       }
-    } catch (persistErr) {
-      console.warn('Non-blocking payment attempt persistence error:', persistErr);
     }
 
     return {
@@ -526,7 +593,16 @@ export async function verifyAndPayTimesheet(
   try {
     const { data: timesheet, error } = await supabase
       .from('timesheets')
-      .select('id, contract_id, client_id, freelancer_id, total_amount, status, week_start_date')
+      .select(`
+        id,
+        contract_id,
+        client_id,
+        freelancer_id,
+        total_amount,
+        status,
+        week_start_date,
+        contracts:contract_id ( id, client_id, company_id )
+      `)
       .eq('id', timesheetId.trim())
       .single();
 
@@ -534,7 +610,51 @@ export async function verifyAndPayTimesheet(
       return { success: false, error: 'Timesheet not found.', code: 'NOT_FOUND' };
     }
 
-    if (timesheet.status === 'paid') {
+    const rawContract = Array.isArray(timesheet.contracts) ? timesheet.contracts[0] : timesheet.contracts;
+    let companyMemberRole: string | null = null;
+    if (timesheet.client_id !== user.id && rawContract?.client_id !== user.id && rawContract?.company_id) {
+      const { data: membership } = await supabase
+        .from('company_members')
+        .select('role')
+        .eq('company_id', rawContract.company_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      companyMemberRole = membership?.role || null;
+    }
+
+    if (
+      !isClientAuthorizedForTimesheet({
+        userId: user.id,
+        timesheetClientId: timesheet.client_id,
+        contractClientId: rawContract?.client_id,
+        companyMemberRole,
+      })
+    ) {
+      return { success: false, error: 'Unauthorized: Only the client can verify and pay this timesheet.', code: 'FORBIDDEN' };
+    }
+
+    const adminClient = getAdminSupabaseClient();
+
+    // Check prior payments for THIS specific timesheet/week and idempotency by razorpay_payment_id
+    const [{ data: priorSettled }, { data: priorAttempts }] = await Promise.all([
+      adminClient
+        .from('payment_ledger')
+        .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['succeeded', 'captured', 'completed']),
+      adminClient
+        .from('payment_attempts')
+        .select('id, contract_id, billing_type, amount, currency, status, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded']),
+    ]);
+
+    const alreadyRecordedPayment = (priorSettled || []).some((r) => {
+      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+      return meta.razorpay_payment_id === razorpayPaymentId.trim();
+    });
+
+    if (timesheet.status === 'paid' || alreadyRecordedPayment) {
       return {
         success: true,
         timesheet: {
@@ -552,7 +672,20 @@ export async function verifyAndPayTimesheet(
       };
     }
 
-    const expectedSubunits = Math.round(Number(timesheet.total_amount) * 100);
+    const alreadyPaid = calculateTimesheetPaidAmount({
+      timesheetId: timesheet.id,
+      weekStartDate: timesheet.week_start_date,
+      ledgerRows: priorSettled || [],
+      attemptRows: priorAttempts || [],
+    });
+    const totalTimesheetAmount = Number(timesheet.total_amount);
+    const expectedBalanceDue = Math.max(0, Math.round((totalTimesheetAmount - alreadyPaid) * 100) / 100);
+
+    if (expectedBalanceDue <= 0.01) {
+      return { success: false, error: 'Timesheet has no outstanding balance due.', code: 'ALREADY_PAID' };
+    }
+
+    const expectedSubunits = Math.round(expectedBalanceDue * 100);
 
     // Verify server-persisted payment attempt exists for this timesheet
     let rawAttempt: Record<string, unknown> | null = null;
@@ -565,7 +698,6 @@ export async function verifyAndPayTimesheet(
       rawAttempt = rpcAttempt;
     } else {
       // Fallback query via adminClient if RPC is not present in schema cache
-      const adminClient = getAdminSupabaseClient();
       const { data: directAttempt } = await adminClient
         .from('payment_attempts')
         .select('*')
@@ -608,7 +740,6 @@ export async function verifyAndPayTimesheet(
       created_at: string;
       updated_at: string;
     }
-    const adminClient = getAdminSupabaseClient();
     let paidTimesheet: DbTimesheetRow | null = null;
     const { data: rpcPaid, error: fundError } = await adminClient.rpc('fund_timesheet_with_payment', {
       p_timesheet_id: timesheet.id,
@@ -660,7 +791,7 @@ export async function verifyAndPayTimesheet(
             contract_id: timesheet.contract_id,
             from_user_id: timesheet.client_id,
             to_user_id: null,
-            amount: Number(timesheet.total_amount),
+            amount: expectedBalanceDue,
             currency: 'INR',
             event_type: 'hourly_funded',
             status: 'succeeded',
@@ -711,11 +842,162 @@ export async function verifyAndPayTimesheet(
 }
 
 /**
+ * Cancels an abandoned/user-dismissed Stripe or Razorpay timesheet payment attempt
+ * after verifying ownership and confirming the provider has not captured/succeeded.
+ */
+export async function cancelTimesheetPaymentAttempt(
+  orderOrIntentId: string
+): Promise<{ success: boolean; alreadyCancelled?: boolean; error?: string; code?: string }> {
+  if (!orderOrIntentId || !orderOrIntentId.trim()) {
+    return { success: false, error: 'Payment attempt identifier is required.', code: 'INVALID_INPUT' };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: 'Authentication required.', code: 'UNAUTHENTICATED' };
+  }
+
+  try {
+    const cleanId = orderOrIntentId.trim();
+    const admin = getAdminSupabaseClient();
+
+    const { data: attempt, error: findErr } = await admin
+      .from('payment_attempts')
+      .select(`
+        id,
+        contract_id,
+        timesheet_id,
+        client_id,
+        provider,
+        razorpay_order_id,
+        status,
+        metadata
+      `)
+      .eq('razorpay_order_id', cleanId)
+      .maybeSingle();
+
+    if (findErr || !attempt) {
+      return { success: false, error: 'Payment attempt not found.', code: 'NOT_FOUND' };
+    }
+
+    const { data: contract } = await admin
+      .from('contracts')
+      .select('id, client_id, company_id')
+      .eq('id', attempt.contract_id)
+      .maybeSingle();
+
+    let companyMemberRole: string | null = null;
+    if (attempt.client_id !== user.id && contract?.client_id !== user.id && contract?.company_id) {
+      const { data: membership } = await admin
+        .from('company_members')
+        .select('role')
+        .eq('company_id', contract.company_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      companyMemberRole = membership?.role || null;
+    }
+
+    if (
+      !isClientAuthorizedForTimesheet({
+        userId: user.id,
+        timesheetClientId: attempt.client_id,
+        contractClientId: contract?.client_id,
+        companyMemberRole,
+      })
+    ) {
+      return { success: false, error: 'Unauthorized to cancel this payment attempt.', code: 'FORBIDDEN' };
+    }
+
+    if (attempt.status === 'captured' || attempt.status === 'succeeded') {
+      return {
+        success: false,
+        error: 'Cannot cancel an already captured payment.',
+        code: 'ALREADY_CAPTURED',
+      };
+    }
+
+    if (attempt.status === 'failed') {
+      return { success: true, alreadyCancelled: true };
+    }
+
+    // Verify with provider before cancelling: never cancel a succeeded/processing payment
+    if (attempt.provider === 'stripe') {
+      try {
+        const stripe = getStripeClient();
+        const pi = await stripe.paymentIntents.retrieve(cleanId);
+        if (pi.status === 'succeeded' || pi.status === 'processing') {
+          return {
+            success: false,
+            error: `Payment cannot be cancelled because its provider status is "${pi.status}".`,
+            code: 'ALREADY_SUCCEEDED',
+          };
+        }
+        if (pi.status !== 'canceled') {
+          await stripe.paymentIntents.cancel(cleanId);
+        }
+      } catch (stripeErr) {
+        console.error('[CANCEL STRIPE INTENT ERROR]:', stripeErr);
+        return {
+          success: false,
+          error: 'Could not verify Stripe payment status before cancellation.',
+          code: 'PROVIDER_CHECK_FAILED',
+        };
+      }
+    } else {
+      // Razorpay: ensure no ledger settlement exists for this order before cancelling
+      const { data: ledgerRows } = await admin
+        .from('payment_ledger')
+        .select('id, metadata')
+        .eq('contract_id', attempt.contract_id)
+        .in('status', ['succeeded', 'captured', 'completed']);
+
+      const settledForOrder = (ledgerRows || []).some((r) => {
+        const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+        return meta.razorpay_order_id === cleanId;
+      });
+
+      if (settledForOrder) {
+        return {
+          success: false,
+          error: 'Cannot cancel an already settled Razorpay order.',
+          code: 'ALREADY_CAPTURED',
+        };
+      }
+    }
+
+    const { error: updateErr } = await admin
+      .from('payment_attempts')
+      .update({
+        status: 'failed',
+        error_code: 'CANCELLED_BY_USER',
+        error_description: 'Checkout cancelled by client',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', attempt.id)
+      .in('status', ['created', 'authorized']);
+
+    if (updateErr) {
+      return { success: false, error: updateErr.message, code: 'DB_ERROR' };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to cancel payment attempt.';
+    return { success: false, error: message };
+  }
+}
+
+/**
  * Fetches all weekly timesheets and their granular time entries for the authenticated freelancer.
  */
 export async function getFreelancerTimesheets(
   contractId?: string
-): Promise<{ success: boolean; timesheets: TimesheetWithDetails[]; error?: string }> {
+): Promise<{ success: boolean; timesheets: TimesheetWithDetails[]; unbilledEntries?: TimeEntry[]; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -778,24 +1060,6 @@ export async function getFreelancerTimesheets(
     }
     const { data: ledgerRows } = await ledgerQuery;
 
-    const paidByTimesheetId = new Map<string, number>();
-    const paidByWeek = new Map<string, number>();
-    let totalSettledHourly = 0;
-    for (const r of ledgerRows || []) {
-      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
-      const tsId = meta.timesheet_id as string | undefined;
-      const amt = Number(r.amount || 0);
-      totalSettledHourly += amt;
-      if (tsId) {
-        paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
-      }
-      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
-      if (weekKey) {
-        paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
-      }
-    }
-
     interface RawQueryRow {
       id: string;
       contract_id: string;
@@ -827,12 +1091,12 @@ export async function getFreelancerTimesheets(
       const cObj = Array.isArray(row.contracts) ? row.contracts[0] : row.contracts;
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
 
-      const rawRows = (data as unknown as RawQueryRow[]) || [];
       const totalAmount = Number(row.total_amount) || 0;
-      let matchedPaid = paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date);
-      if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
-        matchedPaid = totalSettledHourly;
-      }
+      let matchedPaid = calculateTimesheetPaidAmount({
+        timesheetId: row.id,
+        weekStartDate: row.week_start_date,
+        ledgerRows: (ledgerRows || []).filter((l) => l.contract_id === row.contract_id),
+      });
 
       // If the database row is already 'paid', it was authoritatively settled
       if (row.status === 'paid') {
@@ -880,7 +1144,35 @@ export async function getFreelancerTimesheets(
       };
     });
 
-    return { success: true, timesheets: mapped };
+    // Fetch unbilled time_entries (timesheet_id IS NULL) for this freelancer
+    let unbilledQuery = admin
+      .from('time_entries')
+      .select('id, contract_id, timesheet_id, freelancer_id, start_time, end_time, duration_minutes, memo, source, created_at, contracts (title)')
+      .eq('freelancer_id', user.id)
+      .is('timesheet_id', null)
+      .order('start_time', { ascending: false });
+    if (contractId && UUID_REGEX.test(contractId.trim())) {
+      unbilledQuery = unbilledQuery.eq('contract_id', contractId.trim());
+    }
+    const { data: rawUnbilled } = await unbilledQuery;
+    const unbilledEntries: TimeEntry[] = (rawUnbilled || []).map((e) => {
+      const cJoin = Array.isArray(e.contracts) ? e.contracts[0] : e.contracts;
+      return {
+        id: e.id,
+        contractId: e.contract_id,
+        contractTitle: cJoin?.title || 'Hourly Contract',
+        timesheetId: null,
+        freelancerId: e.freelancer_id,
+        startTime: e.start_time,
+        endTime: e.end_time,
+        durationMinutes: e.duration_minutes,
+        memo: e.memo || '',
+        source: e.source as 'timer' | 'manual',
+        createdAt: e.created_at,
+      };
+    });
+
+    return { success: true, timesheets: mapped, unbilledEntries };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to retrieve timesheets.';
     return { success: false, timesheets: [], error: message };
@@ -893,7 +1185,7 @@ export async function getFreelancerTimesheets(
  */
 export async function getContractTimesheets(
   contractId: string
-): Promise<{ success: boolean; timesheets: TimesheetWithDetails[]; error?: string }> {
+): Promise<{ success: boolean; timesheets: TimesheetWithDetails[]; unbilledEntries?: TimeEntry[]; error?: string }> {
   if (!contractId || !UUID_REGEX.test(contractId.trim())) {
     return { success: false, timesheets: [], error: 'Invalid contract ID.' };
   }
@@ -956,45 +1248,9 @@ export async function getContractTimesheets(
     // Also fetch captured payment attempts in case payment_ledger was asynchronous
     const { data: attemptRows } = await admin
       .from('payment_attempts')
-      .select('id, contract_id, amount, currency, status, metadata, created_at')
+      .select('id, contract_id, billing_type, amount, currency, status, metadata, created_at')
       .eq('contract_id', contractId.trim())
       .in('status', ['captured', 'succeeded']);
-
-    const paidByTimesheetId = new Map<string, number>();
-    const paidByWeek = new Map<string, number>();
-    let totalSettledHourly = 0;
-
-    for (const r of ledgerRows || []) {
-      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
-      const tsId = meta.timesheet_id as string | undefined;
-      const amt = Number(r.amount || 0);
-      totalSettledHourly += amt;
-      if (tsId) {
-        paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
-      }
-      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
-      if (weekKey) {
-        paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
-      }
-    }
-
-    // Fallback to payment_attempts if ledger was empty
-    if (totalSettledHourly === 0 && (attemptRows || []).length > 0) {
-      for (const a of attemptRows || []) {
-        const meta = (a.metadata && typeof a.metadata === 'object' ? a.metadata : {}) as Record<string, unknown>;
-        const tsId = meta.timesheet_id as string | undefined;
-        const amt = Number(a.amount || 0);
-        totalSettledHourly += amt;
-        if (tsId) {
-          paidByTimesheetId.set(tsId, (paidByTimesheetId.get(tsId) || 0) + amt);
-        }
-        const weekKey = meta.week_start_date as string | undefined;
-        if (weekKey) {
-          paidByWeek.set(weekKey, (paidByWeek.get(weekKey) || 0) + amt);
-        }
-      }
-    }
 
     interface RawQueryRow {
       id: string;
@@ -1029,12 +1285,13 @@ export async function getContractTimesheets(
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
       const flObj = Array.isArray(row.freelancer) ? row.freelancer[0] : row.freelancer;
 
-      const rawRows = (data as unknown as RawQueryRow[]) || [];
       const totalAmount = Number(row.total_amount) || 0;
-      let matchedPaid = paidByTimesheetId.get(row.id) ?? paidByWeek.get(row.week_start_date);
-      if (matchedPaid === undefined && rawRows.length === 1 && totalSettledHourly > 0) {
-        matchedPaid = totalSettledHourly;
-      }
+      let matchedPaid = calculateTimesheetPaidAmount({
+        timesheetId: row.id,
+        weekStartDate: row.week_start_date,
+        ledgerRows: (ledgerRows || []).filter((l) => l.contract_id === row.contract_id),
+        attemptRows: attemptRows || [],
+      });
 
       // If the database row is already 'paid', it was authoritatively settled
       if (row.status === 'paid') {
@@ -1083,7 +1340,39 @@ export async function getContractTimesheets(
       };
     });
 
-    return { success: true, timesheets: mapped };
+    // Fetch unbilled post-payment time_entries (timesheet_id IS NULL) for this contract
+    // Authorized via RLS-enforced contracts lookup so both client and freelancer can view them
+    const { data: contractAuth } = await supabase
+      .from('contracts')
+      .select('id, title')
+      .eq('id', contractId.trim())
+      .maybeSingle();
+
+    let unbilledEntries: TimeEntry[] = [];
+    if (contractAuth) {
+      const { data: rawUnbilled } = await admin
+        .from('time_entries')
+        .select('id, contract_id, timesheet_id, freelancer_id, start_time, end_time, duration_minutes, memo, source, created_at')
+        .eq('contract_id', contractId.trim())
+        .is('timesheet_id', null)
+        .order('start_time', { ascending: false });
+
+      unbilledEntries = (rawUnbilled || []).map((e) => ({
+        id: e.id,
+        contractId: e.contract_id,
+        contractTitle: contractAuth.title || 'Hourly Contract',
+        timesheetId: null,
+        freelancerId: e.freelancer_id,
+        startTime: e.start_time,
+        endTime: e.end_time,
+        durationMinutes: e.duration_minutes,
+        memo: e.memo || '',
+        source: e.source as 'timer' | 'manual',
+        createdAt: e.created_at,
+      }));
+    }
+
+    return { success: true, timesheets: mapped, unbilledEntries };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to retrieve contract timesheets.';
     return { success: false, timesheets: [], error: message };
