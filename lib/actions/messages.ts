@@ -1154,23 +1154,29 @@ export async function editMessage(
       return { success: false, error: 'Cannot edit a deleted message' };
     }
 
-    const { data: updated, error: updateError } = await supabase
+    const editedAtIso = new Date().toISOString();
+    const admin = getAdminSupabaseClient();
+    const { data: updated, error: updateError } = await admin
       .from('messages')
-      .update({ content: trimmed })
+      .update({ content: trimmed, edited_at: editedAtIso })
       .eq('id', messageId)
       .eq('sender_id', user.id)
       .select('id, content, edited_at, updated_at')
-      .single();
+      .maybeSingle();
 
     if (updateError) {
       return { success: false, error: updateError.message };
     }
 
+    if (!updated) {
+      return { success: false, error: 'Message not found or could not be updated' };
+    }
+
     return {
       success: true,
-      content: updated?.content ?? trimmed,
-      editedAt: updated?.edited_at ?? new Date().toISOString(),
-      updatedAt: updated?.updated_at ?? new Date().toISOString(),
+      content: updated.content ?? trimmed,
+      editedAt: updated.edited_at ?? editedAtIso,
+      updatedAt: updated.updated_at ?? editedAtIso,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to edit message';
@@ -1219,22 +1225,27 @@ export async function deleteMessage(
     }
 
     const deletedAtIso = new Date().toISOString();
-    const { data: updated, error: updateError } = await supabase
+    const admin = getAdminSupabaseClient();
+    const { data: updated, error: updateError } = await admin
       .from('messages')
       .update({ deleted_at: deletedAtIso })
       .eq('id', messageId)
       .eq('sender_id', user.id)
       .select('id, deleted_at, updated_at')
-      .single();
+      .maybeSingle();
 
     if (updateError) {
       return { success: false, error: updateError.message };
     }
 
+    if (!updated) {
+      return { success: false, error: 'Message not found or could not be deleted' };
+    }
+
     return {
       success: true,
-      deletedAt: updated?.deleted_at ?? deletedAtIso,
-      updatedAt: updated?.updated_at ?? deletedAtIso,
+      deletedAt: updated.deleted_at ?? deletedAtIso,
+      updatedAt: updated.updated_at ?? deletedAtIso,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete message';
