@@ -592,7 +592,7 @@ export default function PopoutTrackerPage() {
       fallback={
         <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-slate-600 text-xs">
           <RefreshCw className="w-4 h-4 animate-spin text-[#14a800] mr-2" />
-          <span>Loading Upwork Time Tracker...</span>
+          <span>Loading Workspace Time Tracker...</span>
         </div>
       }
     >

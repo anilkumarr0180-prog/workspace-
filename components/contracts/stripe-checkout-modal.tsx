@@ -459,7 +459,7 @@ function StripeCardForm({
       <div className="grid grid-cols-2 gap-2 py-1 text-[11px]">
         <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50/70 border border-emerald-100 px-2.5 py-1.5 rounded-xl">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span className="font-semibold line-clamp-1">Upwork-Grade Escrow Guarantee</span>
+          <span className="font-semibold line-clamp-1">Workspace Escrow Guarantee</span>
         </div>
         <div className="flex items-center gap-1.5 text-slate-600 bg-slate-50 border border-slate-200/70 px-2.5 py-1.5 rounded-xl">
           <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />

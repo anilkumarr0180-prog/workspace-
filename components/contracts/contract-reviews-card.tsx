@@ -84,7 +84,7 @@ export default function ContractReviewsCard({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">
-              Upwork Double-Blind Feedback
+              Workspace Double-Blind Feedback
             </span>
             {bothSubmitted ? (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">

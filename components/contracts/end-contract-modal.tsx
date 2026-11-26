@@ -154,7 +154,7 @@ export default function EndContractModal({
                 End Contract
               </span>
               <span className="text-[10px] font-semibold text-slate-500">
-                Upwork Two-Sided Feedback
+                Workspace Two-Sided Feedback
               </span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 mt-1">
