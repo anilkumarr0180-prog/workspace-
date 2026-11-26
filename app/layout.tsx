@@ -6,6 +6,7 @@ import { MarketplaceProvider } from '@/lib/context/marketplace-context';
 import Navbar from '@/components/layout/navbar';
 import Footer from '@/components/layout/footer';
 import { ToastContainer } from '@/components/ui/toast';
+import { CallProvider } from '@/components/calls/call-provider';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -41,14 +42,16 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col bg-slate-50/50 text-slate-900 font-sans selection:bg-emerald-100 selection:text-emerald-900" suppressHydrationWarning>
         <MarketplaceProvider>
-          <Suspense fallback={<header className="h-16 border-b border-slate-200 bg-white" />}>
-            <Navbar />
-          </Suspense>
-          <main className="flex-1">{children}</main>
-          <ToastContainer />
-          <Suspense fallback={null}>
-            <Footer />
-          </Suspense>
+          <CallProvider>
+            <Suspense fallback={<header className="h-16 border-b border-slate-200 bg-white" />}>
+              <Navbar />
+            </Suspense>
+            <main className="flex-1">{children}</main>
+            <ToastContainer />
+            <Suspense fallback={null}>
+              <Footer />
+            </Suspense>
+          </CallProvider>
         </MarketplaceProvider>
       </body>
     </html>
