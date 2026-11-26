@@ -2486,7 +2486,7 @@ function ContractDetailsContent() {
 
               <div className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-slate-600">
                 <Lock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Standard Upwork-Style Platform Fee: <strong>10%</strong></span>
+                <span>Standard Workspace Platform Fee: <strong>10%</strong></span>
               </div>
             </div>
 

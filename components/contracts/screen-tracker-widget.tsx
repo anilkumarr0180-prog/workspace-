@@ -257,7 +257,7 @@ export default function ScreenTrackerWidget({
         onToast?.(
           isManualTrigger
             ? `Snapshot verified at ${timeStr} (Activity: ${score}/10)`
-            : `Upwork snapshot recorded at ${timeStr} (Activity: ${score}/10)`
+            : `Workspace snapshot recorded at ${timeStr} (Activity: ${score}/10)`
         );
 
         onSlotRecorded?.(slotRes.slot);
@@ -465,7 +465,7 @@ export default function ScreenTrackerWidget({
           <div>
             <h3 className={`${compact ? 'text-xs' : 'text-sm'} font-extrabold text-slate-900 flex items-center gap-1.5`}>
               <Camera className={`w-4 h-4 ${isCapturing ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span>Upwork Automated Screen Tracker</span>
+              <span>Workspace Automated Screen Tracker</span>
             </h3>
             <p className="text-[10px] text-slate-400">Randomized 10-minute work diary verification</p>
           </div>
@@ -625,7 +625,7 @@ export default function ScreenTrackerWidget({
               <div className="p-4 bg-gradient-to-br from-emerald-50/70 to-teal-50/40 rounded-2xl border border-emerald-100 space-y-2 text-xs text-emerald-950">
                 <div className="flex items-center gap-2 font-bold text-emerald-900">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Upwork Hourly Payment Protection</span>
+                  <span>Workspace Hourly Payment Protection</span>
                 </div>
                 <p className="text-[11px] text-emerald-800/90 leading-relaxed">
                   When screen capture is enabled, your browser takes randomized snapshots every 5 to 10 minutes,
@@ -673,7 +673,7 @@ export default function ScreenTrackerWidget({
               }`}
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>{isTimerRunning ? 'Enable Upwork Screen Capture' : 'Start Timer First to Enable'}</span>
+              <span>{isTimerRunning ? 'Enable Workspace Screen Capture' : 'Start Timer First to Enable'}</span>
             </button>
             <p className="text-[10px] text-center text-slate-400">
               Browser prompt will ask to choose screen or window to verify

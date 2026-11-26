@@ -448,7 +448,7 @@ export default function FreelancerTimeTrackingPage() {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Track active billable work sessions on your verified hourly contracts with Upwork-style timesheet synchronization.
+            Track active billable work sessions on your verified hourly contracts with Workspace timesheet synchronization.
           </p>
         </div>
 
@@ -646,7 +646,7 @@ export default function FreelancerTimeTrackingPage() {
                   type="button"
                   onClick={handleOpenPopout}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 text-xs font-bold transition-all shadow-2xs cursor-pointer"
-                  title="Open standalone floating tracker window (Upwork Desktop App style)"
+                  title="Open standalone floating tracker window (Workspace Desktop App style)"
                 >
                   <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Pop Out Floating Tracker</span>
@@ -1130,7 +1130,7 @@ export default function FreelancerTimeTrackingPage() {
               <div className="space-y-2 max-w-2xl">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Upwork Weekly Billing & Hourly Protection</span>
+                  <span>Workspace Weekly Billing & Hourly Protection</span>
                 </div>
                 <h3 className="text-lg font-bold tracking-tight text-white">
                   How Hourly Billing & Invoicing Works

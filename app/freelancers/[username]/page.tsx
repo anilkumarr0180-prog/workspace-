@@ -332,7 +332,7 @@ async function FreelancerProfileDetails({ params }: FreelancerPageProps) {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Client Reviews &amp; Feedback</h2>
-                <p className="text-xs text-slate-500">Verified Upwork feedback recorded upon contract completion</p>
+                <p className="text-xs text-slate-500">Verified Workspace feedback recorded upon contract completion</p>
               </div>
               {hasReviews ? (
                 <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1 rounded-xl text-sm font-bold text-slate-900">
