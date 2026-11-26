@@ -115,10 +115,11 @@ export default function ChatWindow({
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
 
-  // Edit message state
+  // Edit & Delete message state
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
 
@@ -310,17 +311,24 @@ export default function ChatWindow({
     }
   };
 
-  // Handle message delete
-  const handleDelete = async (messageId: string) => {
-    if (deletingMessageId) return;
-    if (!confirm('Are you sure you want to delete this message?')) return;
-    setDeletingMessageId(messageId);
+  // Open in-app delete confirmation modal
+  const handleRequestDelete = (messageId: string) => {
     setActiveMenuMessageId(null);
+    setConfirmDeleteMessageId(messageId);
+  };
+
+  // Confirm message delete
+  const handleConfirmDelete = async () => {
+    if (!confirmDeleteMessageId || deletingMessageId) return;
+    const messageId = confirmDeleteMessageId;
+    setDeletingMessageId(messageId);
     setErrorMessage(null);
     try {
       await onDeleteMessage(messageId);
+      setConfirmDeleteMessageId(null);
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'Error deleting message');
+      setConfirmDeleteMessageId(null);
     } finally {
       setDeletingMessageId(null);
     }
@@ -917,7 +925,7 @@ export default function ChatWindow({
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDelete(msg.id)}
+                                    onClick={() => handleRequestDelete(msg.id)}
                                     className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 cursor-pointer"
                                   >
                                     <Trash2 className="w-3 h-3 text-rose-500" />
@@ -1114,6 +1122,60 @@ export default function ChatWindow({
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+          </div>
+        )}
+        {/* 5b. In-App Delete Message Confirmation Modal */}
+        {confirmDeleteMessageId && (
+          <div
+            onClick={() => {
+              if (!deletingMessageId) setConfirmDeleteMessageId(null);
+            }}
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-in fade-in duration-150"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-white rounded-2xl border border-[#e4ebe4] shadow-xl p-5 space-y-4"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-semibold text-[#001e00]">
+                    Delete message?
+                  </h4>
+                  <p className="text-xs text-[#5e6d55] leading-relaxed">
+                    This message will be deleted for everyone in this conversation. This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteMessageId(null)}
+                  disabled={Boolean(deletingMessageId)}
+                  className="px-4 py-1.5 text-xs font-medium rounded-full border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={Boolean(deletingMessageId)}
+                  className="px-4 py-1.5 text-xs font-medium rounded-full bg-rose-600 text-white hover:bg-rose-700 transition-colors cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-60"
+                >
+                  {deletingMessageId ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Delete</span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}
