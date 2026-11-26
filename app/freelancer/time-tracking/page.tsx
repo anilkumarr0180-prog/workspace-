@@ -9,7 +9,7 @@ import {
   discardTimerSession,
   FreelancerTimeDashboardData,
 } from '@/lib/actions/time-tracking';
-import { Contract } from '@/lib/types';
+import { Contract, TimeEntry } from '@/lib/types';
 import {
   Play,
   Square,
@@ -60,6 +60,7 @@ export default function FreelancerTimeTrackingPage() {
 
   // Timesheets state
   const [timesheets, setTimesheets] = useState<TimesheetWithDetails[]>([]);
+  const [unbilledEntries, setUnbilledEntries] = useState<TimeEntry[]>([]);
   const [activeMainTab, setActiveMainTab] = useState<'timer' | 'diary' | 'timesheets'>('timer');
   const [submittingTimesheetId, setSubmittingTimesheetId] = useState<string | null>(null);
   const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null);
@@ -159,6 +160,7 @@ export default function FreelancerTimeTrackingPage() {
 
       if (timesheetRes.success) {
         setTimesheets(timesheetRes.timesheets);
+        setUnbilledEntries(timesheetRes.unbilledEntries || []);
       }
     } catch {
       showError('Unable to connect to database. Please check your network.');
@@ -217,6 +219,7 @@ export default function FreelancerTimeTrackingPage() {
 
         if (timesheetRes.success) {
           setTimesheets(timesheetRes.timesheets);
+          setUnbilledEntries(timesheetRes.unbilledEntries || []);
         }
       } catch {
         if (isMounted) showError('Unable to connect to database. Please check your network.');
@@ -1315,6 +1318,63 @@ export default function FreelancerTimeTrackingPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {unbilledEntries.length > 0 && (
+            <div className="bg-amber-50/50 rounded-2xl border border-amber-200/80 p-5 sm:p-6 space-y-3 mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Unbilled Hours (Logged After Paid Cycle)
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-3xs font-extrabold uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                      Unbilled • Not Yet Invoiced
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Logged after a weekly timesheet was already paid. Kept separate from settled invoices.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-slate-800 font-mono">
+                  {unbilledEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0)} mins
+                </span>
+              </div>
+
+              <div className="overflow-x-auto bg-white rounded-xl border border-amber-200/60">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                    <tr>
+                      <th className="py-2.5 px-3 font-semibold">Date &amp; Time</th>
+                      <th className="py-2.5 px-3 font-semibold">Duration</th>
+                      <th className="py-2.5 px-3 font-semibold">Memo</th>
+                      <th className="py-2.5 px-3 font-semibold">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {unbilledEntries.map((e) => (
+                      <tr key={e.id}>
+                        <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                          {new Date(e.startTime).toLocaleDateString()}{' '}
+                          <span className="text-slate-400">
+                            ({new Date(e.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(e.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-slate-900">
+                          {formatDurationMinutes(e.durationMinutes)}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{e.memo || 'No memo'}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded text-3xs font-semibold uppercase bg-slate-100 text-slate-600">
+                            {e.source}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

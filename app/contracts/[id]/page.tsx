@@ -36,6 +36,8 @@ import {
   disputeTimesheet,
   createTimesheetRazorpayOrder,
   verifyAndPayTimesheet,
+  cancelTimesheetPaymentAttempt,
+  getContractTimesheets,
   TimesheetWithDetails,
 } from '@/lib/actions/timesheet-billing';
 import {
@@ -43,6 +45,7 @@ import {
   ContractMilestone,
   PaymentLedgerEntry,
   DeliveryAttachment,
+  TimeEntry,
 } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -189,6 +192,7 @@ function ContractDetailsContent() {
 
   // Hourly Timesheet state
   const [contractTimesheets, setContractTimesheets] = useState<TimesheetWithDetails[]>([]);
+  const [unbilledEntries, setUnbilledEntries] = useState<TimeEntry[]>([]);
   const [isApprovingTimesheetId, setIsApprovingTimesheetId] = useState<string | null>(null);
   const [isSubmittingTimesheetId, setIsSubmittingTimesheetId] = useState<string | null>(null);
   const [isPayingTimesheetId, setIsPayingTimesheetId] = useState<string | null>(null);
@@ -341,6 +345,13 @@ function ContractDetailsContent() {
       setLedgerEntries(res.ledgerEntries || []);
       if (res.timesheets) {
         setContractTimesheets(res.timesheets);
+      }
+      if (res.contract.contractType === 'hourly') {
+        const tsDetails = await getContractTimesheets(contractId);
+        if (tsDetails.success) {
+          setContractTimesheets(tsDetails.timesheets);
+          setUnbilledEntries(tsDetails.unbilledEntries || []);
+        }
       }
       setError(null);
 
@@ -852,6 +863,9 @@ function ContractDetailsContent() {
         },
         modal: {
           ondismiss: function () {
+            if (orderRes.orderId) {
+              cancelTimesheetPaymentAttempt(orderRes.orderId).catch(() => {});
+            }
             setIsPayingTimesheetId(null);
           },
         },
@@ -2003,6 +2017,63 @@ function ContractDetailsContent() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {unbilledEntries.length > 0 && (
+                  <div className="bg-amber-50/50 rounded-2xl border border-amber-200/80 p-5 sm:p-6 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            Unbilled Hours (Logged After Paid Cycle)
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                            Unbilled • Not Yet Invoiced
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          These sessions were logged after the weekly timesheet was paid and remain separate from settled invoices.
+                        </p>
+                      </div>
+                      <span className="text-xs font-bold text-slate-800 font-mono">
+                        {unbilledEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0)} mins total
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto bg-white rounded-xl border border-amber-200/60">
+                      <table className="w-full text-left text-xs">
+                        <thead className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                          <tr>
+                            <th className="py-2.5 px-3 font-semibold">Date &amp; Time</th>
+                            <th className="py-2.5 px-3 font-semibold">Duration</th>
+                            <th className="py-2.5 px-3 font-semibold">Memo</th>
+                            <th className="py-2.5 px-3 font-semibold">Source</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {unbilledEntries.map((entry) => (
+                            <tr key={entry.id}>
+                              <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                                {new Date(entry.startTime).toLocaleDateString()}{' '}
+                                <span className="text-slate-400">
+                                  ({new Date(entry.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(entry.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-slate-900 font-mono">
+                                {Math.floor(entry.durationMinutes / 60)}h {entry.durationMinutes % 60}m
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600">{entry.memo || 'No memo'}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-slate-100 text-slate-600">
+                                  {entry.source}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3297,6 +3368,9 @@ function ContractDetailsContent() {
         <StripeCheckoutModal
           isOpen={isStripeModalOpen}
           onClose={() => {
+            if (selectedTimesheetForPay && stripeCheckoutData?.paymentIntentId) {
+              cancelTimesheetPaymentAttempt(stripeCheckoutData.paymentIntentId).catch(() => {});
+            }
             setIsStripeModalOpen(false);
             setStripeCheckoutData(null);
             setSelectedTimesheetForPay(null);

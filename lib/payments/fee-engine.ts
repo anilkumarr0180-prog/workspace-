@@ -1,4 +1,4 @@
-import { CurrencyCode, PlatformFeeBreakdown } from './types';
+import type { CurrencyCode, PlatformFeeBreakdown } from './types';
 
 /**
  * Platform Fee Engine

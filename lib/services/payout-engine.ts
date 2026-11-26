@@ -296,7 +296,50 @@ export class PayoutEngine {
     }
 
     const grossAmount = Number(timesheet.total_amount);
-    const currency = 'INR';
+
+    // Resolve authoritative payment currency from verified ledger or captured payment_attempt (never hardcode INR)
+    let resolvedCurrency: 'INR' | 'USD' | null = null;
+    const { data: ledgerRows } = await adminDb
+      .from('payment_ledger')
+      .select('currency, metadata, status')
+      .eq('contract_id', timesheet.contract_id)
+      .in('status', ['succeeded', 'captured', 'completed'])
+      .order('created_at', { ascending: false });
+
+    for (const row of ledgerRows || []) {
+      const meta = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>;
+      if (meta.timesheet_id === timesheet.id && (row.currency === 'USD' || row.currency === 'INR')) {
+        resolvedCurrency = row.currency;
+        break;
+      }
+    }
+
+    if (!resolvedCurrency) {
+      const { data: attemptRows } = await adminDb
+        .from('payment_attempts')
+        .select('currency, metadata, status')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded'])
+        .order('created_at', { ascending: false });
+
+      for (const att of attemptRows || []) {
+        const meta = (att.metadata && typeof att.metadata === 'object' ? att.metadata : {}) as Record<string, unknown>;
+        if (meta.timesheet_id === timesheet.id && (att.currency === 'USD' || att.currency === 'INR')) {
+          resolvedCurrency = att.currency;
+          break;
+        }
+      }
+    }
+
+    if (!resolvedCurrency) {
+      return {
+        success: false,
+        error: 'Unable to determine verified payment currency for timesheet payout.',
+        code: 'CURRENCY_UNRESOLVED',
+      };
+    }
+
+    const currency = resolvedCurrency;
 
     // 2. Eligibility verification
     const eligibility = await this.checkFreelancerPayoutEligibility(timesheet.freelancer_id);

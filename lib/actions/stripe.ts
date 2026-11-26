@@ -5,6 +5,11 @@ import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getStripeClient, isStripeConfigured, getStripePublishableKey } from '@/lib/stripe';
 import { payoutEngine } from '@/lib/services/payout-engine';
 import { createNotification } from '@/lib/actions/notifications';
+import {
+  calculateTimesheetPaidAmount,
+  isClientAuthorizedForTimesheet,
+  validateStripeTimesheetCapture,
+} from '@/lib/payments/timesheet-accounting';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -507,55 +512,31 @@ export async function createTimesheetStripePaymentIntent(
       return { success: false, error: 'Timesheet has no billable amount to charge.', code: 'ZERO_AMOUNT' };
     }
 
-    // Query payment_ledger using admin client so RLS never hides settled amounts
+    // Query payment_ledger & payment_attempts for THIS specific timesheet/week only
     const adminClient = getAdminSupabaseClient();
-    const { data: settledLedger } = await adminClient
-      .from('payment_ledger')
-      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
-      .eq('contract_id', timesheet.contract_id)
-      .in('status', ['succeeded', 'captured', 'completed']);
-
-    let alreadyPaid = 0;
-    for (const r of settledLedger || []) {
-      const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
-      const tsId = meta.timesheet_id as string | undefined;
-      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
-
-      if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
-        alreadyPaid += Number(r.amount || 0);
-      }
-    }
-
-    // Fallback: if ledger did not match by timesheet_id or week, check payment_attempts or total settled
-    if (alreadyPaid === 0) {
-      const { data: settledAttempts } = await adminClient
-        .from('payment_attempts')
-        .select('id, contract_id, amount, currency, status, metadata, created_at')
+    const [{ data: settledLedger }, { data: settledAttempts }] = await Promise.all([
+      adminClient
+        .from('payment_ledger')
+        .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
         .eq('contract_id', timesheet.contract_id)
-        .in('status', ['captured', 'succeeded']);
+        .in('status', ['succeeded', 'captured', 'completed']),
+      adminClient
+        .from('payment_attempts')
+        .select('id, contract_id, billing_type, amount, currency, status, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded']),
+    ]);
 
-      for (const a of settledAttempts || []) {
-        const meta = (a.metadata && typeof a.metadata === 'object' ? a.metadata : {}) as Record<string, unknown>;
-        const tsId = meta.timesheet_id as string | undefined;
-        const weekKey = meta.week_start_date as string | undefined;
-        if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
-          alreadyPaid += Number(a.amount || 0);
-        }
-      }
-
-      if (alreadyPaid === 0 && (settledLedger || []).length > 0) {
-        const totalContractSettled = (settledLedger || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-        if (totalContractSettled > 0) {
-          alreadyPaid = totalContractSettled;
-        }
-      }
-    }
+    let alreadyPaid = calculateTimesheetPaidAmount({
+      timesheetId: timesheet.id,
+      weekStartDate: timesheet.week_start_date,
+      ledgerRows: settledLedger || [],
+      attemptRows: settledAttempts || [],
+    });
 
     if (timesheet.status === 'paid' && alreadyPaid === 0) {
       alreadyPaid = totalAmount;
     }
-    alreadyPaid = Math.round(alreadyPaid * 100) / 100;
     const balanceDue = timesheet.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - alreadyPaid) * 100) / 100);
 
     if (timesheet.status === 'paid' || balanceDue <= 0.01) {
@@ -567,7 +548,7 @@ export async function createTimesheetStripePaymentIntent(
     }
 
     // Allow payment if status is approved, or if status is 'paid'/'open' with active balance due
-    const isPayableStatus = timesheet.status === 'approved' || (['paid', 'open'].includes(timesheet.status) && balanceDue > 0.01);
+    const isPayableStatus = timesheet.status === 'approved' || (['open'].includes(timesheet.status) && balanceDue > 0.01);
     if (!isPayableStatus) {
       return {
         success: false,
@@ -576,51 +557,100 @@ export async function createTimesheetStripePaymentIntent(
       };
     }
 
-    // If timesheet was previously marked 'paid' in DB but new hours created a balance due, sync status to 'approved'
-    if (timesheet.status === 'paid' && balanceDue > 0.01) {
-      try {
-        const adminClient = getAdminSupabaseClient();
-        await adminClient
-          .from('timesheets')
-          .update({ status: 'approved', updated_at: new Date().toISOString() })
-          .eq('id', timesheet.id);
-      } catch (syncErr) {
-        console.warn('Failed to sync timesheet status to approved:', syncErr);
-      }
-    }
-
     const amountSubunits = Math.round(balanceDue * 100);
     const currency = 'usd';
+    const tempOrderId = `lock_stripe_${timesheet.id.slice(0, 8)}_${Date.now()}`;
+
+    // Atomically acquire single active payment attempt lock for this timesheet (fail-closed)
+    const { data: lockRow, error: lockError } = await adminClient.rpc('acquire_timesheet_payment_attempt', {
+      p_timesheet_id: timesheet.id,
+      p_client_id: user.id,
+      p_provider: 'stripe',
+      p_environment: process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'live' : 'test',
+      p_amount: balanceDue,
+      p_amount_subunits: amountSubunits,
+      p_currency: 'USD',
+      p_temp_order_id: tempOrderId,
+      p_metadata: {
+        provider: 'stripe',
+        week_start_date: timesheet.week_start_date,
+        timesheet_id: timesheet.id,
+      },
+    });
+
+    if (lockError || !lockRow?.id) {
+      if (lockError?.code === '23505') {
+        return {
+          success: false,
+          error: 'Another payment attempt is already in progress for this timesheet. Please complete it or wait for it to expire.',
+          code: 'PAYMENT_ATTEMPT_IN_PROGRESS',
+        };
+      }
+      console.error('[STRIPE TIMESHEET LOCK FAILED]:', lockError?.message || 'Missing lock row');
+      return {
+        success: false,
+        error: 'Unable to initialize secure payment lock. Please try again shortly.',
+        code: 'PAYMENT_LOCK_UNAVAILABLE',
+      };
+    }
+
+    const lockedAttemptId: string = lockRow.id;
 
     // 4. Initialize Stripe and create PaymentIntent in USD
     const stripe = getStripeClient();
     const publishableKey = getStripePublishableKey();
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountSubunits,
-      currency,
-      metadata: {
-        timesheet_id: timesheet.id,
-        contract_id: timesheet.contract_id,
-        client_id: user.id,
-        freelancer_id: timesheet.freelancer_id,
-        platform: 'Workspace',
-        provider: 'stripe',
-        type: 'hourly_timesheet',
-        week_start_date: timesheet.week_start_date,
-        total_timesheet_amount: totalAmount.toString(),
-        prior_paid_amount: alreadyPaid.toString(),
-        balance_due: balanceDue.toString(),
-      },
-      description: alreadyPaid > 0
-        ? `Hourly Invoice Balance: Week of ${timesheet.week_start_date} ($${balanceDue.toFixed(2)} due after $${alreadyPaid.toFixed(2)} prior payment)`
-        : `Hourly Invoice Payment: Week of ${timesheet.week_start_date} (${rawContract?.title || 'Contract'})`,
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    });
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: amountSubunits,
+        currency,
+        metadata: {
+          timesheet_id: timesheet.id,
+          contract_id: timesheet.contract_id,
+          client_id: user.id,
+          freelancer_id: timesheet.freelancer_id,
+          platform: 'Workspace',
+          provider: 'stripe',
+          type: 'hourly_timesheet',
+          week_start_date: timesheet.week_start_date,
+          total_timesheet_amount: totalAmount.toString(),
+          prior_paid_amount: alreadyPaid.toString(),
+          balance_due: balanceDue.toString(),
+        },
+        description: alreadyPaid > 0
+          ? `Hourly Invoice Balance: Week of ${timesheet.week_start_date} ($${balanceDue.toFixed(2)} due after $${alreadyPaid.toFixed(2)} prior payment)`
+          : `Hourly Invoice Payment: Week of ${timesheet.week_start_date} (${rawContract?.title || 'Contract'})`,
+        automatic_payment_methods: {
+          enabled: true,
+        },
+      });
+    } catch (stripeErr) {
+      if (lockedAttemptId) {
+        await adminClient
+          .from('payment_attempts')
+          .update({
+            status: 'failed',
+            error_code: 'STRIPE_INTENT_CREATE_FAILED',
+            error_description: stripeErr instanceof Error ? stripeErr.message : 'Stripe PaymentIntent creation failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', lockedAttemptId);
+      }
+      throw stripeErr;
+    }
 
     if (!paymentIntent.client_secret) {
+      if (lockedAttemptId) {
+        await adminClient
+          .from('payment_attempts')
+          .update({
+            status: 'failed',
+            error_code: 'STRIPE_CLIENT_SECRET_MISSING',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', lockedAttemptId);
+      }
       return {
         success: false,
         error: 'Stripe failed to return client_secret for checkout.',
@@ -628,32 +658,51 @@ export async function createTimesheetStripePaymentIntent(
       };
     }
 
-    // 5. Persist record in payment_attempts
-    try {
-      const adminClient = getAdminSupabaseClient();
-      await adminClient.from('payment_attempts').insert({
-        contract_id: timesheet.contract_id,
-        billing_type: 'timesheet',
-        client_id: user.id,
-        provider: 'stripe',
-        environment: paymentIntent.livemode ? 'live' : 'test',
-        razorpay_order_id: paymentIntent.id,
-        amount: balanceDue,
-        amount_subunits: amountSubunits,
-        currency: 'USD',
-        status: 'created',
-        metadata: {
+    // 5. Finalize record in payment_attempts with real PaymentIntent ID
+    if (lockedAttemptId) {
+      await adminClient
+        .from('payment_attempts')
+        .update({
+          razorpay_order_id: paymentIntent.id,
+          environment: paymentIntent.livemode ? 'live' : 'test',
+          metadata: {
+            provider: 'stripe',
+            stripe_payment_intent_id: paymentIntent.id,
+            receipt: `stripe_${paymentIntent.id.slice(-12)}`,
+            week_start_date: timesheet.week_start_date,
+            prior_paid_amount: alreadyPaid,
+            balance_due: balanceDue,
+            timesheet_id: timesheet.id,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', lockedAttemptId);
+    } else {
+      try {
+        await adminClient.from('payment_attempts').insert({
+          contract_id: timesheet.contract_id,
+          billing_type: 'timesheet',
+          client_id: user.id,
           provider: 'stripe',
-          stripe_payment_intent_id: paymentIntent.id,
-          receipt: `stripe_${paymentIntent.id.slice(-12)}`,
-          week_start_date: timesheet.week_start_date,
-          prior_paid_amount: alreadyPaid,
-          balance_due: balanceDue,
-          timesheet_id: timesheet.id,
-        },
-      });
-    } catch (attemptErr) {
-      console.warn('[STRIPE TIMESHEET ATTEMPT PERSIST NOTICE]:', attemptErr);
+          environment: paymentIntent.livemode ? 'live' : 'test',
+          razorpay_order_id: paymentIntent.id,
+          amount: balanceDue,
+          amount_subunits: amountSubunits,
+          currency: 'USD',
+          status: 'created',
+          metadata: {
+            provider: 'stripe',
+            stripe_payment_intent_id: paymentIntent.id,
+            receipt: `stripe_${paymentIntent.id.slice(-12)}`,
+            week_start_date: timesheet.week_start_date,
+            prior_paid_amount: alreadyPaid,
+            balance_due: balanceDue,
+            timesheet_id: timesheet.id,
+          },
+        });
+      } catch (attemptErr) {
+        console.warn('[STRIPE TIMESHEET ATTEMPT PERSIST NOTICE]:', attemptErr);
+      }
     }
 
     return {
@@ -724,11 +773,20 @@ export async function verifyAndPayTimesheetStripe(
       };
     }
 
-    // Fetch timesheet
+    // Fetch timesheet & contract for strict ownership verification
     const adminClient = getAdminSupabaseClient();
     const { data: timesheet, error: timesheetError } = await adminClient
       .from('timesheets')
-      .select('id, contract_id, client_id, freelancer_id, total_amount, status, week_start_date')
+      .select(`
+        id,
+        contract_id,
+        client_id,
+        freelancer_id,
+        total_amount,
+        status,
+        week_start_date,
+        contracts:contract_id ( id, client_id, company_id )
+      `)
       .eq('id', input.timesheetId.trim())
       .single();
 
@@ -736,31 +794,92 @@ export async function verifyAndPayTimesheetStripe(
       return { success: false, error: 'Timesheet not found.', code: 'NOT_FOUND' };
     }
 
-    // Fetch prior settled payments on this contract to calculate total paid
-    const { data: priorSettled } = await adminClient
-      .from('payment_ledger')
-      .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
-      .eq('contract_id', timesheet.contract_id)
-      .in('status', ['succeeded', 'captured', 'completed']);
+    const rawContract = Array.isArray(timesheet.contracts) ? timesheet.contracts[0] : timesheet.contracts;
+    let companyMemberRole: string | null = null;
+    if (timesheet.client_id !== user.id && rawContract?.client_id !== user.id && rawContract?.company_id) {
+      const { data: membership } = await adminClient
+        .from('company_members')
+        .select('role')
+        .eq('company_id', rawContract.company_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      companyMemberRole = membership?.role || null;
+    }
 
-    let priorPaidTotal = 0;
-    for (const r of priorSettled || []) {
+    if (
+      !isClientAuthorizedForTimesheet({
+        userId: user.id,
+        timesheetClientId: timesheet.client_id,
+        contractClientId: rawContract?.client_id,
+        companyMemberRole,
+      })
+    ) {
+      return { success: false, error: 'Unauthorized: Only the client can verify and pay this timesheet.', code: 'FORBIDDEN' };
+    }
+
+    // Fetch prior settled payments for THIS specific timesheet/week only
+    const [{ data: priorSettled }, { data: priorAttempts }] = await Promise.all([
+      adminClient
+        .from('payment_ledger')
+        .select('id, contract_id, amount, currency, event_type, status, description, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['succeeded', 'captured', 'completed']),
+      adminClient
+        .from('payment_attempts')
+        .select('id, contract_id, billing_type, amount, currency, status, metadata, created_at')
+        .eq('contract_id', timesheet.contract_id)
+        .in('status', ['captured', 'succeeded']),
+    ]);
+
+    // Idempotency check: if this PaymentIntent was already recorded in payment_ledger or timesheet is paid
+    const alreadyRecordedIntent = (priorSettled || []).some((r) => {
       const meta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
-      const tsId = meta.timesheet_id as string | undefined;
-      const weekMatch = typeof r.description === 'string' ? r.description.match(/\b\d{4}-\d{2}-\d{2}\b/) : null;
-      const weekKey = weekMatch ? weekMatch[0] : (meta.week_start_date as string | undefined);
-      if (tsId === timesheet.id || weekKey === timesheet.week_start_date) {
-        priorPaidTotal += Number(r.amount || 0);
-      }
-    }
-    if (priorPaidTotal === 0 && (priorSettled || []).length > 0) {
-      priorPaidTotal = (priorSettled || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    }
-    priorPaidTotal = Math.round(priorPaidTotal * 100) / 100;
+      return meta.stripe_payment_intent_id === paymentIntent.id;
+    });
 
-    const capturedDollars = (paymentIntent.amount_received || paymentIntent.amount) / 100;
-    const totalPaidAfterThis = Math.round((priorPaidTotal + capturedDollars) * 100) / 100;
+    if (timesheet.status === 'paid' || alreadyRecordedIntent) {
+      return {
+        success: true,
+        timesheet: {
+          id: timesheet.id,
+          contractId: timesheet.contract_id,
+          clientId: timesheet.client_id,
+          freelancerId: timesheet.freelancer_id,
+          totalAmount: Number(timesheet.total_amount),
+          status: 'paid',
+          weekStartDate: timesheet.week_start_date,
+        },
+      };
+    }
+
+    const priorPaidTotal = calculateTimesheetPaidAmount({
+      timesheetId: timesheet.id,
+      weekStartDate: timesheet.week_start_date,
+      ledgerRows: priorSettled || [],
+      attemptRows: priorAttempts || [],
+    });
+
     const totalTimesheetAmount = Number(timesheet.total_amount);
+    const expectedBalanceDue = Math.max(0, Math.round((totalTimesheetAmount - priorPaidTotal) * 100) / 100);
+    const capturedCents = paymentIntent.amount_received || paymentIntent.amount;
+
+    const captureValidation = validateStripeTimesheetCapture({
+      capturedCents,
+      capturedCurrency: paymentIntent.currency,
+      expectedBalanceDue,
+      expectedCurrency: 'USD',
+    });
+
+    if (!captureValidation.valid) {
+      return {
+        success: false,
+        error: captureValidation.error || 'Captured payment amount or currency mismatch.',
+        code: captureValidation.code || 'PAYMENT_AMOUNT_MISMATCH',
+      };
+    }
+
+    const capturedDollars = capturedCents / 100;
+    const totalPaidAfterThis = Math.round((priorPaidTotal + capturedDollars) * 100) / 100;
     const isFullySettled = totalPaidAfterThis >= (totalTimesheetAmount - 0.01);
 
     const newTimesheetStatus = isFullySettled ? 'paid' : 'approved';
