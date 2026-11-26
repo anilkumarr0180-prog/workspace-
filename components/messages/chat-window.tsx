@@ -693,127 +693,43 @@ export default function ChatWindow({
 
                   <div
                     id={`message-item-${msg.id}`}
-                    className="group relative flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-[#f9fbf9] transition-colors"
+                    className={`flex flex-col group relative py-1 ${isMe ? 'items-end' : 'items-start'}`}
                   >
-                    {/* Sender Avatar */}
-                    <div className="shrink-0 mt-0.5">
-                      {!isMe ? (
-                        other?.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={other.avatarUrl}
-                            alt=""
-                            className="w-8 h-8 rounded-full object-cover border border-[#e4ebe4]"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-[#677d5c] text-white font-semibold flex items-center justify-center text-[11px]">
-                            {initials}
-                          </div>
-                        )
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-[#108a00] text-white font-semibold flex items-center justify-center text-[10px]">
-                          You
+                    <div
+                      className={`flex items-end gap-2 max-w-[85%] sm:max-w-[72%] ${
+                        isMe ? 'flex-row-reverse' : 'flex-row'
+                      }`}
+                    >
+                      {/* Sender Avatar for receiver's messages */}
+                      {!isMe && (
+                        <div className="shrink-0 mb-1">
+                          {other?.avatarUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={other.avatarUrl}
+                              alt=""
+                              className="w-7 h-7 rounded-full object-cover border border-[#e4ebe4]"
+                            />
+                          ) : (
+                            <div className="w-7 h-7 rounded-full bg-[#677d5c] text-white font-semibold flex items-center justify-center text-[10px]">
+                              {initials}
+                            </div>
+                          )}
                         </div>
                       )}
-                    </div>
 
-                    {/* Message Body Column */}
-                    <div className="flex-1 min-w-0">
-                      {/* Header: Sender Name + Timestamp + Read Receipt */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[13.5px] font-semibold text-[#001e00] truncate">
-                            {isMe ? 'You' : other?.fullName || 'Participant'}
-                          </span>
-                          <span className="text-[11.5px] text-[#5e6d55] font-normal shrink-0">
-                            {formatMessageTime(msg.createdAt)}
-                          </span>
-                          {msg.editedAt && !isDeleted && (
-                            <span className="text-[11px] italic text-[#5e6d55]">edited</span>
-                          )}
-                          {isMe && !isDeleted && (
-                            <span
-                              className="inline-flex items-center"
-                              title={isOptimistic ? 'Sending...' : isRead ? 'Read' : 'Delivered'}
-                            >
-                              {isOptimistic ? (
-                                <Loader2 className="w-3 h-3 animate-spin text-[#5e6d55]" />
-                              ) : isRead ? (
-                                <CheckCheck className="w-3.5 h-3.5 text-[#108a00] stroke-[2.2]" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5 text-[#5e6d55] stroke-[2]" />
-                              )}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Message Action Options (Copy, Edit, Delete) on Hover */}
-                        {!isDeleted && !isOptimistic && editingMessageId !== msg.id && (
-                          <div
-                            className={`relative transition-opacity flex items-center shrink-0 ${
-                              activeMenuMessageId === msg.id
-                                ? 'opacity-100'
-                                : 'opacity-0 group-hover:opacity-100'
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveMenuMessageId(
-                                  activeMenuMessageId === msg.id ? null : msg.id
-                                )
-                              }
-                              className="p-1 rounded-full text-[#5e6d55] hover:text-[#001e00] hover:bg-[#e4ebe4]/60 cursor-pointer"
-                              title="Message options"
-                            >
-                              <MoreVertical className="w-3.5 h-3.5" />
-                            </button>
-
-                            {activeMenuMessageId === msg.id && (
-                              <div className="absolute right-0 top-full mt-1 w-28 bg-white border border-[#d5e0d5] rounded-xl shadow-lg py-1 z-20 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyMessage(msg.id, msg.content)}
-                                  className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
-                                >
-                                  <Copy className="w-3 h-3 text-[#5e6d55]" />
-                                  <span>Copy</span>
-                                </button>
-
-                                {isMe && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingMessageId(msg.id);
-                                        setEditContent(msg.content);
-                                        setActiveMenuMessageId(null);
-                                      }}
-                                      className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                      <Edit2 className="w-3 h-3 text-[#5e6d55]" />
-                                      <span>Edit</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDelete(msg.id)}
-                                      className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3 h-3 text-rose-500" />
-                                      <span>Delete</span>
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Message Content */}
-                      <div className="mt-0.5">
+                      {/* Message Bubble */}
+                      <div
+                        className={`relative rounded-2xl px-4 py-2.5 transition-all ${
+                          isDeleted
+                            ? 'bg-[#f2f7f2] text-[#5e6d55] border border-[#e4ebe4] italic'
+                            : isMe
+                            ? 'bg-[#108a00] text-white rounded-br-xs shadow-2xs'
+                            : 'bg-[#f2f7f2] text-[#001e00] border border-[#e4ebe4] rounded-bl-xs'
+                        }`}
+                      >
                         {isDeleted ? (
-                          <div className="flex items-center gap-1.5 text-xs italic text-[#9aaa97]">
+                          <div className="flex items-center gap-1.5 text-xs italic text-[#5e6d55]">
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>This message was deleted</span>
                           </div>
@@ -821,7 +737,7 @@ export default function ChatWindow({
                           <>
                             {/* Image Attachment Rendering */}
                             {msg.messageType === 'image' && msg.attachmentUrl && (
-                              <div className="my-1.5 rounded-xl overflow-hidden border border-[#d5e0d5] inline-block">
+                              <div className="mb-1.5 rounded-xl overflow-hidden border border-black/10 inline-block">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={msg.attachmentUrl}
@@ -834,7 +750,7 @@ export default function ChatWindow({
 
                             {/* File Document Attachment Rendering */}
                             {msg.messageType === 'file' && (
-                              <div className="flex items-center gap-3 p-3 rounded-xl my-1.5 text-xs border border-[#d5e0d5] bg-white max-w-sm">
+                              <div className="flex items-center gap-3 p-3 rounded-xl my-1 text-xs border border-[#d5e0d5] bg-white text-[#001e00] max-w-sm">
                                 <div className="w-9 h-9 rounded-lg bg-[#f2f7f2] text-[#108a00] flex items-center justify-center shrink-0">
                                   <FileText className="w-5 h-5" />
                                 </div>
@@ -863,7 +779,7 @@ export default function ChatWindow({
 
                             {/* Text Message Content */}
                             {editingMessageId === msg.id ? (
-                              <div className="space-y-2 max-w-lg mt-1">
+                              <div className="space-y-2 min-w-[220px] sm:min-w-[280px] mt-0.5">
                                 <textarea
                                   value={editContent}
                                   onChange={(e) => setEditContent(e.target.value)}
@@ -889,7 +805,7 @@ export default function ChatWindow({
                                       setEditContent('');
                                     }}
                                     disabled={isSavingEdit}
-                                    className="px-3 py-1 text-xs rounded-full border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] disabled:opacity-50"
+                                    className="px-3 py-1 text-xs rounded-full bg-white border border-[#d5e0d5] text-[#001e00] hover:bg-[#f2f7f2] disabled:opacity-50"
                                   >
                                     Cancel
                                   </button>
@@ -897,7 +813,7 @@ export default function ChatWindow({
                                     type="button"
                                     onClick={() => handleSaveEdit(msg.id)}
                                     disabled={!editContent.trim() || isSavingEdit}
-                                    className="px-3 py-1 text-xs font-medium rounded-full bg-[#108a00] text-white hover:bg-[#14a800] disabled:opacity-50"
+                                    className="px-3 py-1 text-xs font-medium rounded-full bg-[#001e00] text-white hover:bg-[#183818] disabled:opacity-50"
                                   >
                                     {isSavingEdit ? 'Saving...' : 'Save'}
                                   </button>
@@ -905,14 +821,114 @@ export default function ChatWindow({
                               </div>
                             ) : (
                               msg.content && (
-                                <p className="text-[13.5px] leading-[1.5] text-[#001e00] whitespace-pre-wrap break-words font-normal">
+                                <p
+                                  className={`text-[13.5px] leading-[1.5] whitespace-pre-wrap break-words font-normal ${
+                                    isMe ? 'text-white' : 'text-[#001e00]'
+                                  }`}
+                                >
                                   {msg.content}
                                 </p>
                               )
                             )}
                           </>
                         )}
+
+                        {/* Timestamp + Edited + Read Receipt */}
+                        <div
+                          className={`flex items-center justify-end gap-1.5 mt-1 text-[10.5px] ${
+                            isDeleted
+                              ? 'text-[#5e6d55]'
+                              : isMe
+                              ? 'text-white/80'
+                              : 'text-[#5e6d55]'
+                          }`}
+                        >
+                          {msg.editedAt && !isDeleted && (
+                            <span className="italic">edited</span>
+                          )}
+                          <span>{formatMessageTime(msg.createdAt)}</span>
+                          {isMe && !isDeleted && (
+                            <span
+                              className="inline-flex items-center"
+                              title={isOptimistic ? 'Sending...' : isRead ? 'Read' : 'Delivered'}
+                            >
+                              {isOptimistic ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-white/80" />
+                              ) : isRead ? (
+                                <CheckCheck className="w-3.5 h-3.5 text-white stroke-[2.2]" />
+                              ) : (
+                                <Check className="w-3.5 h-3.5 text-white/80 stroke-[2]" />
+                              )}
+                            </span>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Message Action Options (Copy, Edit, Delete) */}
+                      {!isDeleted && !isOptimistic && editingMessageId !== msg.id && (
+                        <div
+                          className={`relative self-center transition-opacity flex items-center shrink-0 ${
+                            activeMenuMessageId === msg.id
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActiveMenuMessageId(
+                                activeMenuMessageId === msg.id ? null : msg.id
+                              )
+                            }
+                            className="p-1.5 rounded-full text-[#5e6d55] hover:text-[#001e00] hover:bg-[#e4ebe4]/60 cursor-pointer"
+                            title="Message options"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+
+                          {activeMenuMessageId === msg.id && (
+                            <div
+                              className={`absolute bottom-full mb-1 w-28 bg-white border border-[#d5e0d5] rounded-xl shadow-lg py-1 z-20 text-xs ${
+                                isMe ? 'right-0' : 'left-0'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMessage(msg.id, msg.content)}
+                                className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3 text-[#5e6d55]" />
+                                <span>Copy</span>
+                              </button>
+
+                              {isMe && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingMessageId(msg.id);
+                                      setEditContent(msg.content);
+                                      setActiveMenuMessageId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 text-left text-[#001e00] hover:bg-[#f2f7f2] flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3 h-3 text-[#5e6d55]" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDelete(msg.id)}
+                                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-rose-500" />
+                                    <span>Delete</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </React.Fragment>
