@@ -1104,7 +1104,13 @@ export async function sendMessage(input: SendMessageInput): Promise<SendMessageR
 export async function editMessage(
   messageId: string,
   newContent: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  content?: string;
+  editedAt?: string | null;
+  updatedAt?: string;
+  error?: string;
+}> {
   try {
     if (!UUID_REGEX.test(messageId)) {
       return { success: false, error: 'Invalid message ID' };
@@ -1148,17 +1154,24 @@ export async function editMessage(
       return { success: false, error: 'Cannot edit a deleted message' };
     }
 
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('messages')
       .update({ content: trimmed })
       .eq('id', messageId)
-      .eq('sender_id', user.id);
+      .eq('sender_id', user.id)
+      .select('id, content, edited_at, updated_at')
+      .single();
 
     if (updateError) {
       return { success: false, error: updateError.message };
     }
 
-    return { success: true };
+    return {
+      success: true,
+      content: updated?.content ?? trimmed,
+      editedAt: updated?.edited_at ?? new Date().toISOString(),
+      updatedAt: updated?.updated_at ?? new Date().toISOString(),
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to edit message';
     return { success: false, error: msg };
@@ -1170,7 +1183,12 @@ export async function editMessage(
  */
 export async function deleteMessage(
   messageId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  deletedAt?: string;
+  updatedAt?: string;
+  error?: string;
+}> {
   try {
     if (!UUID_REGEX.test(messageId)) {
       return { success: false, error: 'Invalid message ID' };
@@ -1200,17 +1218,24 @@ export async function deleteMessage(
       return { success: false, error: 'Unauthorized to delete this message' };
     }
 
-    const { error: updateError } = await supabase
+    const deletedAtIso = new Date().toISOString();
+    const { data: updated, error: updateError } = await supabase
       .from('messages')
-      .update({ deleted_at: new Date().toISOString() })
+      .update({ deleted_at: deletedAtIso })
       .eq('id', messageId)
-      .eq('sender_id', user.id);
+      .eq('sender_id', user.id)
+      .select('id, deleted_at, updated_at')
+      .single();
 
     if (updateError) {
       return { success: false, error: updateError.message };
     }
 
-    return { success: true };
+    return {
+      success: true,
+      deletedAt: updated?.deleted_at ?? deletedAtIso,
+      updatedAt: updated?.updated_at ?? deletedAtIso,
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete message';
     return { success: false, error: msg };

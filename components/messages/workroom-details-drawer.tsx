@@ -24,7 +24,7 @@ interface WorkroomDetailsDrawerProps {
   conversation: Conversation;
   messages: Message[];
   isOnline?: boolean;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 function formatFileSize(bytes?: number | null): string {
@@ -92,14 +92,16 @@ export default function WorkroomDetailsDrawer({
         <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
           <span>Workroom Details</span>
         </h3>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-          title="Close details"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            title="Close details"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* 2. Scrollable Body */}
