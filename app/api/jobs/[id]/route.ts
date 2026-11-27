@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJobById, updateJobStatus, updateJobBudget, withdrawJob } from '@/lib/actions/jobs';
+import { createClient } from '@/lib/supabase/server';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(
   request: NextRequest,
@@ -18,7 +21,51 @@ export async function GET(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ job, source });
+    let viewerContract: { id: string; status: string } | null = null;
+    let viewerProposal: { id: string; status: string } | null = null;
+
+    if (UUID_REGEX.test(id)) {
+      try {
+        const supabase = await createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (user) {
+          const [{ data: contractRow }, { data: proposalRow }] = await Promise.all([
+            supabase
+              .from('contracts')
+              .select('id, status')
+              .eq('job_id', id)
+              .eq('freelancer_id', user.id)
+              .in('status', ['active', 'pending_offer', 'paused', 'completed'])
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            supabase
+              .from('proposals')
+              .select('id, status')
+              .eq('job_id', id)
+              .eq('freelancer_id', user.id)
+              .not('status', 'in', '("withdrawn","rejected")')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+          ]);
+
+          if (contractRow) {
+            viewerContract = { id: contractRow.id, status: contractRow.status };
+          }
+          if (proposalRow) {
+            viewerProposal = { id: proposalRow.id, status: proposalRow.status };
+          }
+        }
+      } catch {
+        // Non-fatal: unauthenticated or fallback mode
+      }
+    }
+
+    return NextResponse.json({ job, source, viewerContract, viewerProposal });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to fetch job details';
     return NextResponse.json(

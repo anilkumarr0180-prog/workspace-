@@ -314,8 +314,9 @@ export async function POST(request: NextRequest) {
       result = res.data;
       rpcError = res.error;
 
-      // When timesheet funding succeeds, trigger automatic freelancer payout transfer
-      if (!res.error && timesheetId) {
+      // When timesheet funding settles the full timesheet, trigger automatic freelancer payout transfer
+      const tsWebhookResult = res.data as { status?: string } | null;
+      if (!res.error && timesheetId && tsWebhookResult?.status === 'paid') {
         payoutEngine.initiateTimesheetPayout(timesheetId).catch((payoutErr) => {
           console.error('Background payout transfer initiation failed for timesheet webhook:', payoutErr);
         });

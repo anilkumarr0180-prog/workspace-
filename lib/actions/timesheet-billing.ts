@@ -687,21 +687,29 @@ export async function verifyAndPayTimesheet(
 
     const expectedSubunits = Math.round(expectedBalanceDue * 100);
 
-    // Verify server-persisted payment attempt exists for this timesheet
+    // Validate Razorpay identifiers upfront
+    const cleanOrderId = razorpayOrderId?.trim() || '';
+    const cleanPaymentId = razorpayPaymentId?.trim() || '';
+    const cleanSignature = razorpaySignature?.trim() || '';
+    if (!cleanOrderId || !cleanPaymentId || !cleanSignature) {
+      return { success: false, error: 'Missing required Razorpay payment verification details.', code: 'INVALID_INPUT' };
+    }
+
+    // Verify server-persisted payment attempt exists for this timesheet (fail-closed)
     let rawAttempt: Record<string, unknown> | null = null;
     const { data: rpcAttempt, error: attemptError } = await supabase.rpc('get_payment_attempt_for_timesheet', {
       p_timesheet_id: timesheet.id,
-      p_razorpay_order_id: razorpayOrderId.trim(),
+      p_razorpay_order_id: cleanOrderId,
     });
 
     if (!attemptError && rpcAttempt) {
       rawAttempt = rpcAttempt;
     } else {
-      // Fallback query via adminClient if RPC is not present in schema cache
       const { data: directAttempt } = await adminClient
         .from('payment_attempts')
         .select('*')
-        .eq('razorpay_order_id', razorpayOrderId.trim())
+        .eq('timesheet_id', timesheet.id)
+        .eq('razorpay_order_id', cleanOrderId)
         .maybeSingle();
 
       if (directAttempt) {
@@ -710,15 +718,19 @@ export async function verifyAndPayTimesheet(
     }
 
     if (!rawAttempt) {
-      console.warn('No persisted payment attempt found in DB. Continuing with authoritative Razorpay verification.');
+      return {
+        success: false,
+        error: 'No matching payment attempt was found for this timesheet and order.',
+        code: 'PAYMENT_ATTEMPT_NOT_FOUND',
+      };
     }
 
     // Cryptographic & API verification
     const paymentProvider = getPaymentProvider();
     const verification = await paymentProvider.verifyPayment({
-      orderId: razorpayOrderId.trim(),
-      paymentId: razorpayPaymentId.trim(),
-      signature: razorpaySignature.trim(),
+      orderId: cleanOrderId,
+      paymentId: cleanPaymentId,
+      signature: cleanSignature,
       expectedAmountSubunits: expectedSubunits,
       expectedCurrency: 'INR',
     });
@@ -727,7 +739,7 @@ export async function verifyAndPayTimesheet(
       return { success: false, error: verification.error || 'Payment verification failed.', code: 'VERIFICATION_FAILED' };
     }
 
-    // Fund timesheet atomically in database via privileged service_role client
+    // Fund timesheet atomically in database via privileged service_role client (fail-closed, bounded deadlock retry)
     interface DbTimesheetRow {
       id: string;
       contract_id: string;
@@ -741,78 +753,59 @@ export async function verifyAndPayTimesheet(
       updated_at: string;
     }
     let paidTimesheet: DbTimesheetRow | null = null;
-    const { data: rpcPaid, error: fundError } = await adminClient.rpc('fund_timesheet_with_payment', {
-      p_timesheet_id: timesheet.id,
-      p_razorpay_payment_id: razorpayPaymentId.trim(),
-      p_razorpay_order_id: razorpayOrderId.trim(),
-      p_razorpay_signature: razorpaySignature.trim(),
-      p_amount_subunits: expectedSubunits,
-      p_currency: 'INR',
-      p_environment: paymentProvider.environment,
-      p_metadata: {
-        payment_verified_at: new Date().toISOString(),
-      },
-    });
+    let fundError: { code?: string; message?: string } | null = null;
+    const maxAttempts = 3;
 
-    if (!fundError && rpcPaid) {
-      paidTimesheet = rpcPaid;
-    } else {
-      // Fallback: update directly via adminClient if RPC is not yet registered
-      console.warn('fund_timesheet_with_payment RPC fallback triggered:', fundError?.message);
-      try {
-        await adminClient
-          .from('payment_attempts')
-          .update({
-            status: 'captured',
-            razorpay_payment_id: razorpayPaymentId.trim(),
-            razorpay_signature: razorpaySignature.trim(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('razorpay_order_id', razorpayOrderId.trim());
-      } catch (attErr) {
-        console.warn('Could not update payment_attempts in fallback:', attErr);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const { data: rpcPaid, error: rpcErr } = await adminClient.rpc('fund_timesheet_with_payment', {
+        p_timesheet_id: timesheet.id,
+        p_razorpay_payment_id: cleanPaymentId,
+        p_razorpay_order_id: cleanOrderId,
+        p_razorpay_signature: cleanSignature,
+        p_amount_subunits: expectedSubunits,
+        p_currency: 'INR',
+        p_environment: paymentProvider.environment,
+        p_metadata: {
+          payment_verified_at: new Date().toISOString(),
+        },
+      });
+
+      if (!rpcErr && rpcPaid) {
+        paidTimesheet = rpcPaid as DbTimesheetRow;
+        fundError = null;
+        break;
       }
 
-      const { data: updatedTimesheet, error: tsUpdateError } = await adminClient
-        .from('timesheets')
-        .update({
-          status: 'paid',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', timesheet.id)
-        .select()
-        .single();
-
-      if (!tsUpdateError && updatedTimesheet) {
-        paidTimesheet = updatedTimesheet;
-
-        try {
-          await adminClient.from('payment_ledger').insert({
-            contract_id: timesheet.contract_id,
-            from_user_id: timesheet.client_id,
-            to_user_id: null,
-            amount: expectedBalanceDue,
-            currency: 'INR',
-            event_type: 'hourly_funded',
-            status: 'succeeded',
-            description: `Hourly Invoice Payment for Week of ${timesheet.week_start_date}`,
-            metadata: {
-              timesheet_id: timesheet.id,
-              provider: 'razorpay',
-              environment: paymentProvider.environment,
-              razorpay_payment_id: razorpayPaymentId.trim(),
-              razorpay_order_id: razorpayOrderId.trim(),
-              payment_verified_at: new Date().toISOString(),
-            },
-          });
-        } catch (ledgerErr) {
-          console.warn('Could not insert payment_ledger in fallback:', ledgerErr);
-        }
+      fundError = rpcErr;
+      const isRetryableLockConflict = rpcErr?.code === '40P01' || rpcErr?.code === '40001';
+      if (!isRetryableLockConflict || attempt === maxAttempts) {
+        break;
       }
+
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
     }
 
     if (!paidTimesheet) {
-      return { success: false, error: `Failed to record timesheet payment: ${fundError?.message || 'DB Error'}`, code: 'FUND_FAILED' };
+      console.error('fund_timesheet_with_payment RPC failed:', fundError?.code, fundError?.message);
+      if (fundError?.code === '40P01' || fundError?.code === '40001') {
+        return {
+          success: false,
+          error: 'Payment verification is currently busy. Please retry in a moment.',
+          code: 'RETRYABLE_CONFLICT',
+        };
+      }
+      if (fundError?.code === '23503' || fundError?.code === '22023') {
+        return {
+          success: false,
+          error: 'Payment attempt could not be validated for this timesheet.',
+          code: 'PAYMENT_VALIDATION_FAILED',
+        };
+      }
+      return {
+        success: false,
+        error: 'Unable to finalize timesheet payment right now. Please try again.',
+        code: 'FUND_FAILED',
+      };
     }
 
     // Automatically trigger freelancer payout transfer via PayoutEngine
@@ -830,7 +823,7 @@ export async function verifyAndPayTimesheet(
         weekStartDate: paidTimesheet.week_start_date,
         totalMinutes: paidTimesheet.total_minutes,
         totalAmount: Number(paidTimesheet.total_amount),
-        status: 'paid',
+        status: paidTimesheet.status as TimesheetStatus,
         createdAt: paidTimesheet.created_at,
         updatedAt: paidTimesheet.updated_at,
       },
@@ -1092,18 +1085,11 @@ export async function getFreelancerTimesheets(
       const clObj = Array.isArray(row.client) ? row.client[0] : row.client;
 
       const totalAmount = Number(row.total_amount) || 0;
-      let matchedPaid = calculateTimesheetPaidAmount({
+      const matchedPaid = calculateTimesheetPaidAmount({
         timesheetId: row.id,
         weekStartDate: row.week_start_date,
         ledgerRows: (ledgerRows || []).filter((l) => l.contract_id === row.contract_id),
       });
-
-      // If the database row is already 'paid', it was authoritatively settled
-      if (row.status === 'paid') {
-        if (!matchedPaid || matchedPaid < totalAmount) {
-          matchedPaid = totalAmount;
-        }
-      }
 
       const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
       const balanceDue = row.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);
@@ -1286,19 +1272,12 @@ export async function getContractTimesheets(
       const flObj = Array.isArray(row.freelancer) ? row.freelancer[0] : row.freelancer;
 
       const totalAmount = Number(row.total_amount) || 0;
-      let matchedPaid = calculateTimesheetPaidAmount({
+      const matchedPaid = calculateTimesheetPaidAmount({
         timesheetId: row.id,
         weekStartDate: row.week_start_date,
         ledgerRows: (ledgerRows || []).filter((l) => l.contract_id === row.contract_id),
         attemptRows: attemptRows || [],
       });
-
-      // If the database row is already 'paid', it was authoritatively settled
-      if (row.status === 'paid') {
-        if (!matchedPaid || matchedPaid < totalAmount) {
-          matchedPaid = totalAmount;
-        }
-      }
 
       const paidAmount = Math.round((matchedPaid || 0) * 100) / 100;
       const balanceDue = row.status === 'paid' ? 0 : Math.max(0, Math.round((totalAmount - paidAmount) * 100) / 100);

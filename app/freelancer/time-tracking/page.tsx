@@ -10,6 +10,18 @@ import {
   discardTimerSession,
   FreelancerTimeDashboardData,
 } from '@/lib/actions/time-tracking';
+import {
+  computeElapsedSeconds,
+  formatStartTimerError,
+  classifyStopTimerResult,
+} from '@/lib/time-tracking-feedback';
+import {
+  TRACKER_SYNC_CHANNEL,
+  TrackerSyncEventType,
+  postTrackerSyncEvent,
+  parseTrackerSyncEvent,
+  createEventDeduplicator,
+} from '@/lib/tracker-broadcast';
 import { Contract, TimeEntry } from '@/lib/types';
 import {
   Play,
@@ -72,31 +84,8 @@ function FreelancerTimeTrackingContent() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Live timer state
+  // Live timer state (derived from server-authoritative activeSession.startTime)
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [autoPopoutEnabled, setAutoPopoutEnabled] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('workspace_auto_popout_tracker');
-        return stored !== null ? stored === 'true' : true;
-      } catch {
-        return true;
-      }
-    }
-    return true;
-  });
-
-  const toggleAutoPopout = () => {
-    setAutoPopoutEnabled((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('workspace_auto_popout_tracker', String(next));
-      } catch {
-        // Non-fatal
-      }
-      return next;
-    });
-  };
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -108,17 +97,11 @@ function FreelancerTimeTrackingContent() {
     setTimeout(() => setErrorMessage(null), 5000);
   }, []);
 
-  const broadcastTrackerSync = useCallback((type: string) => {
-    try {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        const ch = new BroadcastChannel('workspace_time_tracker_sync');
-        ch.postMessage({ type });
-        ch.close();
-      }
-    } catch {
-      // Non-fatal
-    }
-  }, []);
+  const broadcastTrackerSync = useCallback((type: TrackerSyncEventType) => {
+    postTrackerSyncEvent(type, {
+      contractId: selectedContractId || undefined,
+    });
+  }, [selectedContractId]);
 
   const handleOpenPopout = useCallback(() => {
     const contractParam = selectedContractId ? `?contractId=${encodeURIComponent(selectedContractId)}` : '';
@@ -252,13 +235,18 @@ function FreelancerTimeTrackingContent() {
   // Real-time synchronization across browser tabs and popout tracker window
   useEffect(() => {
     if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
-    const channel = new BroadcastChannel('workspace_time_tracker_sync');
-    channel.onmessage = (event) => {
+    const channel = new BroadcastChannel(TRACKER_SYNC_CHANNEL);
+    const isNewEvent = createEventDeduplicator();
+    channel.onmessage = (rawEvent: MessageEvent<unknown>) => {
+      const parsed = parseTrackerSyncEvent(rawEvent.data);
+      if (!parsed || !isNewEvent(parsed.eventId)) return;
+
       if (
-        event.data?.type === 'SYNC_STATE' ||
-        event.data?.type === 'TIMER_STARTED' ||
-        event.data?.type === 'TIMER_STOPPED' ||
-        event.data?.type === 'SLOT_RECORDED'
+        parsed.type === 'SYNC_STATE' ||
+        parsed.type === 'TIMER_STARTED' ||
+        parsed.type === 'TIMER_STOPPED' ||
+        parsed.type === 'TIMER_DISCARDED' ||
+        parsed.type === 'SLOT_RECORDED'
       ) {
         loadDashboardData(true);
       }
@@ -275,12 +263,10 @@ function FreelancerTimeTrackingContent() {
       return;
     }
 
-    const startMs = new Date(data.activeSession.startTime).getTime();
+    const startIso = data.activeSession.startTime;
 
     const updateElapsed = () => {
-      const nowMs = Date.now();
-      const diffSec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-      setElapsedSeconds(diffSec);
+      setElapsedSeconds(computeElapsedSeconds(startIso));
     };
 
     const timerId = setTimeout(updateElapsed, 0);
@@ -335,9 +321,13 @@ function FreelancerTimeTrackingContent() {
     return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
   };
 
-  // 3. Start Timer Handler
+  // 3. Start Timer Handler (stays in current browser tab; never auto-opens popout)
   const handleStartTimer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isTimerRunning || isStarting) {
+      return;
+    }
+
     setMemoError(null);
     setContractError(null);
 
@@ -358,12 +348,9 @@ function FreelancerTimeTrackingContent() {
       if (res.success && res.session) {
         showToast('Timer started successfully. Elapsed time is being recorded.');
         broadcastTrackerSync('TIMER_STARTED');
-        if (autoPopoutEnabled) {
-          handleOpenPopout();
-        }
         await loadDashboardData(true);
       } else {
-        showError(res.error || 'Failed to start timer session.');
+        showError(formatStartTimerError(res));
       }
     } catch {
       showError('Network error while starting timer session.');
@@ -374,26 +361,35 @@ function FreelancerTimeTrackingContent() {
 
   // 4. Stop Timer Handler
   const handleStopTimer = async () => {
+    if (isStopping || isDiscarding) {
+      return;
+    }
+
+    const contractWeekMinutes =
+      data?.contractStats?.[activeContract?.id || '']?.thisWeekMinutes ??
+      data?.stats?.thisWeekMinutes ??
+      0;
+
     setIsStopping(true);
     try {
       const res = await stopTimerSession(workMemo);
-      if (res.success) {
-        if (res.entry) {
-          showToast(`Logged ${res.entry.durationMinutes} minute${res.entry.durationMinutes === 1 ? '' : 's'} to your timesheet!`);
-        } else {
-          showToast('Timer session was under 1 minute and was discarded without billing.');
-        }
+      const feedback = classifyStopTimerResult({
+        res,
+        elapsedSeconds: displaySeconds,
+        weekMinutesLogged: contractWeekMinutes,
+        weeklyLimitHours: weeklyLimit,
+      });
+
+      if (feedback.isError) {
+        showError(feedback.message);
+      } else {
+        showToast(feedback.message);
+      }
+
+      if (res.success || res.code === 'NO_ACTIVE_SESSION') {
         // Retain workMemo so freelancer can resume work seamlessly without retyping
         broadcastTrackerSync('TIMER_STOPPED');
         await loadDashboardData(true);
-      } else {
-        // If error suggests session already ended, refresh state cleanly
-        if (res.code === 'NO_ACTIVE_SESSION') {
-          showToast('Session was already completed. Refreshed view.');
-          await loadDashboardData(true);
-        } else {
-          showError(res.error || 'Failed to stop timer session.');
-        }
       }
     } catch {
       showError('Network error while stopping timer. Re-synchronizing session...');
@@ -405,6 +401,9 @@ function FreelancerTimeTrackingContent() {
 
   // 5. Discard Timer Handler
   const handleDiscardTimer = async () => {
+    if (isStopping || isDiscarding) {
+      return;
+    }
     if (!window.confirm('Discard this timer session? No billable time will be recorded.')) {
       return;
     }
@@ -414,7 +413,7 @@ function FreelancerTimeTrackingContent() {
       const res = await discardTimerSession();
       if (res.success) {
         showToast('Active timer session cancelled and discarded.');
-        broadcastTrackerSync('TIMER_STOPPED');
+        broadcastTrackerSync('TIMER_DISCARDED');
         await loadDashboardData(true);
       } else {
         showError(res.error || 'Failed to discard session.');
@@ -841,22 +840,16 @@ function FreelancerTimeTrackingContent() {
                 {!isTimerRunning ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between pb-1 px-1">
-                      <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 select-none">
-                        <input
-                          type="checkbox"
-                          checked={autoPopoutEnabled}
-                          onChange={toggleAutoPopout}
-                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                        />
-                        <span>Float desktop tracker automatically when timer starts</span>
-                      </label>
+                      <span className="text-xs text-slate-500">
+                        Runs directly in this tab. Optional floating window:
+                      </span>
                       <button
                         type="button"
                         onClick={handleOpenPopout}
                         className="text-xs font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
                       >
                         <ExternalLink className="w-3 h-3" />
-                        <span>Pop out now</span>
+                        <span>Pop out floating tracker</span>
                       </button>
                     </div>
 
@@ -1003,6 +996,7 @@ function FreelancerTimeTrackingContent() {
           {selectedContractId && (
             <ScreenTrackerWidget
               contractId={selectedContractId}
+              freelancerId={activeContract?.freelancerId || data?.activeSession?.freelancerId}
               isTimerRunning={isTimerRunning}
               workMemo={workMemo}
               onSlotRecorded={() => {

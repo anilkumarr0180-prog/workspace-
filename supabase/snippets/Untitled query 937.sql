@@ -1,5 +1,4 @@
-IF v_actor_id IS NULL
-   AND current_user NOT IN ('postgres', 'service_role')
-THEN
-    RAISE EXCEPTION 'Authentication required';
-END IF;
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+AND indexname = 'uq_payout_transfers_active_timesheet';

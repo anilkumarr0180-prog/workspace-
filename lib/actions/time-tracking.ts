@@ -3,6 +3,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { ActiveTimerSession, Contract, TimeEntry, Timesheet, WorkDiarySlot } from '@/lib/types';
+import {
+  type TimerStopDiscardReason,
+  toISTDateString,
+  getISTDayBoundsUtc,
+  mapStopTimerV2RpcResponse,
+  mapRecordScreenshotSlotRpcResponse,
+} from '@/lib/time-tracking-feedback';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -11,6 +18,9 @@ const inMemoryFallbackSlots = new Map<string, WorkDiarySlot[]>();
 
 export interface TimerSessionResult {
   success: boolean;
+  outcome?: 'saved' | 'discarded';
+  discardReason?: TimerStopDiscardReason;
+  remainingWeekMinutes?: number | null;
   session?: ActiveTimerSession;
   entry?: TimeEntry;
   error?: string;
@@ -126,64 +136,17 @@ export async function stopTimerSession(memo?: string): Promise<TimerSessionResul
   }
 
   try {
-    const { data, error } = await supabase.rpc('stop_timer_session', {
-      p_memo: memo ? memo.trim() : null,
+    const trimmedMemo = memo ? memo.trim() : null;
+
+    // Strictly invoke stop_timer_session_v2 and fail closed if missing (no unsafe legacy fallback)
+    const v2Res = await supabase.rpc('stop_timer_session_v2', {
+      p_memo: trimmedMemo,
     });
 
-    if (error) {
-      let code = 'DATABASE_ERROR';
-      if (error.code === '22023') {
-        code = 'NO_ACTIVE_SESSION';
-      } else if (error.code === '42501') {
-        code = 'UNAUTHORIZED';
-      }
-
-      return {
-        success: false,
-        error: error.message,
-        code,
-      };
-    }
-
-    // When session was under 60 seconds (or cancelled), stop_timer_session returns NULL.
-    // PostgREST serializes a NULL composite row as an object with null properties ({ id: null, ... }).
-    // The active session is safely deleted in the database without logging billable time.
-    const rawData = data as { id?: string | null } | null;
-    if (!rawData || !rawData.id) {
-      return {
-        success: true,
-        entry: undefined,
-      };
-    }
-
-    const entryRow = data as {
-      id: string;
-      contract_id: string;
-      timesheet_id?: string | null;
-      freelancer_id: string;
-      start_time: string;
-      end_time: string;
-      duration_minutes: number;
-      memo: string;
-      source: 'timer' | 'manual';
-      created_at: string;
-    };
-
-    return {
-      success: true,
-      entry: {
-        id: entryRow.id,
-        contractId: entryRow.contract_id,
-        timesheetId: entryRow.timesheet_id,
-        freelancerId: entryRow.freelancer_id,
-        startTime: entryRow.start_time,
-        endTime: entryRow.end_time,
-        durationMinutes: entryRow.duration_minutes,
-        memo: entryRow.memo,
-        source: entryRow.source,
-        createdAt: entryRow.created_at,
-      },
-    };
+    return mapStopTimerV2RpcResponse({
+      data: v2Res.data,
+      error: v2Res.error,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to stop timer session.';
     return {
@@ -224,7 +187,7 @@ export async function discardTimerSession(): Promise<{ success: boolean; error?:
  */
 export async function getActiveTimerSession(): Promise<{
   success: boolean;
-  session?: ActiveTimerSession | null;
+  session?: (ActiveTimerSession & { contractTitle?: string }) | null;
   error?: string;
 }> {
   const supabase = await createClient();
@@ -240,7 +203,7 @@ export async function getActiveTimerSession(): Promise<{
   try {
     const { data, error } = await supabase
       .from('active_timer_sessions')
-      .select('id, contract_id, freelancer_id, start_time, memo, created_at')
+      .select('id, contract_id, freelancer_id, start_time, memo, created_at, contracts (title)')
       .eq('freelancer_id', user.id)
       .maybeSingle();
 
@@ -252,11 +215,19 @@ export async function getActiveTimerSession(): Promise<{
       return { success: true, session: null };
     }
 
+    const contractJoin = (data as unknown as {
+      contracts?: { title?: string } | Array<{ title?: string }> | null;
+    }).contracts;
+    const contractTitle = Array.isArray(contractJoin)
+      ? contractJoin[0]?.title
+      : contractJoin?.title;
+
     return {
       success: true,
       session: {
         id: data.id,
         contractId: data.contract_id,
+        contractTitle: contractTitle || undefined,
         freelancerId: data.freelancer_id,
         startTime: data.start_time,
         memo: data.memo,
@@ -587,22 +558,25 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
       };
     });
 
-    // 4. Calculate Real Totals: Today and This Week (UTC aligned)
+    // 4. Calculate Real Totals: Today in IST (Asia/Kolkata) and This Week in UTC billing cycle
     const now = new Date();
-    // Start of Today (00:00:00 UTC)
-    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    
+    const todayIstStr = toISTDateString(now);
+    const { startUtc: startOfTodayUtcIso } = getISTDayBoundsUtc(todayIstStr);
+    const startOfToday = new Date(startOfTodayUtcIso);
+
     // Start of This Week (Monday 00:00:00 UTC)
+    const startOfUtcDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     const dayOfWeek = now.getUTCDay(); // 0 is Sunday, 1 is Monday
     const daysSinceMonday = (dayOfWeek + 6) % 7;
-    const startOfWeek = new Date(startOfToday.getTime() - daysSinceMonday * 86400000);
+    const startOfWeek = new Date(startOfUtcDay.getTime() - daysSinceMonday * 86400000);
+    const queryEarliest = startOfToday < startOfWeek ? startOfToday : startOfWeek;
 
-    // Fetch entries for this week calculation
+    // Fetch entries covering both IST today and UTC billing week
     const { data: weekEntries } = await supabase
       .from('time_entries')
       .select('duration_minutes, start_time, contract_id, memo, contracts (hourly_rate)')
       .eq('freelancer_id', user.id)
-      .gte('start_time', startOfWeek.toISOString())
+      .gte('start_time', queryEarliest.toISOString())
       .order('start_time', { ascending: false });
 
     interface StatEntryRow {
@@ -638,14 +612,16 @@ export async function getFreelancerTimeTrackingData(): Promise<FreelancerTimeDas
       const rate = Number(cObj?.hourly_rate) || Number(contractsMap.get(entry.contract_id)?.hourlyRate) || 0;
       const earnings = (minutes / 60) * rate;
 
-      thisWeekMinutes += minutes;
-      thisWeekEarnings += earnings;
+      if (entryDate >= startOfWeek) {
+        thisWeekMinutes += minutes;
+        thisWeekEarnings += earnings;
 
-      if (contractStats[entry.contract_id]) {
-        contractStats[entry.contract_id].thisWeekMinutes += minutes;
-        contractStats[entry.contract_id].thisWeekEarnings += earnings;
-        if (!contractStats[entry.contract_id].lastMemo && entry.memo) {
-          contractStats[entry.contract_id].lastMemo = entry.memo;
+        if (contractStats[entry.contract_id]) {
+          contractStats[entry.contract_id].thisWeekMinutes += minutes;
+          contractStats[entry.contract_id].thisWeekEarnings += earnings;
+          if (!contractStats[entry.contract_id].lastMemo && entry.memo) {
+            contractStats[entry.contract_id].lastMemo = entry.memo;
+          }
         }
       }
 
@@ -773,13 +749,13 @@ export async function getContractWorkDiary(
       .eq('contract_id', contractId.trim());
 
     if (options?.date) {
-      // Expand query window by +/- 14 hours around the date to handle any client/server timezone offsets cleanly
-      const targetDate = new Date(`${options.date}T00:00:00Z`);
-      const rangeStart = new Date(targetDate.getTime() - 14 * 60 * 60 * 1000).toISOString();
-      const rangeEnd = new Date(targetDate.getTime() + 38 * 60 * 60 * 1000).toISOString();
-      query = query.gte('slot_time', rangeStart).lte('slot_time', rangeEnd);
+      // Query exact IST (Asia/Kolkata) day bounds in UTC
+      const { startUtc, endUtc } = getISTDayBoundsUtc(options.date);
+      query = query.gte('slot_time', startUtc).lte('slot_time', endUtc);
     } else if (options?.startDate && options?.endDate) {
-      query = query.gte('slot_time', `${options.startDate}T00:00:00.000Z`).lte('slot_time', `${options.endDate}T23:59:59.999Z`);
+      const { startUtc } = getISTDayBoundsUtc(options.startDate);
+      const { endUtc } = getISTDayBoundsUtc(options.endDate);
+      query = query.gte('slot_time', startUtc).lte('slot_time', endUtc);
     }
 
     query = query.order('slot_time', { ascending: true });
@@ -809,23 +785,17 @@ export async function getContractWorkDiary(
       created_at: string;
     }
 
-    // Filter slots matching target date either in UTC or local day
+    // Filter slots strictly by business timezone (Asia/Kolkata) so 00:00-05:29 IST never double-appears
     const matchingSlots: DbSlotRow[] = options?.date && rawSlots
       ? (rawSlots as unknown as DbSlotRow[]).filter((row) => {
-          const slotIso = (row.slot_time || '').split('T')[0];
-          const slotLocal = new Date(row.slot_time).toLocaleDateString('en-CA'); // YYYY-MM-DD
-          return slotIso === options.date || slotLocal === options.date;
+          return toISTDateString(row.slot_time) === options.date;
         })
       : ((rawSlots as unknown as DbSlotRow[]) || []);
 
-    // Fallback: If work_diary_slots is empty for this date, dynamically synthesize slots from time_entries
+    // Fallback: If work_diary_slots is empty for this IST date, synthesize slots from time_entries
     if (matchingSlots.length === 0 && dbTimeEntries && dbTimeEntries.length > 0) {
       const filteredEntries = options?.date
-        ? dbTimeEntries.filter((e) => {
-            const eIso = (e.start_time || '').split('T')[0];
-            const eLocal = new Date(e.start_time).toLocaleDateString('en-CA');
-            return eIso === options.date || eLocal === options.date;
-          })
+        ? dbTimeEntries.filter((e) => toISTDateString(e.start_time) === options.date)
         : dbTimeEntries;
 
       for (const entry of filteredEntries) {
@@ -864,9 +834,7 @@ export async function getContractWorkDiary(
     // Merge fallback slots if recorded during this runtime
     const fallbackList = inMemoryFallbackSlots.get(contractId.trim()) || [];
     for (const fbSlot of fallbackList) {
-      const fbDateIso = (fbSlot.slotTime || '').split('T')[0];
-      const fbDateLocal = new Date(fbSlot.slotTime).toLocaleDateString('en-CA');
-      if (!options?.date || fbDateIso === options.date || fbDateLocal === options.date) {
+      if (!options?.date || toISTDateString(fbSlot.slotTime) === options.date) {
         if (!matchingSlots.some((s) => s.id === fbSlot.id)) {
           matchingSlots.unshift({
             id: fbSlot.id,
@@ -887,18 +855,16 @@ export async function getContractWorkDiary(
       }
     }
 
-    // Collect all distinct active dates with work logged for this contract
+    // Collect all distinct active IST dates with work logged for this contract
     const allDatesSet = new Set<string>();
     for (const s of (rawSlots as unknown as DbSlotRow[]) || []) {
       if (s.slot_time) {
-        allDatesSet.add(s.slot_time.split('T')[0]);
-        allDatesSet.add(new Date(s.slot_time).toLocaleDateString('en-CA'));
+        allDatesSet.add(toISTDateString(s.slot_time));
       }
     }
     for (const e of dbTimeEntries || []) {
       if (e.start_time) {
-        allDatesSet.add(e.start_time.split('T')[0]);
-        allDatesSet.add(new Date(e.start_time).toLocaleDateString('en-CA'));
+        allDatesSet.add(toISTDateString(e.start_time));
       }
     }
     const activeDates = Array.from(allDatesSet).filter(Boolean);
@@ -1074,13 +1040,15 @@ export interface RecordScreenshotSlotInput {
 
 export interface RecordScreenshotSlotResult {
   success: boolean;
+  outcome?: 'inserted' | 'duplicate' | 'ineligible';
+  duplicate?: boolean;
   slot?: WorkDiarySlot;
   error?: string;
   code?: string;
 }
 
 /**
- * Record a verified Upwork-style screenshot work diary segment (5-10 minute window).
+ * Record a verified Upwork-style screenshot work diary segment atomically via DB RPC.
  */
 export async function recordWorkDiaryScreenshotSlot(
   input: RecordScreenshotSlotInput
@@ -1111,102 +1079,21 @@ export async function recordWorkDiaryScreenshotSlot(
   }
 
   try {
-    // 1. Verify caller is the active freelancer on this contract
-    const { data: contract, error: contractErr } = await supabase
-      .from('contracts')
-      .select('id, freelancer_id, status, contract_type')
-      .eq('id', contractId.trim())
-      .single();
+    const rpcRes = await supabase.rpc('record_work_diary_screenshot_slot', {
+      p_contract_id: contractId.trim(),
+      p_slot_time: slotTime || new Date().toISOString(),
+      p_duration_minutes: Math.min(60, Math.max(1, durationMinutes)),
+      p_activity_score: Math.min(10, Math.max(0, Math.round(activityScore))),
+      p_keystrokes_count: Math.max(0, Math.round(keystrokesCount)),
+      p_mouse_clicks_count: Math.max(0, Math.round(mouseClicksCount)),
+      p_memo: (memo || '').trim() || 'Active work session',
+      p_screenshot_url: screenshotUrl?.trim() || null,
+    });
 
-    if (contractErr || !contract) {
-      return { success: false, error: 'Contract not found.', code: 'NOT_FOUND' };
-    }
-
-    if (contract.freelancer_id !== user.id) {
-      return {
-        success: false,
-        error: 'You are not the assigned freelancer for this contract.',
-        code: 'FORBIDDEN',
-      };
-    }
-
-    // 2. Insert slot into work_diary_slots using admin client for guaranteed resilience
-    const admin = getAdminSupabaseClient();
-    const { data: slotRow, error: insertErr } = await admin
-      .from('work_diary_slots')
-      .insert({
-        contract_id: contractId.trim(),
-        freelancer_id: user.id,
-        slot_time: slotTime || new Date().toISOString(),
-        duration_minutes: Math.min(60, Math.max(1, durationMinutes)),
-        activity_score: Math.min(10, Math.max(0, Math.round(activityScore))),
-        keystrokes_count: Math.max(0, Math.round(keystrokesCount)),
-        mouse_clicks_count: Math.max(0, Math.round(mouseClicksCount)),
-        memo: (memo || '').trim() || 'Active work session',
-        screenshot_url: screenshotUrl?.trim() || null,
-        is_manual: false,
-      })
-      .select()
-      .single();
-
-    if (insertErr) {
-      console.warn('[TIME-TRACKING] work_diary_slots table insert fallback:', insertErr.message);
-      const fallbackSlot: WorkDiarySlot = {
-        id: `slot-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-        contractId: contractId.trim(),
-        timeEntryId: null,
-        freelancerId: user.id,
-        slotTime: slotTime || new Date().toISOString(),
-        durationMinutes: Math.min(60, Math.max(1, durationMinutes)),
-        activityScore: Math.min(10, Math.max(0, Math.round(activityScore))),
-        keystrokesCount: Math.max(0, Math.round(keystrokesCount)),
-        mouseClicksCount: Math.max(0, Math.round(mouseClicksCount)),
-        memo: (memo || '').trim() || 'Active work session',
-        screenshotUrl: screenshotUrl?.trim() || null,
-        isManual: false,
-        createdAt: new Date().toISOString(),
-      };
-
-      const existing = inMemoryFallbackSlots.get(contractId.trim()) || [];
-      inMemoryFallbackSlots.set(contractId.trim(), [fallbackSlot, ...existing]);
-
-      return { success: true, slot: fallbackSlot };
-    }
-
-    interface RawDbSlot {
-      id: string;
-      contract_id: string;
-      time_entry_id?: string | null;
-      freelancer_id: string;
-      slot_time: string;
-      duration_minutes: number;
-      activity_score: number;
-      keystrokes_count: number;
-      mouse_clicks_count: number;
-      memo: string;
-      screenshot_url?: string | null;
-      is_manual: boolean;
-      created_at: string;
-    }
-
-    const row = slotRow as unknown as RawDbSlot;
-    const formattedSlot: WorkDiarySlot = {
-      id: row.id,
-      contractId: row.contract_id,
-      timeEntryId: row.time_entry_id,
-      freelancerId: row.freelancer_id,
-      slotTime: row.slot_time,
-      durationMinutes: Number(row.duration_minutes) || 10,
-      activityScore: Number(row.activity_score) || 0,
-      keystrokesCount: Number(row.keystrokes_count) || 0,
-      mouseClicksCount: Number(row.mouse_clicks_count) || 0,
-      memo: row.memo || '',
-      screenshotUrl: row.screenshot_url,
-      isManual: Boolean(row.is_manual),
-      createdAt: row.created_at,
-    };
-
-    return { success: true, slot: formattedSlot };
+    return mapRecordScreenshotSlotRpcResponse({
+      data: rpcRes.data,
+      error: rpcRes.error,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to record screenshot slot.';
     return { success: false, error: message, code: 'SERVER_ERROR' };

@@ -29,7 +29,11 @@ export interface PayoutEngineResult {
  * - Delayed earnings settlement (earnings only increment when provider confirms completion)
  */
 export class PayoutEngine {
-  constructor(private customDb?: SupabaseClient) {}
+  private customDb?: SupabaseClient;
+
+  constructor(customDb?: SupabaseClient) {
+    this.customDb = customDb;
+  }
 
   private getDb(): SupabaseClient {
     return this.customDb || getAdminSupabaseClient();
@@ -297,38 +301,79 @@ export class PayoutEngine {
 
     const grossAmount = Number(timesheet.total_amount);
 
-    // Resolve authoritative payment currency from verified ledger or captured payment_attempt (never hardcode INR)
-    let resolvedCurrency: 'INR' | 'USD' | null = null;
+    // Resolve authoritative payment currency from verified hourly_funded ledger rows (never default USD/INR)
     const { data: ledgerRows } = await adminDb
       .from('payment_ledger')
-      .select('currency, metadata, status')
+      .select('timesheet_id, currency, event_type, metadata, status')
       .eq('contract_id', timesheet.contract_id)
+      .eq('event_type', 'hourly_funded')
       .in('status', ['succeeded', 'captured', 'completed'])
       .order('created_at', { ascending: false });
 
+    const ledgerCurrencies = new Set<'INR' | 'USD'>();
     for (const row of ledgerRows || []) {
       const meta = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>;
-      if (meta.timesheet_id === timesheet.id && (row.currency === 'USD' || row.currency === 'INR')) {
-        resolvedCurrency = row.currency;
-        break;
+      const matchesTimesheet =
+        row.timesheet_id === timesheet.id || (!row.timesheet_id && meta.timesheet_id === timesheet.id);
+      if (matchesTimesheet && row.currency) {
+        const norm = String(row.currency).trim().toUpperCase();
+        if (norm !== 'USD' && norm !== 'INR') {
+          return {
+            success: false,
+            error: `Unsupported settled payment currency "${norm}" on timesheet ledger.`,
+            code: 'CURRENCY_UNRESOLVED',
+          };
+        }
+        ledgerCurrencies.add(norm);
       }
     }
+
+    if (ledgerCurrencies.size > 1) {
+      return {
+        success: false,
+        error: 'Mixed payment currencies found in settled ledger entries for this timesheet.',
+        code: 'MIXED_CURRENCY',
+      };
+    }
+
+    let resolvedCurrency: 'INR' | 'USD' | null =
+      ledgerCurrencies.size === 1 ? Array.from(ledgerCurrencies)[0] : null;
 
     if (!resolvedCurrency) {
       const { data: attemptRows } = await adminDb
         .from('payment_attempts')
-        .select('currency, metadata, status')
+        .select('timesheet_id, currency, metadata, status')
         .eq('contract_id', timesheet.contract_id)
         .in('status', ['captured', 'succeeded'])
         .order('created_at', { ascending: false });
 
+      const attemptCurrencies = new Set<'INR' | 'USD'>();
       for (const att of attemptRows || []) {
         const meta = (att.metadata && typeof att.metadata === 'object' ? att.metadata : {}) as Record<string, unknown>;
-        if (meta.timesheet_id === timesheet.id && (att.currency === 'USD' || att.currency === 'INR')) {
-          resolvedCurrency = att.currency;
-          break;
+        const matchesAttempt =
+          att.timesheet_id === timesheet.id || (!att.timesheet_id && meta.timesheet_id === timesheet.id);
+        if (matchesAttempt && att.currency) {
+          const norm = String(att.currency).trim().toUpperCase();
+          if (norm !== 'USD' && norm !== 'INR') {
+            return {
+              success: false,
+              error: `Unsupported captured payment currency "${norm}" on payment attempt.`,
+              code: 'CURRENCY_UNRESOLVED',
+            };
+          }
+          attemptCurrencies.add(norm);
         }
       }
+
+      if (attemptCurrencies.size > 1) {
+        return {
+          success: false,
+          error: 'Mixed payment currencies found in captured payment attempts for this timesheet.',
+          code: 'MIXED_CURRENCY',
+        };
+      }
+
+      resolvedCurrency = attemptCurrencies.size === 1 ? Array.from(attemptCurrencies)[0] : null;
     }
 
     if (!resolvedCurrency) {
@@ -352,27 +397,152 @@ export class PayoutEngine {
       };
     }
 
-    // 3. Centralized platform fee calculation
+    // 3. Centralized platform fee calculation & atomic DB reservation
     const feeBreakdown = calculatePlatformFee(grossAmount, currency);
-    const idempotencyKey = `payout:timesheet:${timesheet.id}:${feeBreakdown.grossSubunits}`;
+    const { data: reservation, error: reserveErr } = await adminDb.rpc(
+      'reserve_timesheet_payout_transfer',
+      {
+        p_timesheet_id: timesheet.id,
+        p_recipient_user_id: timesheet.freelancer_id,
+        p_gross_amount: feeBreakdown.grossAmount,
+        p_fee_amount: feeBreakdown.feeAmount,
+        p_net_amount: feeBreakdown.netPayout,
+        p_currency: currency,
+        p_provider_account_id: eligibility.accountId,
+        p_metadata: {
+          week_start_date: timesheet.week_start_date,
+        },
+      }
+    );
 
-    // 4. Dispatch transfer
+    if (reserveErr || !reservation) {
+      return {
+        success: false,
+        error: `Failed to reserve payout transfer: ${reserveErr?.message || 'Unknown error'}`,
+        code: 'DB_ERROR',
+      };
+    }
+
+    const resv = reservation as {
+      reserved_by_caller: boolean;
+      transfer_id: string;
+      status: string;
+      idempotency_key: string;
+      provider_transfer_id: string;
+      gross_amount: number;
+      fee_amount: number;
+      net_amount: number;
+      on_hold: boolean;
+    };
+
     const transferProvider = getTransferProvider();
-    const transferRes = await transferProvider.createTransfer({
-      paymentId: `pay_timesheet_${timesheet.id}`,
-      destinationAccountId: eligibility.accountId,
-      amount: feeBreakdown.netPayout,
-      currency,
-      onHold: false,
-      idempotencyKey,
-      notes: {
-        timesheet_id: timesheet.id,
-        contract_id: timesheet.contract_id,
-        freelancer_id: timesheet.freelancer_id,
-      },
-    });
+
+    // 4. Non-owner handling: completed, processing reconciliation, or active single-flight
+    if (!resv.reserved_by_caller) {
+      if (resv.status === 'completed') {
+        return {
+          success: true,
+          transferId: resv.transfer_id,
+          status: 'completed',
+          grossAmount: Number(resv.gross_amount),
+          feeAmount: Number(resv.fee_amount),
+          netAmount: Number(resv.net_amount),
+        };
+      }
+
+      if (resv.status === 'processing' && resv.provider_transfer_id && !resv.provider_transfer_id.startsWith('resv_')) {
+        try {
+          const providerStatus = await transferProvider.fetchTransfer(resv.provider_transfer_id);
+          if (providerStatus.success && providerStatus.status === 'processed' && !providerStatus.onHold) {
+            const { error: confirmErr } = await adminDb.rpc('confirm_payout_transfer_completion', {
+              p_transfer_id: resv.transfer_id,
+            });
+            if (!confirmErr) {
+              return {
+                success: true,
+                transferId: resv.transfer_id,
+                status: 'completed',
+                grossAmount: Number(resv.gross_amount),
+                feeAmount: Number(resv.fee_amount),
+                netAmount: Number(resv.net_amount),
+              };
+            }
+          } else if (providerStatus.status === 'failed') {
+            await adminDb.rpc('mark_payout_transfer_failed', {
+              p_transfer_id: resv.transfer_id,
+              p_failure_reason: providerStatus.error || 'Provider reported failed transfer during reconciliation',
+            });
+            return {
+              success: false,
+              transferId: resv.transfer_id,
+              status: 'failed',
+              error: providerStatus.error || 'Provider transfer failed.',
+              code: 'TRANSFER_REJECTED',
+            };
+          } else if (providerStatus.onHold) {
+            await adminDb.rpc('record_payout_transfer_dispatch', {
+              p_transfer_id: resv.transfer_id,
+              p_provider_transfer_id: resv.provider_transfer_id,
+              p_status: 'on_hold',
+              p_on_hold: true,
+            });
+            return {
+              success: true,
+              transferId: resv.transfer_id,
+              status: 'on_hold',
+              grossAmount: Number(resv.gross_amount),
+              feeAmount: Number(resv.fee_amount),
+              netAmount: Number(resv.net_amount),
+            };
+          }
+        } catch (reconErr) {
+          console.warn('Payout reconciliation lookup failed; keeping processing state:', reconErr);
+        }
+      }
+
+      return {
+        success: true,
+        transferId: resv.transfer_id,
+        status: resv.status as PayoutStatus,
+        grossAmount: Number(resv.gross_amount),
+        feeAmount: Number(resv.fee_amount),
+        netAmount: Number(resv.net_amount),
+      };
+    }
+
+    // 5. Reservation owner dispatches external transfer OUTSIDE any DB transaction
+    let transferRes;
+    try {
+      transferRes = await transferProvider.createTransfer({
+        paymentId: `pay_timesheet_${timesheet.id}`,
+        destinationAccountId: eligibility.accountId,
+        amount: feeBreakdown.netPayout,
+        currency,
+        onHold: false,
+        idempotencyKey: resv.idempotency_key,
+        notes: {
+          timesheet_id: timesheet.id,
+          contract_id: timesheet.contract_id,
+          freelancer_id: timesheet.freelancer_id,
+        },
+      });
+    } catch (dispatchErr: unknown) {
+      // Uncertain network/timeout failure: keep reservation in 'pending' so retry uses same idempotency_key
+      const msg = dispatchErr instanceof Error ? dispatchErr.message : 'Uncertain provider dispatch error';
+      return {
+        success: false,
+        transferId: resv.transfer_id,
+        status: 'pending',
+        error: msg,
+        code: 'DISPATCH_UNCERTAIN',
+      };
+    }
 
     if (!transferRes.success) {
+      await adminDb.rpc('mark_payout_transfer_failed', {
+        p_transfer_id: resv.transfer_id,
+        p_failure_reason: transferRes.error || 'Provider rejected timesheet payout transfer.',
+      });
       return {
         success: false,
         error: transferRes.error || 'Provider rejected timesheet payout transfer.',
@@ -380,40 +550,43 @@ export class PayoutEngine {
       };
     }
 
-    // 5. Persist transfer in database
-    const { data: transferRecord, error: recordError } = await adminDb.rpc(
-      'create_payout_transfer_record',
+    // 6. Persist provider transfer ID and status
+    const dispatchStatus = transferRes.onHold ? 'on_hold' : 'processing';
+    const { data: dispatchedRecord, error: dispatchRecordErr } = await adminDb.rpc(
+      'record_payout_transfer_dispatch',
       {
-        p_contract_id: timesheet.contract_id,
-        p_recipient_user_id: timesheet.freelancer_id,
-        p_gross_amount: feeBreakdown.grossAmount,
-        p_fee_amount: feeBreakdown.feeAmount,
-        p_net_amount: feeBreakdown.netPayout,
-        p_currency: currency,
-        p_idempotency_key: idempotencyKey,
+        p_transfer_id: resv.transfer_id,
         p_provider_transfer_id: transferRes.transferId,
-        p_provider_account_id: eligibility.accountId,
-        p_milestone_id: null,
-        p_timesheet_id: timesheet.id,
-        p_on_hold: false,
+        p_status: dispatchStatus,
+        p_on_hold: Boolean(transferRes.onHold),
         p_metadata: {
           is_simulated: transferRes.isSimulated,
-          week_start_date: timesheet.week_start_date,
         },
       }
     );
 
-    if (recordError || !transferRecord) {
+    if (dispatchRecordErr || !dispatchedRecord) {
       return {
         success: false,
-        error: `Failed to record payout transfer: ${recordError?.message || 'Unknown error'}`,
+        error: `Failed to record payout transfer dispatch: ${dispatchRecordErr?.message || 'Unknown error'}`,
         code: 'DB_ERROR',
       };
     }
 
-    // 6. Confirm transfer and update freelancer earnings
+    // 7. Confirm transfer completion only when provider reports processed and not on hold
+    if (transferRes.status !== 'processed' || transferRes.onHold) {
+      return {
+        success: true,
+        transferId: dispatchedRecord.id,
+        status: dispatchStatus,
+        grossAmount: feeBreakdown.grossAmount,
+        feeAmount: feeBreakdown.feeAmount,
+        netAmount: feeBreakdown.netPayout,
+      };
+    }
+
     const { error: confirmError } = await adminDb.rpc('confirm_payout_transfer_completion', {
-      p_transfer_id: transferRecord.id,
+      p_transfer_id: dispatchedRecord.id,
     });
 
     if (confirmError) {
@@ -434,13 +607,13 @@ export class PayoutEngine {
       metadata: {
         timesheetId: timesheet.id,
         contractId: timesheet.contract_id,
-        transferId: transferRecord.id,
+        transferId: dispatchedRecord.id,
       },
     }).catch(() => {});
 
     return {
       success: true,
-      transferId: transferRecord.id,
+      transferId: dispatchedRecord.id,
       providerTransferId: transferRes.transferId,
       status: 'completed',
       grossAmount: feeBreakdown.grossAmount,
