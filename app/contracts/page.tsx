@@ -205,7 +205,7 @@ export default function ContractsIndexPage() {
                   <div className="flex items-center gap-3">
                     {c.contractType === 'hourly' && (
                       <Link
-                        href="/freelancer/time-tracking"
+                        href={`/freelancer/time-tracking?contractId=${encodeURIComponent(c.id)}`}
                         className="font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1"
                       >
                         <Clock className="w-3.5 h-3.5" />

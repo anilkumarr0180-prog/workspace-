@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { WorkDiarySlot } from '@/lib/types';
+import { ActiveTimerSession, WorkDiarySlot } from '@/lib/types';
 import {
+  getActiveTimerSession,
   getContractWorkDiary,
   logManualTime,
   deleteWorkDiarySlot,
@@ -15,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   PlusCircle,
+  Play,
   Trash2,
   Monitor,
   Activity,
@@ -29,17 +32,21 @@ import {
 interface WorkDiaryProps {
   contractId: string;
   isFreelancer: boolean;
+  contractStatus?: string;
   hourlyRate?: number | null;
   weeklyHourLimit?: number | null;
   allowManualTime?: boolean;
+  onStartTimer?: () => void;
 }
 
 export default function WorkDiary({
   contractId,
   isFreelancer,
+  contractStatus = 'active',
   hourlyRate = 0,
   weeklyHourLimit,
   allowManualTime = true,
+  onStartTimer,
 }: WorkDiaryProps) {
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
@@ -78,6 +85,58 @@ export default function WorkDiary({
   };
 
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  const [activeSession, setActiveSession] = useState<ActiveTimerSession | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+
+  // Sync active timer session for freelancers so Work Diary shows Start Timer / live status
+  useEffect(() => {
+    if (!isFreelancer) return;
+    let isCancelled = false;
+
+    getActiveTimerSession()
+      .then((res) => {
+        if (!isCancelled && res.success) {
+          setActiveSession(res.session ?? null);
+        }
+      })
+      .catch(() => {
+        // Non-fatal
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isFreelancer, reloadTrigger]);
+
+  useEffect(() => {
+    if (!activeSession?.startTime) {
+      return;
+    }
+
+    const startMs = new Date(activeSession.startTime).getTime();
+    const updateElapsed = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
+    };
+    const timerId = setTimeout(updateElapsed, 0);
+    const interval = setInterval(updateElapsed, 1000);
+    return () => {
+      clearTimeout(timerId);
+      clearInterval(interval);
+    };
+  }, [activeSession?.startTime]);
+
+  const formatTimerHHMMSS = (totalSec: number) => {
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const isContractActive = contractStatus === 'active';
+  const isTimerRunningHere = Boolean(activeSession && activeSession.contractId === contractId);
+  const displayElapsedSeconds = isTimerRunningHere ? elapsedSeconds : 0;
+  const isTimerRunningElsewhere = Boolean(activeSession && activeSession.contractId !== contractId);
+  const stopwatchHref = `/freelancer/time-tracking?contractId=${encodeURIComponent(contractId)}`;
 
   // Determine current week dates (Mon to Sun) based on selectedDate
   const weekDays = useMemo(() => {
@@ -346,6 +405,67 @@ export default function WorkDiary({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            {isFreelancer && (
+              !isContractActive ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 text-xs font-semibold"
+                  title={`Cannot start timer on a ${contractStatus} contract`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Timer Unavailable ({contractStatus})</span>
+                </span>
+              ) : isTimerRunningHere ? (
+                onStartTimer ? (
+                  <button
+                    type="button"
+                    onClick={onStartTimer}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
+                    title="View active Live Stopwatch session"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    <span className="font-mono">Timer Running • {formatTimerHHMMSS(displayElapsedSeconds)}</span>
+                  </button>
+                ) : (
+                  <Link
+                    href={stopwatchHref}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs"
+                    title="View active Live Stopwatch session"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    <span className="font-mono">Timer Running • {formatTimerHHMMSS(displayElapsedSeconds)}</span>
+                  </Link>
+                )
+              ) : isTimerRunningElsewhere ? (
+                <Link
+                  href="/freelancer/time-tracking"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 transition-colors"
+                  title="Another timer session is currently active"
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Active Timer on Another Contract</span>
+                </Link>
+              ) : onStartTimer ? (
+                <button
+                  type="button"
+                  onClick={onStartTimer}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
+                  title="Open Live Stopwatch to start tracking time"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Start Timer</span>
+                </button>
+              ) : (
+                <Link
+                  href={stopwatchHref}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs"
+                  title="Open Live Stopwatch to start tracking time on this contract"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Start Timer</span>
+                </Link>
+              )
+            )}
+
             <button
               type="button"
               onClick={() => setReloadTrigger((prev) => prev + 1)}
@@ -357,7 +477,7 @@ export default function WorkDiary({
               <span>{loading ? 'Syncing...' : 'Refresh'}</span>
             </button>
 
-            {isFreelancer && allowManualTime && (
+            {isFreelancer && allowManualTime && isContractActive && (
               <button
                 type="button"
                 onClick={() => {
@@ -523,16 +643,42 @@ export default function WorkDiary({
             <span>{error}</span>
           </div>
         ) : slots.length === 0 ? (
-          <div className="p-16 text-center space-y-3">
+          <div className="p-16 text-center space-y-4">
             <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
               <Monitor className="w-6 h-6" />
             </div>
-            <h4 className="text-sm font-bold text-slate-900">No Activity Recorded on This Day</h4>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              {isFreelancer
-                ? 'Use the tracker timer or click "Add Manual Time" above to log work sessions on this contract.'
-                : 'Your hired freelancer has not logged any time or desktop activity on this date.'}
-            </p>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-900">No Activity Recorded on This Day</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                {isFreelancer
+                  ? isContractActive
+                    ? 'Start the Live Stopwatch timer or click "Add Manual Time" above to log work sessions on this contract.'
+                    : `This contract is currently ${contractStatus}. Time tracking is only available on active contracts.`
+                  : 'Your hired freelancer has not logged any time or desktop activity on this date.'}
+              </p>
+            </div>
+            {isFreelancer && isContractActive && (
+              <div className="flex items-center justify-center gap-3 pt-1 flex-wrap">
+                {onStartTimer ? (
+                  <button
+                    type="button"
+                    onClick={onStartTimer}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{isTimerRunningHere ? 'View Running Timer' : 'Start Timer'}</span>
+                  </button>
+                ) : (
+                  <Link
+                    href={stopwatchHref}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{isTimerRunningHere ? 'View Running Timer' : 'Start Timer'}</span>
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">

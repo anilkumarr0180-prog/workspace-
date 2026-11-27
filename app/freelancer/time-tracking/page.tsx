@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   getFreelancerTimeTrackingData,
   startTimerSession,
@@ -43,13 +44,16 @@ import {
   TimesheetWithDetails,
 } from '@/lib/actions/timesheet-billing';
 
-export default function FreelancerTimeTrackingPage() {
+function FreelancerTimeTrackingContent() {
+  const searchParams = useSearchParams();
+  const urlContractId = searchParams.get('contractId') || '';
+
   const [data, setData] = useState<FreelancerTimeDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Form & Timer action states
-  const [selectedContractId, setSelectedContractId] = useState<string>('');
+  const [selectedContractId, setSelectedContractId] = useState<string>(urlContractId);
   const [workMemo, setWorkMemo] = useState<string>('');
   const [memoError, setMemoError] = useState<string | null>(null);
   const [contractError, setContractError] = useState<string | null>(null);
@@ -140,11 +144,17 @@ export default function FreelancerTimeTrackingPage() {
 
       if (res.success) {
         setData(res);
-        // Pre-select active session's contract or first available contract
+        // Pre-select active session's contract, URL contractId, or first available contract
         if (res.activeSession?.contractId) {
           setSelectedContractId(res.activeSession.contractId);
           if (res.activeSession.memo) {
             setWorkMemo(res.activeSession.memo);
+          }
+        } else if (urlContractId && res.eligibleContracts.some((c) => c.id === urlContractId)) {
+          setSelectedContractId(urlContractId);
+          const memoCandidate = res.contractStats?.[urlContractId]?.lastMemo;
+          if (memoCandidate) {
+            setWorkMemo((prev) => prev || memoCandidate);
           }
         } else if (res.eligibleContracts.length > 0) {
           const firstId = res.eligibleContracts[0].id;
@@ -168,7 +178,7 @@ export default function FreelancerTimeTrackingPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [showError]);
+  }, [showError, urlContractId]);
 
   const handleSubmitTimesheet = async (timesheetId: string) => {
     setSubmittingTimesheetId(timesheetId);
@@ -205,6 +215,12 @@ export default function FreelancerTimeTrackingPage() {
             if (res.activeSession.memo) {
               setWorkMemo(res.activeSession.memo);
             }
+          } else if (urlContractId && res.eligibleContracts.some((c) => c.id === urlContractId)) {
+            setSelectedContractId(urlContractId);
+            const memoCandidate = res.contractStats?.[urlContractId]?.lastMemo;
+            if (memoCandidate) {
+              setWorkMemo((prev) => prev || memoCandidate);
+            }
           } else if (res.eligibleContracts.length > 0) {
             const firstId = res.eligibleContracts[0].id;
             setSelectedContractId((prev) => prev || firstId);
@@ -231,7 +247,7 @@ export default function FreelancerTimeTrackingPage() {
     return () => {
       isMounted = false;
     };
-  }, [showError]);
+  }, [showError, urlContractId]);
 
   // Real-time synchronization across browser tabs and popout tracker window
   useEffect(() => {
@@ -1103,9 +1119,11 @@ export default function FreelancerTimeTrackingPage() {
             <WorkDiary
               contractId={activeContract.id}
               isFreelancer={true}
+              contractStatus={activeContract.status}
               hourlyRate={activeContract.hourlyRate}
               weeklyHourLimit={activeContract.weeklyHourLimit}
               allowManualTime={activeContract.allowManualTime}
+              onStartTimer={() => setActiveMainTab('timer')}
             />
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center space-y-3">
@@ -1327,14 +1345,14 @@ export default function FreelancerTimeTrackingPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="text-sm font-bold text-slate-900">
-                      Unbilled Hours (Logged After Paid Cycle)
+                      Unbilled Hours (Logged After Approved / Paid Cycle)
                     </h4>
                     <span className="px-2 py-0.5 rounded-full text-3xs font-extrabold uppercase bg-amber-100 text-amber-800 border border-amber-200">
                       Unbilled • Not Yet Invoiced
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Logged after a weekly timesheet was already paid. Kept separate from settled invoices.
+                    Logged after a weekly timesheet was already approved or paid. Kept separate from settled invoices.
                   </p>
                 </div>
                 <span className="text-xs font-bold text-slate-800 font-mono">
@@ -1380,5 +1398,19 @@ export default function FreelancerTimeTrackingPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function FreelancerTimeTrackingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center text-xs text-slate-500">
+          Loading time tracker...
+        </div>
+      }
+    >
+      <FreelancerTimeTrackingContent />
+    </Suspense>
   );
 }
