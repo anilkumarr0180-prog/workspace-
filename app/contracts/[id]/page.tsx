@@ -847,8 +847,11 @@ function ContractDetailsContent() {
             });
 
             if (verifyRes.success) {
+              const isFullyPaid = verifyRes.timesheet?.status === 'paid';
               setActionSuccessMessage(
-                `Timesheet payment confirmed via Razorpay (Test Mode)! Payment ID: ${response.razorpay_payment_id}. Simulated payout transfer initiated.`
+                isFullyPaid
+                  ? `Timesheet payment confirmed via Razorpay (Test Mode)! Payment ID: ${response.razorpay_payment_id}. Simulated payout transfer initiated.`
+                  : `Partial timesheet payment confirmed via Razorpay (Test Mode)! Payment ID: ${response.razorpay_payment_id}. Remaining balance is still due before payout.`
               );
               loadData(true);
             } else {

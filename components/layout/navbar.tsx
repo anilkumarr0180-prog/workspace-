@@ -38,6 +38,7 @@ import { switchActiveRole } from '@/lib/actions/profile';
 import NotificationPopover from '@/components/layout/notification-popover';
 import ProfileEditModal from '@/components/profile/profile-edit-modal';
 import NavbarSearch from '@/components/layout/navbar-search';
+import GlobalTimerPill from '@/components/layout/global-timer-pill';
 
 interface UserProfile {
   id?: string;
@@ -1274,6 +1275,11 @@ export default function Navbar() {
 
           {/* ================= RIGHT: Search, Notifications & Profile ================= */}
           <div className="flex items-center gap-2 sm:gap-2.5 xl:gap-3.5 shrink-0">
+            {/* Global Active Timer Indicator (Freelancer mode only) */}
+            {authLoaded && user && !isClientMode && (
+              <GlobalTimerPill userId={user.id} isFreelancer={!isClientMode} />
+            )}
+
             {/* Unified Upwork Search Component on tablet & desktop (ONLY WHEN AUTHENTICATED) */}
             {user && (
               <NavbarSearch className="hidden sm:block w-40 md:w-48 lg:w-40 xl:w-56 2xl:w-72 shrink-0" />

@@ -36,6 +36,21 @@ export function calculateTimesheetPaidAmount(params: {
   let paidFromLedger = 0;
 
   for (const row of ledgerRows) {
+    // Only count settled/succeeded funding rows; ignore reversed, failed, or pending rows
+    if (row.status && !['succeeded', 'captured', 'completed'].includes(row.status)) {
+      continue;
+    }
+
+    // Never count refunds, reversals, fees, or payouts as client funding
+    if (
+      row.event_type &&
+      ['escrow_refund', 'transfer_reversed', 'transfer_failed', 'service_fee_deducted', 'payout_disbursed', 'payout_initiated'].includes(
+        row.event_type
+      )
+    ) {
+      continue;
+    }
+
     const meta = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<
       string,
       unknown

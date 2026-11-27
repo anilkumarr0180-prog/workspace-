@@ -114,12 +114,26 @@ export class RazorpayPaymentProvider implements PaymentProvider {
         };
       }
 
+      const actualCurrency = String(payment.currency || '').trim().toUpperCase();
+      const expectedCurrency = String(req.expectedCurrency || '').trim().toUpperCase();
+      if (!actualCurrency || actualCurrency !== expectedCurrency) {
+        return {
+          success: false,
+          paymentId: req.paymentId,
+          status: 'failed',
+          amountSubunits,
+          currency: (actualCurrency as 'INR' | 'USD') || req.expectedCurrency,
+          verifiedAt: new Date().toISOString(),
+          error: `Currency mismatch: captured ${actualCurrency || 'unknown'}, expected ${expectedCurrency}`,
+        };
+      }
+
       return {
         success: true,
         paymentId: req.paymentId,
         status: 'captured',
         amountSubunits,
-        currency: req.expectedCurrency,
+        currency: actualCurrency as 'INR' | 'USD',
         verifiedAt: new Date().toISOString(),
       };
     } catch (apiErr: unknown) {

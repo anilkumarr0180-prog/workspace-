@@ -21,9 +21,27 @@ import {
   getContractWorkDiary,
 } from '@/lib/actions/time-tracking';
 import { WorkDiarySlot } from '@/lib/types';
+import {
+  CAPTURE_HEARTBEAT_INTERVAL_MS,
+  getCaptureLeaseKey,
+  acquireWebCaptureLockWithTakeover,
+  readCaptureLease,
+  isLeaseActive,
+  tryAcquireCaptureLease,
+  renewCaptureLease,
+  releaseCaptureLease,
+  isTabLeaseOwner,
+} from '@/lib/capture-lease';
+import {
+  TRACKER_SYNC_CHANNEL,
+  postTrackerSyncEvent,
+  parseTrackerSyncEvent,
+  createEventDeduplicator,
+} from '@/lib/tracker-broadcast';
 
 interface ScreenTrackerWidgetProps {
   contractId: string;
+  freelancerId?: string;
   isTimerRunning: boolean;
   workMemo: string;
   compact?: boolean;
@@ -34,6 +52,7 @@ interface ScreenTrackerWidgetProps {
 
 export default function ScreenTrackerWidget({
   contractId,
+  freelancerId,
   isTimerRunning,
   workMemo,
   compact = false,
@@ -51,6 +70,23 @@ export default function ScreenTrackerWidget({
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState<number>(300);
   const [justCaptured, setJustCaptured] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [isCaptureHeldByOtherTab, setIsCaptureHeldByOtherTab] = useState(false);
+
+  // Unique per-tab lease identity (initialized in effect on mount to keep render pure)
+  const tabIdRef = useRef<string>('');
+  const getTabId = useCallback(() => {
+    if (!tabIdRef.current) {
+      tabIdRef.current =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return tabIdRef.current;
+  }, []);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isCapturingRef = useRef<boolean>(false);
+  const webLockReleaseRef = useRef<(() => void) | null>(null);
+  const stopCaptureRef = useRef<(() => void) | null>(null);
 
   // References for live stream, hidden video element, and timers
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -198,6 +234,18 @@ export default function ScreenTrackerWidget({
     async (isManualTrigger = false) => {
       if (!mediaStreamRef.current || isProcessingSnapshot) return;
 
+      const myTabId = getTabId();
+      const ownsCapture = () =>
+        Boolean(webLockReleaseRef.current) ||
+        isTabLeaseOwner({ tabId: myTabId, freelancerId });
+
+      // Verify single-tab capture ownership before capturing
+      if (!ownsCapture()) {
+        stopCaptureRef.current?.();
+        onError?.('Screenshot capture ownership moved to another tab. Stopping local capture.');
+        return;
+      }
+
       setIsProcessingSnapshot(true);
       try {
         const imageBlob = await captureScreenshotBlob();
@@ -226,6 +274,13 @@ export default function ScreenTrackerWidget({
         const uploadRes = await uploadWorkDiaryScreenshot(formData);
         if (!uploadRes.success || !uploadRes.url) {
           throw new Error(uploadRes.error || 'Failed to upload screenshot to storage.');
+        }
+
+        // Re-verify ownership immediately before writing work_diary_slots (prevents TOCTOU duplicate slots)
+        if (!ownsCapture()) {
+          stopCaptureRef.current?.();
+          onToast?.('Screenshot capture moved to another tab before slot was recorded.');
+          return;
         }
 
         // Record work diary slot in PostgreSQL
@@ -266,16 +321,12 @@ export default function ScreenTrackerWidget({
           window.dispatchEvent(new CustomEvent('workspace-slot-recorded', { detail: slotRes.slot }));
         }
 
-        // Notify other windows/tabs (e.g. Popout window or Main dashboard)
-        try {
-          if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-            const ch = new BroadcastChannel('workspace_time_tracker_sync');
-            ch.postMessage({ type: 'SLOT_RECORDED', contractId });
-            ch.close();
-          }
-        } catch {
-          // Non-fatal
-        }
+        // Notify other windows/tabs (e.g. Popout window or Main dashboard) using shared contract
+        postTrackerSyncEvent('SLOT_RECORDED', {
+          contractId,
+          freelancerId: freelancerId || 'default',
+          tabId: myTabId,
+        });
 
         // Reset activity accumulators for next interval
         keystrokesRef.current = 0;
@@ -292,6 +343,8 @@ export default function ScreenTrackerWidget({
     [
       captureScreenshotBlob,
       contractId,
+      freelancerId,
+      getTabId,
       isProcessingSnapshot,
       onError,
       onSlotRecorded,
@@ -349,10 +402,113 @@ export default function ScreenTrackerWidget({
     };
   }, [isCapturing, triggerSnapshot]);
 
-  // 7. Start Screen Capture (User Permission Prompt)
-  const handleStartCapture = async () => {
+  // 7. Start Screen Capture (Web Locks Primary + Scoped 90s Fallback Lease)
+  const broadcastCaptureLock = useCallback(
+    (
+      type:
+        | 'CAPTURE_LOCK_ACQUIRED'
+        | 'CAPTURE_LOCK_RELEASED'
+        | 'CAPTURE_TAKEOVER_REQUESTED'
+    ) => {
+      postTrackerSyncEvent(type, {
+        tabId: getTabId(),
+        freelancerId: freelancerId || 'default',
+        contractId,
+      });
+    },
+    [contractId, freelancerId, getTabId]
+  );
+
+  const handleStopCapture = useCallback(() => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    if (scheduledTimerRef.current) {
+      clearTimeout(scheduledTimerRef.current);
+      scheduledTimerRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    if (hiddenVideoRef.current) {
+      hiddenVideoRef.current.srcObject = null;
+    }
+    isCapturingRef.current = false;
+    setIsCapturing(false);
+
+    if (webLockReleaseRef.current) {
+      webLockReleaseRef.current();
+      webLockReleaseRef.current = null;
+    }
+    if (releaseCaptureLease({ tabId: getTabId(), freelancerId })) {
+      broadcastCaptureLock('CAPTURE_LOCK_RELEASED');
+    } else {
+      broadcastCaptureLock('CAPTURE_LOCK_RELEASED');
+    }
+  }, [broadcastCaptureLock, freelancerId, getTabId]);
+
+  useEffect(() => {
+    stopCaptureRef.current = handleStopCapture;
+  }, [handleStopCapture]);
+
+  const handleStartCapture = async (forceTakeover = false) => {
+    const myTabId = getTabId();
     try {
+      // Primary atomic ownership: Web Locks API with bounded takeover wait
+      const webLock = await acquireWebCaptureLockWithTakeover({
+        freelancerId,
+        forceTakeover,
+        timeoutMs: 2500,
+        onRequestTakeover: () => broadcastCaptureLock('CAPTURE_TAKEOVER_REQUESTED'),
+      });
+      if (webLock.supported) {
+        if (!webLock.acquired) {
+          setIsCaptureHeldByOtherTab(true);
+          onError?.(
+            webLock.timedOut
+              ? 'Could not transfer screen capture from the other tab in time. Please pause capture there or try again.'
+              : 'Screenshot capture is already active in another browser tab.'
+          );
+          return;
+        }
+        webLockReleaseRef.current = webLock.release;
+        // Also write metadata lease for cross-tab UI status display
+        tryAcquireCaptureLease({
+          tabId: myTabId,
+          freelancerId,
+          contractId,
+          forceTakeover: true,
+        });
+      } else {
+        // Fallback for browsers without navigator.locks (best-effort, non-atomic 90s TTL)
+        const leaseResult = tryAcquireCaptureLease({
+          tabId: myTabId,
+          freelancerId,
+          contractId,
+          forceTakeover,
+        });
+        if (!leaseResult.acquired) {
+          setIsCaptureHeldByOtherTab(true);
+          onError?.(
+            leaseResult.heldByOtherTab
+              ? 'Screenshot capture is already active in another browser tab.'
+              : 'Unable to acquire browser capture lock (storage unavailable).'
+          );
+          return;
+        }
+      }
+
+      setIsCaptureHeldByOtherTab(false);
+      broadcastCaptureLock('CAPTURE_LOCK_ACQUIRED');
+
       if (!navigator.mediaDevices?.getDisplayMedia) {
+        handleStopCapture();
         throw new Error('Screen capture is not supported by this browser. Use Chrome, Firefox, or Edge.');
       }
 
@@ -375,7 +531,23 @@ export default function ScreenTrackerWidget({
         }
       }
 
+      isCapturingRef.current = true;
       setIsCapturing(true);
+
+      // Start 20s heartbeat (renew metadata / fallback 90s lease)
+      if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = setInterval(() => {
+        const renewed = renewCaptureLease({
+          tabId: myTabId,
+          freelancerId,
+          contractId,
+        });
+        if (!renewed && !webLockReleaseRef.current) {
+          handleStopCapture();
+          setIsCaptureHeldByOtherTab(true);
+          onToast?.('Screenshot capture moved to another tab. Your billing timer is still running.');
+        }
+      }, CAPTURE_HEARTBEAT_INTERVAL_MS);
 
       // Handle user manually clicking "Stop sharing" in the browser overlay
       stream.getVideoTracks()[0].onended = () => {
@@ -387,41 +559,118 @@ export default function ScreenTrackerWidget({
 
       // Immediate baseline snapshot so user has instant visual confirmation!
       setTimeout(async () => {
+        if (!isCapturingRef.current) return;
         await triggerSnapshot(true);
         // Then start the randomized 5-10 minute cycle
         scheduleNextSnapshot();
       }, 2000);
     } catch (err: unknown) {
+      handleStopCapture();
       const msg = err instanceof Error ? err.message : 'Screen capture permission was denied.';
       onError?.(msg);
-      setIsCapturing(false);
     }
   };
 
-  // 8. Stop Screen Capture
-  const handleStopCapture = useCallback(() => {
-    if (scheduledTimerRef.current) {
-      clearTimeout(scheduledTimerRef.current);
-      scheduledTimerRef.current = null;
+  // Monitor cross-tab capture ownership via BroadcastChannel, storage, visibilitychange & focus
+  useEffect(() => {
+    const myTabId = getTabId();
+    const leaseKey = getCaptureLeaseKey(freelancerId);
+
+    const syncLeaseStatus = () => {
+      const lease = readCaptureLease(freelancerId);
+      const heldElsewhere = Boolean(
+        lease && lease.tabId !== myTabId && isLeaseActive(lease)
+      );
+      setIsCaptureHeldByOtherTab(heldElsewhere);
+      if (heldElsewhere && isCapturingRef.current) {
+        handleStopCapture();
+        onToast?.('Screenshot capture ownership moved to another tab. Billing timer remains active.');
+      } else if (isCapturingRef.current) {
+        // Recover heartbeat immediately when returning from a throttled background tab
+        renewCaptureLease({ tabId: myTabId, freelancerId, contractId });
+      }
+    };
+
+    const initTimer = setTimeout(syncLeaseStatus, 0);
+
+    let channel: BroadcastChannel | null = null;
+    const isNewEvent = createEventDeduplicator();
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        channel = new BroadcastChannel(TRACKER_SYNC_CHANNEL);
+        channel.onmessage = (rawEvent: MessageEvent<unknown>) => {
+          const parsed = parseTrackerSyncEvent(rawEvent.data);
+          if (!parsed || !isNewEvent(parsed.eventId)) return;
+
+          const eventScope = parsed.freelancerId || 'default';
+          const myScope = freelancerId || 'default';
+          if (eventScope !== myScope) return;
+
+          if (
+            (parsed.type === 'CAPTURE_LOCK_ACQUIRED' ||
+              parsed.type === 'CAPTURE_TAKEOVER_REQUESTED') &&
+            parsed.tabId !== myTabId
+          ) {
+            setIsCaptureHeldByOtherTab(true);
+            if (isCapturingRef.current || webLockReleaseRef.current) {
+              handleStopCapture();
+              onToast?.('Screenshot capture ownership moved to another tab. Billing timer remains active.');
+            }
+          } else if (parsed.type === 'CAPTURE_LOCK_RELEASED') {
+            syncLeaseStatus();
+          }
+        };
+      }
+    } catch {
+      // Non-fatal
     }
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === leaseKey) {
+        syncLeaseStatus();
+      }
+    };
+    const onVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        syncLeaseStatus();
+      }
+    };
+    const onBeforeUnload = () => {
+      if (webLockReleaseRef.current) {
+        webLockReleaseRef.current();
+        webLockReleaseRef.current = null;
+      }
+      if (releaseCaptureLease({ tabId: myTabId, freelancerId })) {
+        broadcastCaptureLock('CAPTURE_LOCK_RELEASED');
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', onStorage);
+      window.addEventListener('focus', onVisibilityOrFocus);
+      window.addEventListener('beforeunload', onBeforeUnload);
+      document.addEventListener('visibilitychange', onVisibilityOrFocus);
     }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-    if (hiddenVideoRef.current) {
-      hiddenVideoRef.current.srcObject = null;
-    }
-    setIsCapturing(false);
-  }, []);
+
+    return () => {
+      clearTimeout(initTimer);
+      channel?.close();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', onStorage);
+        window.removeEventListener('focus', onVisibilityOrFocus);
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      }
+    };
+  }, [broadcastCaptureLock, contractId, freelancerId, getTabId, handleStopCapture, onToast]);
 
   // Stop capture when timer session stops
   useEffect(() => {
     if (!isTimerRunning && isCapturing) {
-      handleStopCapture();
+      const id = setTimeout(() => {
+        handleStopCapture();
+      }, 0);
+      return () => clearTimeout(id);
     }
   }, [isTimerRunning, isCapturing, handleStopCapture]);
 
@@ -662,19 +911,35 @@ export default function ScreenTrackerWidget({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handleStartCapture}
-              disabled={!isTimerRunning}
-              className={`w-full py-3 px-4 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
-                isTimerRunning
-                  ? 'bg-slate-900 hover:bg-slate-800 text-white hover:shadow-md'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-              }`}
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>{isTimerRunning ? 'Enable Workspace Screen Capture' : 'Start Timer First to Enable'}</span>
-            </button>
+            {isCaptureHeldByOtherTab && isTimerRunning ? (
+              <div className="space-y-2">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 text-center font-medium">
+                  Screen capture is currently active in another browser tab.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleStartCapture(true)}
+                  className="w-full py-2.5 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Move Screen Capture to This Tab</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleStartCapture(false)}
+                disabled={!isTimerRunning}
+                className={`w-full py-3 px-4 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
+                  isTimerRunning
+                    ? 'bg-slate-900 hover:bg-slate-800 text-white hover:shadow-md'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                }`}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>{isTimerRunning ? 'Enable Workspace Screen Capture' : 'Start Timer First to Enable'}</span>
+              </button>
+            )}
             <p className="text-[10px] text-center text-slate-400">
               Browser prompt will ask to choose screen or window to verify
             </p>

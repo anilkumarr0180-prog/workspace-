@@ -12,6 +12,17 @@ import {
   WorkDiarySummary,
 } from '@/lib/actions/time-tracking';
 import {
+  TRACKER_SYNC_CHANNEL,
+  parseTrackerSyncEvent,
+  createEventDeduplicator,
+} from '@/lib/tracker-broadcast';
+import {
+  BUSINESS_TIMEZONE,
+  toISTDateString,
+  getISTHour,
+  addDaysToDateString,
+} from '@/lib/time-tracking-feedback';
+import {
   Calendar,
   Clock,
   ChevronLeft,
@@ -48,9 +59,7 @@ export default function WorkDiary({
   allowManualTime = true,
   onStartTimer,
 }: WorkDiaryProps) {
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState<string>(() => toISTDateString());
   const [slots, setSlots] = useState<WorkDiarySlot[]>([]);
   const [activeDates, setActiveDates] = useState<string[]>([]);
   const [summary, setSummary] = useState<WorkDiarySummary>({
@@ -68,7 +77,7 @@ export default function WorkDiary({
 
   // Manual Time Modal state
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [manualDate, setManualDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [manualDate, setManualDate] = useState<string>(() => toISTDateString());
   const [manualStartTime, setManualStartTime] = useState('09:00');
   const [manualEndTime, setManualEndTime] = useState('10:00');
   const [manualMemo, setManualMemo] = useState('');
@@ -138,21 +147,19 @@ export default function WorkDiary({
   const isTimerRunningElsewhere = Boolean(activeSession && activeSession.contractId !== contractId);
   const stopwatchHref = `/freelancer/time-tracking?contractId=${encodeURIComponent(contractId)}`;
 
-  // Determine current week dates (Mon to Sun) based on selectedDate
+  // Determine current week dates (Mon to Sun) in Asia/Kolkata based on selectedDate
   const weekDays = useMemo(() => {
-    const curr = new Date(selectedDate);
-    const day = curr.getDay(); // 0 is Sunday, 1 is Monday...
+    const curr = new Date(`${selectedDate}T12:00:00Z`);
+    const day = curr.getUTCDay(); // 0 is Sunday, 1 is Monday...
     const diffToMonday = day === 0 ? -6 : 1 - day;
-    const monday = new Date(curr);
-    monday.setDate(curr.getDate() + diffToMonday);
+    const mondayStr = addDaysToDateString(selectedDate, diffToMonday);
 
     const days = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const iso = d.toISOString().split('T')[0];
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-      const dayNum = d.getDate();
+      const iso = addDaysToDateString(mondayStr, i);
+      const d = new Date(`${iso}T12:00:00Z`);
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: BUSINESS_TIMEZONE });
+      const dayNum = Number(iso.split('-')[2]);
       days.push({ iso, dayName, dayNum, fullDate: d });
     }
     return days;
@@ -171,13 +178,6 @@ export default function WorkDiary({
             setSummary(res.summary);
             if (res.activeDates && res.activeDates.length > 0) {
               setActiveDates(res.activeDates);
-              // If currently selected date has no entries, auto-switch to a day in this week that does have entries
-              if (res.slots.length === 0) {
-                const dayWithWork = weekDays.find((w) => res.activeDates!.includes(w.iso));
-                if (dayWithWork && dayWithWork.iso !== selectedDate) {
-                  setSelectedDate(dayWithWork.iso);
-                }
-              }
             }
             setError(null);
           } else {
@@ -234,14 +234,19 @@ export default function WorkDiary({
 
     // Instant local and cross-tab real-time sync
     let bc: BroadcastChannel | null = null;
+    const isNewEvent = createEventDeduplicator();
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        bc = new BroadcastChannel('workspace_time_tracker_sync');
-        bc.onmessage = (event) => {
+        bc = new BroadcastChannel(TRACKER_SYNC_CHANNEL);
+        bc.onmessage = (rawEvent: MessageEvent<unknown>) => {
+          const parsed = parseTrackerSyncEvent(rawEvent.data);
+          if (!parsed || !isNewEvent(parsed.eventId)) return;
+
           if (
-            event.data?.type === 'SLOT_RECORDED' ||
-            event.data?.type === 'TIMER_STOPPED' ||
-            event.data?.type === 'TIMER_STARTED'
+            parsed.type === 'SLOT_RECORDED' ||
+            parsed.type === 'TIMER_STOPPED' ||
+            parsed.type === 'TIMER_DISCARDED' ||
+            parsed.type === 'TIMER_STARTED'
           ) {
             setReloadTrigger((prev) => prev + 1);
           }
@@ -267,42 +272,33 @@ export default function WorkDiary({
     };
   }, [contractId]);
 
-  // Navigate to previous or next day
+  // Navigate to previous or next day (IST calendar days)
   const handlePrevDay = () => {
     setLoading(true);
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() - 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(addDaysToDateString(selectedDate, -1));
   };
 
   const handleNextDay = () => {
     setLoading(true);
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + 1);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(addDaysToDateString(selectedDate, 1));
   };
 
   // Navigate week
   const handlePrevWeek = () => {
     setLoading(true);
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() - 7);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(addDaysToDateString(selectedDate, -7));
   };
 
   const handleNextWeek = () => {
     setLoading(true);
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + 7);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(addDaysToDateString(selectedDate, 7));
   };
 
-  // Group slots by Hour of Day
+  // Group slots by Hour of Day in Asia/Kolkata
   const slotsByHour = useMemo(() => {
     const map = new Map<number, WorkDiarySlot[]>();
     for (const slot of slots) {
-      const slotD = new Date(slot.slotTime);
-      const hour = slotD.getHours();
+      const hour = getISTHour(slot.slotTime);
       if (!map.has(hour)) {
         map.set(hour, []);
       }
@@ -517,7 +513,7 @@ export default function WorkDiary({
           {weekDays.map((d) => {
             const isSelected = d.iso === selectedDate;
             const hasActivity = activeDates.includes(d.iso);
-            const isToday = d.iso === new Date().toISOString().split('T')[0];
+            const isToday = d.iso === toISTDateString();
 
             return (
               <button
@@ -859,7 +855,7 @@ export default function WorkDiary({
                   type="date"
                   required
                   value={manualDate}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={toISTDateString()}
                   onChange={(e) => setManualDate(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />

@@ -9,6 +9,18 @@ import {
   discardTimerSession,
   FreelancerTimeDashboardData,
 } from '@/lib/actions/time-tracking';
+import {
+  computeElapsedSeconds,
+  formatStartTimerError,
+  classifyStopTimerResult,
+} from '@/lib/time-tracking-feedback';
+import {
+  TRACKER_SYNC_CHANNEL,
+  TrackerSyncEventType,
+  postTrackerSyncEvent,
+  parseTrackerSyncEvent,
+  createEventDeduplicator,
+} from '@/lib/tracker-broadcast';
 import { Contract } from '@/lib/types';
 import {
   Play,
@@ -55,16 +67,10 @@ function PopoutTrackerContent() {
   }, []);
 
   // Broadcast sync to other tabs/windows
-  const broadcastSync = (type: string) => {
-    try {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        const ch = new BroadcastChannel('workspace_time_tracker_sync');
-        ch.postMessage({ type });
-        ch.close();
-      }
-    } catch {
-      // Non-fatal
-    }
+  const broadcastSync = (type: TrackerSyncEventType) => {
+    postTrackerSyncEvent(type, {
+      contractId: selectedContractId || undefined,
+    });
   };
 
   // 1. Initial Data Fetch
@@ -123,13 +129,18 @@ function PopoutTrackerContent() {
   // Listen to cross-window sync
   useEffect(() => {
     if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
-    const ch = new BroadcastChannel('workspace_time_tracker_sync');
-    ch.onmessage = (event) => {
+    const ch = new BroadcastChannel(TRACKER_SYNC_CHANNEL);
+    const isNewEvent = createEventDeduplicator();
+    ch.onmessage = (rawEvent: MessageEvent<unknown>) => {
+      const parsed = parseTrackerSyncEvent(rawEvent.data);
+      if (!parsed || !isNewEvent(parsed.eventId)) return;
+
       if (
-        event.data?.type === 'SYNC_STATE' ||
-        event.data?.type === 'TIMER_STARTED' ||
-        event.data?.type === 'TIMER_STOPPED' ||
-        event.data?.type === 'SLOT_RECORDED'
+        parsed.type === 'SYNC_STATE' ||
+        parsed.type === 'TIMER_STARTED' ||
+        parsed.type === 'TIMER_STOPPED' ||
+        parsed.type === 'TIMER_DISCARDED' ||
+        parsed.type === 'SLOT_RECORDED'
       ) {
         refreshTrackerData();
       }
@@ -143,12 +154,10 @@ function PopoutTrackerContent() {
       return;
     }
 
-    const startMs = new Date(data.activeSession.startTime).getTime();
+    const startIso = data.activeSession.startTime;
 
     const updateElapsed = () => {
-      const nowMs = Date.now();
-      const diffSec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-      setElapsedSeconds(diffSec);
+      setElapsedSeconds(computeElapsedSeconds(startIso));
     };
 
     const timerId = setTimeout(updateElapsed, 0);
@@ -181,6 +190,8 @@ function PopoutTrackerContent() {
   // 3. Start Timer (Slide to ON)
   const handleStartTimer = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isTimerRunning || isStarting) return;
+
     setMemoError(null);
     setContractError(null);
 
@@ -203,7 +214,7 @@ function PopoutTrackerContent() {
         broadcastSync('TIMER_STARTED');
         await refreshTrackerData();
       } else {
-        showError(res.error || 'Failed to start timer.');
+        showError(formatStartTimerError(res));
       }
     } catch {
       showError('Network error starting timer.');
@@ -214,20 +225,34 @@ function PopoutTrackerContent() {
 
   // 4. Stop Timer (Slide to OFF)
   const handleStopTimer = async () => {
+    if (isStopping || isDiscarding) return;
+
+    const contractWeekMinutes =
+      data?.contractStats?.[activeContract?.id || '']?.thisWeekMinutes ??
+      data?.stats?.thisWeekMinutes ??
+      0;
+    const contractWeeklyLimit = activeContract?.weeklyHourLimit || 40;
+
     setIsStopping(true);
     try {
       const res = await stopTimerSession(workMemo);
-      if (res.success) {
-        if (res.entry) {
-          showToast(`Logged ${res.entry.durationMinutes}m to timesheet!`);
-        } else {
-          showToast('Session under 1m discarded.');
-        }
+      const feedback = classifyStopTimerResult({
+        res,
+        elapsedSeconds: displaySeconds,
+        weekMinutesLogged: contractWeekMinutes,
+        weeklyLimitHours: contractWeeklyLimit,
+      });
+
+      if (feedback.isError) {
+        showError(feedback.message);
+      } else {
+        showToast(feedback.message);
+      }
+
+      if (res.success || res.code === 'NO_ACTIVE_SESSION') {
         // Retain workMemo so freelancer can seamlessly resume work like Upwork Desktop Tracker
         broadcastSync('TIMER_STOPPED');
         await refreshTrackerData();
-      } else {
-        showError(res.error || 'Failed to stop timer.');
       }
     } catch {
       showError('Network error stopping timer.');
@@ -239,6 +264,7 @@ function PopoutTrackerContent() {
 
   // 5. Discard Timer
   const handleDiscardTimer = async () => {
+    if (isStopping || isDiscarding) return;
     if (!window.confirm('Discard active session without logging billable time?')) {
       return;
     }
@@ -248,7 +274,7 @@ function PopoutTrackerContent() {
       const res = await discardTimerSession();
       if (res.success) {
         showToast('Session discarded.');
-        broadcastSync('TIMER_STOPPED');
+        broadcastSync('TIMER_DISCARDED');
         await refreshTrackerData();
       } else {
         showError(res.error || 'Failed to discard session.');
@@ -546,6 +572,7 @@ function PopoutTrackerContent() {
             <div className="p-3 bg-slate-50/60">
               <ScreenTrackerWidget
                 contractId={selectedContractId}
+                freelancerId={activeContract?.freelancerId || data?.activeSession?.freelancerId}
                 isTimerRunning={isTimerRunning}
                 workMemo={workMemo}
                 compact={true}
