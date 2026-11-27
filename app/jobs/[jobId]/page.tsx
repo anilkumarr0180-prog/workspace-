@@ -56,6 +56,8 @@ function JobDetailContent() {
   // Local job lookup
   const localJob = jobs.find((j) => j.id === jobId);
   const [apiJob, setApiJob] = useState<typeof localJob | null>(null);
+  const [viewerContract, setViewerContract] = useState<{ id: string; status: string } | null>(null);
+  const [viewerProposal, setViewerProposal] = useState<{ id: string; status: string } | null>(null);
   const [loading, setLoading] = useState<boolean>(!localJob);
 
   // Fetch job details from the real API
@@ -66,8 +68,16 @@ function JobDetailContent() {
     fetch(`/api/jobs/${jobId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!isCancelled && data?.job) {
-          setApiJob(data.job);
+        if (!isCancelled) {
+          if (data?.job) {
+            setApiJob(data.job);
+          }
+          if (data?.viewerContract) {
+            setViewerContract(data.viewerContract);
+          }
+          if (data?.viewerProposal) {
+            setViewerProposal(data.viewerProposal);
+          }
         }
       })
       .catch(() => {
@@ -120,7 +130,7 @@ function JobDetailContent() {
   }
 
   const saved = isJobSaved(job.id);
-  const applied = hasAppliedToJob(job.id);
+  const applied = hasAppliedToJob(job.id) || Boolean(viewerProposal);
   const isJobOwner = Boolean(currentUser && job.client?.id && currentUser.id === job.client.id);
 
   // Related jobs in the same category
@@ -365,18 +375,56 @@ function JobDetailContent() {
                   Manage Client Dashboard
                 </Link>
               </div>
+            ) : viewerContract ? (
+              <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-2.5">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {viewerContract.status === 'active'
+                      ? 'Active Contract on This Job'
+                      : viewerContract.status === 'pending_offer'
+                      ? 'Contract Offer Received'
+                      : `Contract (${viewerContract.status})`}
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  {viewerContract.status === 'active'
+                    ? 'You are already contracted on this project. Manage your work diary, timesheets, and deliverables from your contract.'
+                    : viewerContract.status === 'pending_offer'
+                    ? 'The client has extended a contract offer for this job. Review and accept it on your contract page.'
+                    : 'You already have a contract on this job.'}
+                </p>
+                <Link
+                  href={`/contracts/${viewerContract.id}`}
+                  className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+                >
+                  {viewerContract.status === 'pending_offer' ? 'Review Contract Offer' : 'View Active Contract'}
+                </Link>
+              </div>
+            ) : applied ? (
+              <div className="p-4 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-2.5">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Proposal Already Submitted</span>
+                </div>
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  You have an active proposal{viewerProposal?.status ? ` (${viewerProposal.status})` : ''} for this job.
+                </p>
+                <Link
+                  href="/freelancer"
+                  className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+                >
+                  View in Freelancer Hub
+                </Link>
+              </div>
             ) : (
               <button
                 onClick={() => setIsProposalOpen(true)}
                 type="button"
-                className={`w-full py-3.5 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
-                  applied
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:shadow-md'
-                }`}
+                className="w-full py-3.5 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:shadow-md cursor-pointer"
               >
                 <Send className="w-4 h-4" />
-                <span>{applied ? 'Proposal Submitted (View)' : 'Apply Now'}</span>
+                <span>Apply Now</span>
               </button>
             )}
 
@@ -501,19 +549,29 @@ function JobDetailContent() {
           >
             Manage in Client Dashboard
           </Link>
+        ) : viewerContract ? (
+          <Link
+            href={`/contracts/${viewerContract.id}`}
+            className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-2xs"
+          >
+            {viewerContract.status === 'pending_offer' ? 'Review Contract Offer' : 'View Active Contract'}
+          </Link>
+        ) : applied ? (
+          <Link
+            href="/freelancer"
+            className="inline-flex items-center justify-center w-full py-2.5 px-3 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold"
+          >
+            Proposal Submitted (View)
+          </Link>
         ) : (
           <>
             <button
               onClick={() => setIsProposalOpen(true)}
               type="button"
-              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
-                applied
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
-              }`}
+              className="flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>{applied ? 'Proposal Submitted (View)' : 'Apply Now'}</span>
+              <span>Apply Now</span>
             </button>
             <button
               onClick={() => toggleSaveJob(job.id)}
@@ -532,7 +590,7 @@ function JobDetailContent() {
       </div>
 
       {/* Interactive Proposal Modal */}
-      {!isJobOwner && isProposalOpen && (
+      {!isJobOwner && !viewerContract && !applied && isProposalOpen && (
         <ProposalModal
           job={job}
           isOpen={isProposalOpen}

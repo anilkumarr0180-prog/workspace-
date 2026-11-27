@@ -219,7 +219,23 @@ export async function submitProposal(input: SubmitProposalInput): Promise<{
       }
     }
 
-    // 5. Check For Duplicate Active Proposal
+    // 5. Check For Existing Contract or Duplicate Active Proposal
+    const { data: existingContract } = await supabase
+      .from('contracts')
+      .select('id, status')
+      .eq('job_id', input.jobId.trim())
+      .eq('freelancer_id', user.id)
+      .in('status', ['active', 'pending_offer', 'paused'])
+      .maybeSingle();
+
+    if (existingContract) {
+      return {
+        success: false,
+        error: `You already have a contract (${existingContract.status}) on this job.`,
+        code: 'CONTRACT_EXISTS',
+      };
+    }
+
     const { data: existingActiveProposal } = await supabase
       .from('proposals')
       .select('id, status')
